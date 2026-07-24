@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ws_client_command.schema.json",
+  "title": "WebSocketClientCommand",
+  "allOf": [
+    {
+      "$ref": "protocol_envelope.schema.json"
+    },
+    {
+      "type": "object",
+      "required": [
+        "direction",
+        "command_id",
+        "room_id"
+      ],
+      "properties": {
+        "direction": {
+          "const": "client_command"
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
+          "type": "null"
+        },
+        "room_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "oneOf": [
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/select_team"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/set_ready"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/start_game"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/throw_yut"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/select_result"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/select_piece"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/select_route"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/send_chat"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/reconnect"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/confirm_game_start"
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "empty_payload": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "select_team": {
+      "properties": {
+        "type": {
+          "const": "SELECT_TEAM"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "team_id"
+          ],
+          "properties": {
+            "team_id": {
+              "enum": [
+                "A",
+                "B"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "set_ready": {
+      "properties": {
+        "type": {
+          "const": "SET_READY"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ready"
+          ],
+          "properties": {
+            "ready": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "start_game": {
+      "properties": {
+        "type": {
+          "const": "START_GAME"
+        },
+        "payload": {
+          "$ref": "ws_client_command.schema.json#/$defs/empty_payload"
+        }
+      }
+    },
+    "throw_yut": {
+      "required": [
+        "match_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "THROW_YUT"
+        },
+        "match_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "$ref": "ws_client_command.schema.json#/$defs/empty_payload"
+        }
+      }
+    },
+    "select_result": {
+      "required": [
+        "match_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "SELECT_RESULT"
+        },
+        "match_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "token_id"
+          ],
+          "properties": {
+            "token_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "select_piece": {
+      "required": [
+        "match_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "SELECT_PIECE"
+        },
+        "match_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "token_id",
+            "piece_id"
+          ],
+          "properties": {
+            "token_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "piece_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "select_route": {
+      "required": [
+        "match_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "SELECT_ROUTE"
+        },
+        "match_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "token_id",
+            "piece_id",
+            "route"
+          ],
+          "properties": {
+            "token_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "piece_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "route": {
+              "enum": [
+                "normal",
+                "shortcut"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "send_chat": {
+      "properties": {
+        "type": {
+          "const": "SEND_CHAT"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "text"
+          ],
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      }
+    },
+    "reconnect": {
+      "required": [
+        "match_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "RECONNECT"
+        },
+        "match_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "last_sequence"
+          ],
+          "properties": {
+            "last_sequence": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "confirm_game_start": {
+      "required": [
+        "match_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "CONFIRM_GAME_START"
+        },
+        "match_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "$ref": "ws_client_command.schema.json#/$defs/empty_payload"
+        }
+      }
+    }
+  }
+}

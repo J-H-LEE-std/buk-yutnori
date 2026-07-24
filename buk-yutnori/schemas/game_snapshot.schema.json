@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "game_snapshot.schema.json",
+  "title": "GameSnapshot",
+  "description": "sequence까지의 서버 상태를 원자적으로 표현한다. 누락 이벤트는 sequence + 1부터 이어져야 한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "room_id",
+    "match_id",
+    "sequence",
+    "status",
+    "teams",
+    "participants",
+    "current_turn",
+    "result_queue",
+    "pieces",
+    "stacks",
+    "position_groups",
+    "buk",
+    "pause",
+    "recent_chat"
+  ],
+  "properties": {
+    "room_id": { "type": "string", "minLength": 1 },
+    "match_id": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "status": {
+      "enum": ["starting", "active", "paused", "finished", "invalid"]
+    },
+    "teams": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/team" }
+    },
+    "participants": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/participant" }
+    },
+    "current_turn": { "$ref": "#/$defs/current_turn" },
+    "result_queue": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/result_token" }
+    },
+    "pieces": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/piece" }
+    },
+    "stacks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/stack" }
+    },
+    "position_groups": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/position_group" }
+    },
+    "buk": { "$ref": "#/$defs/buk_state" },
+    "pause": { "$ref": "#/$defs/pause_state" },
+    "recent_chat": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/chat_message" }
+    }
+  },
+  "$defs": {
+    "team_id": {
+      "enum": ["A", "B"]
+    },
+    "string_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "nullable_string_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "team": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["team_id", "player_ids", "turn_order"],
+      "properties": {
+        "team_id": { "$ref": "#/$defs/team_id" },
+        "player_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/string_id" },
+          "uniqueItems": true
+        },
+        "turn_order": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/string_id" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "nickname",
+        "role",
+        "team_id",
+        "permissions",
+        "connected",
+        "cpu_control"
+      ],
+      "properties": {
+        "user_id": { "$ref": "#/$defs/string_id" },
+        "nickname": { "type": "string", "minLength": 1 },
+        "role": { "enum": ["player", "spectator"] },
+        "team_id": {
+          "type": ["string", "null"],
+          "enum": ["A", "B", null]
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "enum": ["control_game", "chat", "pause_game", "manage_room"]
+          },
+          "uniqueItems": true
+        },
+        "connected": { "type": "boolean" },
+        "cpu_control": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["active", "reason"],
+          "properties": {
+            "active": { "type": "boolean" },
+            "reason": {
+              "type": ["string", "null"],
+              "enum": ["disconnected", "timeout", null]
+            }
+          }
+        }
+      }
+    },
+    "timer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "remaining_ms", "deadline_at"],
+      "properties": {
+        "phase": { "enum": ["throw", "move", "paused", "none"] },
+        "remaining_ms": { "type": "integer", "minimum": 0 },
+        "deadline_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "current_turn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["player_id", "phase", "required_input", "timer"],
+      "properties": {
+        "player_id": { "$ref": "#/$defs/nullable_string_id" },
+        "phase": {
+          "enum": [
+            "turn_start", "wait_throw", "throwing_chain", "resolve_queue",
+            "wait_result_selection", "wait_piece_selection", "wait_route_selection",
+            "apply_move", "resolve_stack_capture_finish", "resolve_buk",
+            "cpu_control", "paused", "turn_end", "match_end"
+          ]
+        },
+        "required_input": {
+          "enum": ["none", "throw", "select_result", "select_piece", "select_route"]
+        },
+        "timer": { "$ref": "#/$defs/timer" }
+      }
+    },
+    "result_token": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token_id", "result", "origin", "generated_by_player_id"],
+      "properties": {
+        "token_id": { "$ref": "#/$defs/string_id" },
+        "result": { "enum": ["do", "gae", "geol", "yut", "mo", "backdo", "buk"] },
+        "origin": { "enum": ["initial_throw", "yut_extra", "mo_extra", "capture_extra"] },
+        "generated_by_player_id": { "$ref": "#/$defs/string_id" }
+      }
+    },
+    "piece": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "piece_id", "team_id", "state", "current_space_id",
+        "stack_id", "position_group_id", "actual_previous_space"
+      ],
+      "properties": {
+        "piece_id": { "$ref": "#/$defs/string_id" },
+        "team_id": { "$ref": "#/$defs/team_id" },
+        "state": { "enum": ["waiting", "on_board", "home_checkpoint", "finished"] },
+        "current_space_id": { "$ref": "#/$defs/nullable_string_id" },
+        "stack_id": { "$ref": "#/$defs/nullable_string_id" },
+        "position_group_id": { "$ref": "#/$defs/nullable_string_id" },
+        "actual_previous_space": { "$ref": "#/$defs/nullable_string_id" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "enum": ["waiting", "finished"] } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "current_space_id": { "type": "null" },
+              "stack_id": { "type": "null" },
+              "position_group_id": { "type": "null" },
+              "actual_previous_space": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "state": { "enum": ["on_board", "home_checkpoint"] } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "current_space_id": { "type": "string", "minLength": 1 },
+              "position_group_id": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "state": { "const": "home_checkpoint" } }, "required": ["state"] },
+          "then": {
+            "properties": {
+              "current_space_id": { "const": "chammeogi" },
+              "actual_previous_space": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stack_id", "team_id", "space_id", "piece_ids", "actual_previous_space"],
+      "properties": {
+        "stack_id": { "$ref": "#/$defs/string_id" },
+        "team_id": { "$ref": "#/$defs/team_id" },
+        "space_id": { "$ref": "#/$defs/string_id" },
+        "piece_ids": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/string_id" },
+          "uniqueItems": true
+        },
+        "actual_previous_space": { "$ref": "#/$defs/nullable_string_id" }
+      }
+    },
+    "position_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group_id", "team_id", "space_id", "piece_ids"],
+      "properties": {
+        "group_id": { "$ref": "#/$defs/string_id" },
+        "team_id": { "$ref": "#/$defs/team_id" },
+        "space_id": { "$ref": "#/$defs/string_id" },
+        "piece_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/string_id" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "buk_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "destination_space_id"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "destination_space_id": { "$ref": "#/$defs/nullable_string_id" }
+      }
+    },
+    "pause_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["used", "paused", "ends_at"],
+      "properties": {
+        "used": { "type": "boolean" },
+        "paused": { "type": "boolean" },
+        "ends_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "chat_message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "sequence", "sender_user_id", "sender_nickname", "text", "sent_at"],
+      "properties": {
+        "message_id": { "$ref": "#/$defs/string_id" },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "sender_user_id": { "$ref": "#/$defs/string_id" },
+        "sender_nickname": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "sent_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

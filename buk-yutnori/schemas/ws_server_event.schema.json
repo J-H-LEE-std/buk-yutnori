@@ -1,0 +1,428 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ws_server_event.schema.json",
+  "title": "WebSocketServerEvent",
+  "allOf": [
+    {
+      "$ref": "protocol_envelope.schema.json"
+    },
+    {
+      "type": "object",
+      "required": [
+        "direction",
+        "sequence"
+      ],
+      "properties": {
+        "direction": {
+          "const": "server_event"
+        },
+        "command_id": {
+          "type": "null"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    {
+      "oneOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/room_updated" },
+        { "$ref": "ws_server_event.schema.json#/$defs/game_starting" },
+        { "$ref": "ws_server_event.schema.json#/$defs/game_started" },
+        { "$ref": "ws_server_event.schema.json#/$defs/turn_started" },
+        { "$ref": "ws_server_event.schema.json#/$defs/yut_result" },
+        { "$ref": "ws_server_event.schema.json#/$defs/result_queue_updated" },
+        { "$ref": "ws_server_event.schema.json#/$defs/move_required" },
+        { "$ref": "ws_server_event.schema.json#/$defs/piece_moved" },
+        { "$ref": "ws_server_event.schema.json#/$defs/pieces_stacked" },
+        { "$ref": "ws_server_event.schema.json#/$defs/pieces_captured" },
+        { "$ref": "ws_server_event.schema.json#/$defs/buk_resolved" },
+        { "$ref": "ws_server_event.schema.json#/$defs/cpu_control_started" },
+        { "$ref": "ws_server_event.schema.json#/$defs/player_reconnected" },
+        { "$ref": "ws_server_event.schema.json#/$defs/game_paused" },
+        { "$ref": "ws_server_event.schema.json#/$defs/game_resumed" },
+        { "$ref": "ws_server_event.schema.json#/$defs/game_ended" },
+        { "$ref": "ws_server_event.schema.json#/$defs/error" }
+      ]
+    }
+  ],
+  "$defs": {
+    "match_scope": {
+      "required": [
+        "room_id",
+        "match_id"
+      ],
+      "properties": {
+        "room_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "match_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result_token": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "token_id",
+        "result",
+        "origin"
+      ],
+      "properties": {
+        "token_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "enum": [
+            "do",
+            "gae",
+            "geol",
+            "yut",
+            "mo",
+            "backdo",
+            "buk"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "initial_throw",
+            "yut_extra",
+            "mo_extra",
+            "capture_extra"
+          ]
+        }
+      }
+    },
+    "room_updated": {
+      "required": ["room_id"],
+      "properties": {
+        "type": { "const": "ROOM_UPDATED" },
+        "room_id": { "type": "string", "minLength": 1 },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["revision", "status"],
+          "properties": {
+            "revision": { "type": "integer", "minimum": 0 },
+            "status": { "enum": ["lobby", "starting", "in_match", "post_match", "closed"] }
+          }
+        }
+      }
+    },
+    "game_starting": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "GAME_STARTING" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["confirmation_deadline_at"],
+              "properties": {
+                "confirmation_deadline_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "game_started": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "GAME_STARTED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["first_player_id", "buk_destination_space_id"],
+              "properties": {
+                "first_player_id": { "type": "string", "minLength": 1 },
+                "buk_destination_space_id": { "type": ["string", "null"], "minLength": 1 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "turn_started": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "TURN_STARTED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["player_id", "phase", "required_input", "remaining_ms"],
+              "properties": {
+                "player_id": { "type": "string", "minLength": 1 },
+                "phase": { "type": "string", "minLength": 1 },
+                "required_input": { "enum": ["none", "throw", "select_result", "select_piece", "select_route"] },
+                "remaining_ms": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "yut_result": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "YUT_RESULT" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["player_id", "token"],
+              "properties": {
+                "player_id": { "type": "string", "minLength": 1 },
+                "token": { "$ref": "ws_server_event.schema.json#/$defs/result_token" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "result_queue_updated": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "RESULT_QUEUE_UPDATED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["result_queue"],
+              "properties": {
+                "result_queue": { "type": "array", "items": { "$ref": "ws_server_event.schema.json#/$defs/result_token" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "move_required": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "MOVE_REQUIRED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["required_input", "token_ids", "piece_ids"],
+              "properties": {
+                "required_input": { "enum": ["select_result", "select_piece", "select_route"] },
+                "token_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                "piece_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "piece_moved": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "PIECE_MOVED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["piece_ids", "from_space_id", "to_space_id", "movement_kind"],
+              "properties": {
+                "piece_ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                "from_space_id": { "type": ["string", "null"], "minLength": 1 },
+                "to_space_id": { "type": ["string", "null"], "minLength": 1 },
+                "movement_kind": { "enum": ["forward", "backdo", "buk", "finish"] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "pieces_stacked": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "PIECES_STACKED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["stack_id", "piece_ids", "space_id", "actual_previous_space"],
+              "properties": {
+                "stack_id": { "type": "string", "minLength": 1 },
+                "piece_ids": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                "space_id": { "type": "string", "minLength": 1 },
+                "actual_previous_space": { "type": ["string", "null"], "minLength": 1 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "pieces_captured": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "PIECES_CAPTURED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["captured_piece_ids", "space_id"],
+              "properties": {
+                "captured_piece_ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                "space_id": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "buk_resolved": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "BUK_RESOLVED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["token_id", "destination_space_id", "moved_piece_ids", "source_space_id", "no_candidate"],
+              "properties": {
+                "token_id": { "type": "string", "minLength": 1 },
+                "destination_space_id": { "type": "string", "minLength": 1 },
+                "moved_piece_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                "source_space_id": { "type": ["string", "null"], "minLength": 1 },
+                "no_candidate": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "cpu_control_started": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "CPU_CONTROL_STARTED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["player_id", "reason"],
+              "properties": {
+                "player_id": { "type": "string", "minLength": 1 },
+                "reason": { "enum": ["disconnected", "timeout"] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "player_reconnected": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "PLAYER_RECONNECTED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["player_id", "control_restored"],
+              "properties": {
+                "player_id": { "type": "string", "minLength": 1 },
+                "control_restored": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "game_paused": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "GAME_PAUSED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reason", "paused_by_player_id", "ends_at", "preserved_timer_remaining_ms"],
+              "properties": {
+                "reason": { "enum": ["host_request", "storage_failure"] },
+                "paused_by_player_id": { "type": ["string", "null"], "minLength": 1 },
+                "ends_at": { "type": ["string", "null"], "format": "date-time" },
+                "preserved_timer_remaining_ms": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "game_resumed": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "GAME_RESUMED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reason"],
+              "properties": {
+                "reason": { "enum": ["host_request", "pause_expired", "host_disconnected", "storage_recovered"] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "game_ended": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "GAME_ENDED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "winner_team_id", "reason"],
+              "properties": {
+                "status": { "enum": ["finished", "invalid"] },
+                "winner_team_id": { "type": ["string", "null"], "enum": ["A", "B", null] },
+                "reason": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "error": {
+      "properties": {
+        "type": { "const": "ERROR" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message", "retriable"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 },
+            "retriable": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

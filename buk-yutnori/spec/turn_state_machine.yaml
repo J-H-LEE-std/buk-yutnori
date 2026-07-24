@@ -1,0 +1,102 @@
+version: 1
+
+states:
+  - turn_start
+  - wait_throw
+  - throwing_chain
+  - resolve_queue
+  - wait_result_selection
+  - wait_piece_selection
+  - wait_route_selection
+  - apply_move
+  - resolve_stack_capture_finish
+  - resolve_buk
+  - cpu_control
+  - paused
+  - turn_end
+  - match_end
+
+queue:
+  token:
+    stable_id_required: true
+    result_values: [do, gae, geol, yut, mo, backdo, buk]
+    origins: [initial_throw, yut_extra, mo_extra, capture_extra]
+  base_order: fifo
+  free_mode:
+    rule: >
+      The player may select any ordinary movement token in the prefix before
+      the first buk token. A buk token is an ordering barrier.
+  unusable_ordinary_token: discard_only_that_token
+  buk_no_candidate: discard_buk_and_end_turn
+
+extra_throw:
+  on_yut_or_mo: immediate_when_enabled
+  on_capture: immediate_when_policy_allows
+  append_position: queue_tail
+
+timeouts:
+  throw_seconds: [10, 20, 30]
+  move_seconds: [30, 60, 90, 120, 150]
+  on_timeout: cpu_completes_current_turn
+  next_player_turn: human_control_if_connected
+  pause:
+    user_duration_minutes:
+      minimum: 1
+      maximum: 30
+      step: 1
+    preserve_active_timer_remaining_ms: true
+    pause_cpu_actions: true
+    continue_all_players_disconnected_watchdog: true
+    all_players_disconnected_grace_seconds: 30
+    storage_failure_pause_consumes_user_pause: false
+
+start_confirmation:
+  deadline_seconds: 10
+  late_confirmation: reject_as_expired
+  disconnected_player: treat_as_no_response
+  on_any_no_response:
+    remove_nonresponders: true
+    cancel_start: true
+    reset_ready_for: all_remaining_players
+    atomic_room_transition: true
+
+idempotency:
+  key: [authenticated_user_id, command_id]
+  record_outcomes: [accepted, rejected]
+  duplicate_action: replay_original_command_result
+  duplicate_creates_event: false
+  command_id_payload_mismatch: protocol_error
+  concurrent_duplicate: share_single_processing_result
+  retention:
+    room_command: until_room_closed
+    match_command: until_match_and_room_closed
+
+persistence:
+  game_state_event_commit_order:
+    - validate_and_compute
+    - persist_event
+    - commit_in_memory_state_and_sequence
+    - broadcast
+  on_initial_failure:
+    auto_pause: true
+    preserve_active_timer_remaining_ms: true
+  retries_after_initial_failure: 3
+  during_storage_pause:
+    state_changing_command: reject_retriable
+    queue_for_later: false
+  on_retry_exhausted: invalidate_match
+  invalidation_persist_failure:
+    commit_in_memory_terminal_state: true
+    notify_clients: true
+    emergency_structured_log: true
+    best_effort_persist_retry: true
+  chat_persist_failure:
+    interrupt_match: false
+    block_chat_delivery: false
+    observable_failure: true
+    best_effort_async_retry: true
+
+reconnect:
+  cancel_uncommitted_cpu_choice: true
+  rollback_committed_event: false
+  control_returns_at: next_uncommitted_decision

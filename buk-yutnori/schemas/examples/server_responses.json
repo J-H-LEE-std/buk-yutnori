@@ -1,0 +1,38 @@
+[
+  {
+    "version": 1,
+    "direction": "server_response",
+    "type": "COMMAND_RESULT",
+    "request_id": "req-confirm",
+    "command_id": "cmd-010",
+    "sequence": null,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "status": "accepted",
+      "event_sequence_start": 42,
+      "event_sequence_end": 42,
+      "error": null
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_response",
+    "type": "COMMAND_RESULT",
+    "request_id": "req-move",
+    "command_id": "cmd-011",
+    "sequence": null,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "status": "rejected",
+      "event_sequence_start": null,
+      "event_sequence_end": null,
+      "error": {
+        "code": "STORAGE_UNAVAILABLE",
+        "message": "경기 저장소가 복구 중입니다.",
+        "retriable": true
+      }
+    }
+  }
+]

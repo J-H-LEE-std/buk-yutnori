@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/room_settings.schema.json",
+  "title": "RoomSettings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "max_players",
+    "piece_count",
+    "stacking_enabled",
+    "capture_extra_throw",
+    "yut_mo_extra_throw",
+    "shortcut_policy",
+    "backdo_enabled",
+    "buk_mode_enabled",
+    "random_buk_destination",
+    "movement_order",
+    "throw_timeout_seconds",
+    "move_timeout_seconds"
+  ],
+  "properties": {
+    "max_players": {
+      "enum": [
+        2,
+        4,
+        6,
+        8
+      ]
+    },
+    "piece_count": {
+      "enum": [
+        2,
+        3,
+        4
+      ]
+    },
+    "stacking_enabled": {
+      "type": "boolean"
+    },
+    "capture_extra_throw": {
+      "enum": [
+        "always",
+        "do_to_geol_plus_special",
+        "none"
+      ]
+    },
+    "yut_mo_extra_throw": {
+      "type": "boolean"
+    },
+    "shortcut_policy": {
+      "enum": [
+        "forced",
+        "selectable"
+      ]
+    },
+    "backdo_enabled": {
+      "type": "boolean"
+    },
+    "buk_mode_enabled": {
+      "type": "boolean"
+    },
+    "random_buk_destination": {
+      "type": "boolean"
+    },
+    "movement_order": {
+      "enum": [
+        "fifo",
+        "free"
+      ]
+    },
+    "throw_timeout_seconds": {
+      "enum": [
+        10,
+        20,
+        30
+      ]
+    },
+    "move_timeout_seconds": {
+      "enum": [
+        30,
+        60,
+        90,
+        120,
+        150
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "buk_mode_enabled": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "random_buk_destination": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}

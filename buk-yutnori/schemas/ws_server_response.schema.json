@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ws_server_response.schema.json",
+  "title": "WebSocketServerResponse",
+  "allOf": [
+    {
+      "$ref": "protocol_envelope.schema.json"
+    },
+    {
+      "type": "object",
+      "required": [
+        "direction",
+        "command_id",
+        "room_id"
+      ],
+      "properties": {
+        "direction": {
+          "const": "server_response"
+        },
+        "command_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
+          "type": "null"
+        },
+        "room_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "COMMAND_RESULT"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "event_sequence_start",
+            "event_sequence_end",
+            "error"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "accepted",
+                "rejected"
+              ]
+            },
+            "event_sequence_start": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "event_sequence_end": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "error": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "code",
+                    "message",
+                    "retriable"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "message": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "retriable": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

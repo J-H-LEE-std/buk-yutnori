@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "protocol_envelope.schema.json",
+  "title": "WebSocketProtocolEnvelope",
+  "description": "WebSocket 전용 공통 envelope. HTTP API에는 적용하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "direction",
+    "type",
+    "payload"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "direction": {
+      "enum": [
+        "client_command",
+        "server_response",
+        "server_event"
+      ]
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "command_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "sequence": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "room_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "match_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "payload": {}
+  }
+}

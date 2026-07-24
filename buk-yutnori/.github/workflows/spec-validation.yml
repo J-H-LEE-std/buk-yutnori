@@ -1,0 +1,75 @@
+name: Specification Validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: docs / integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tools/validate_docs.py
+
+  parse:
+    name: spec / parse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements-ci.txt
+      - run: python tools/validate_specs.py parse
+
+  contracts:
+    name: spec / contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements-ci.txt
+      - run: python tools/validate_specs.py contracts
+
+  board:
+    name: spec / board
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements-ci.txt
+      - run: python tools/validate_specs.py board
+
+  required:
+    name: ci / required
+    if: always()
+    needs: [docs, parse, contracts, board]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all applicable checks
+        env:
+          PARSE_RESULT: ${{ needs.parse.result }}
+          CONTRACTS_RESULT: ${{ needs.contracts.result }}
+          BOARD_RESULT: ${{ needs.board.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+        run: |
+          test "$DOCS_RESULT" = "success"
+          test "$PARSE_RESULT" = "success"
+          test "$CONTRACTS_RESULT" = "success"
+          test "$BOARD_RESULT" = "success"

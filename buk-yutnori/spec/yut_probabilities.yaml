@@ -1,0 +1,37 @@
+version: 1
+description: >
+  명목 백분율을 가중치로 사용하고 각 설정 조합의 합계로 정규화한다.
+  반올림 때문에 합계가 99.99일 수 있다.
+
+common:
+  gae: 33.89
+  geol: 35.49
+  yut: 13.94
+  mo: 2.29
+
+modes:
+  no_backdo_no_buk:
+    do: 14.38
+    backdo: 0.0
+    buk: 0.0
+
+  backdo_only:
+    do: 10.79
+    backdo: 3.59
+    buk: 0.0
+
+  buk_only:
+    do: 10.79
+    backdo: 0.0
+    buk: 3.59
+
+  backdo_and_buk:
+    do: 7.20
+    backdo: 3.59
+    buk: 3.59
+
+sampling:
+  authority: server
+  test_seed_supported: true
+  log_level: final_result
+  method: normalized_weighted_categorical

@@ -1,0 +1,43 @@
+{
+  "room_id": "room-1",
+  "match_id": "match-1",
+  "sequence": 41,
+  "status": "active",
+  "teams": [
+    {"team_id":"A","player_ids":["user-a"],"turn_order":["user-a"]},
+    {"team_id":"B","player_ids":["user-b"],"turn_order":["user-b"]}
+  ],
+  "participants": [
+    {"user_id":"user-a","nickname":"가람","role":"player","team_id":"A","permissions":["control_game","chat","pause_game","manage_room"],"connected":true,"cpu_control":{"active":false,"reason":null}},
+    {"user_id":"user-b","nickname":"나래","role":"player","team_id":"B","permissions":["control_game","chat"],"connected":false,"cpu_control":{"active":true,"reason":"disconnected"}},
+    {"user_id":"user-s","nickname":"구경꾼","role":"spectator","team_id":null,"permissions":["chat"],"connected":true,"cpu_control":{"active":false,"reason":null}}
+  ],
+  "current_turn": {
+    "player_id": "user-a",
+    "phase": "wait_piece_selection",
+    "required_input": "select_piece",
+    "timer": {"phase":"move","remaining_ms":52000,"deadline_at":"2026-07-22T08:01:00Z"}
+  },
+  "result_queue": [
+    {"token_id":"token-1","result":"gae","origin":"initial_throw","generated_by_player_id":"user-a"},
+    {"token_id":"token-2","result":"buk","origin":"capture_extra","generated_by_player_id":"user-a"}
+  ],
+  "pieces": [
+    {"piece_id":"A-1","team_id":"A","state":"on_board","current_space_id":"bang","stack_id":"stack-A-1","position_group_id":"group-A-bang","actual_previous_space":"mo_gae"},
+    {"piece_id":"A-2","team_id":"A","state":"on_board","current_space_id":"bang","stack_id":"stack-A-1","position_group_id":"group-A-bang","actual_previous_space":"mo_gae"},
+    {"piece_id":"B-1","team_id":"B","state":"home_checkpoint","current_space_id":"chammeogi","stack_id":null,"position_group_id":"group-B-home","actual_previous_space":"do"},
+    {"piece_id":"B-2","team_id":"B","state":"waiting","current_space_id":null,"stack_id":null,"position_group_id":null,"actual_previous_space":null}
+  ],
+  "stacks": [
+    {"stack_id":"stack-A-1","team_id":"A","space_id":"bang","piece_ids":["A-1","A-2"],"actual_previous_space":"mo_gae"}
+  ],
+  "position_groups": [
+    {"group_id":"group-A-bang","team_id":"A","space_id":"bang","piece_ids":["A-1","A-2"]},
+    {"group_id":"group-B-home","team_id":"B","space_id":"chammeogi","piece_ids":["B-1"]}
+  ],
+  "buk": {"enabled":true,"destination_space_id":"sok_yut"},
+  "pause": {"used":false,"paused":false,"ends_at":null},
+  "recent_chat": [
+    {"message_id":"chat-1","sequence":40,"sender_user_id":"user-s","sender_nickname":"구경꾼","text":"좋은 경기입니다.","sent_at":"2026-07-22T07:59:30Z"}
+  ]
+}

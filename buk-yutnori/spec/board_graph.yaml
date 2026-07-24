@@ -1,0 +1,201 @@
+version: 1
+status: canonical
+reference:
+  image: assets/board_reference/yut_board_reference.png
+  note: 참먹이를 출발점으로 사용하는 판 구조
+start_space: chammeogi
+home_checkpoint_space: chammeogi
+finish_rule: >
+  A piece that stops exactly on chammeogi after traversing the board enters
+  HOME_CHECKPOINT. It becomes FINISHED on its next valid forward movement.
+orientation:
+  canonical_forward: counterclockwise_on_outer_ring
+
+nodes:
+  # 출발점
+  - {id: chammeogi, name: 참먹이, tags: [start, home_checkpoint, outer_corner]}
+
+  # 앞밭
+  - {id: do, name: 도, tags: [outer]}
+  - {id: gae, name: 개, tags: [outer]}
+  - {id: geol, name: 걸, tags: [outer]}
+  - {id: yut, name: 윷, tags: [outer]}
+  - {id: mo, name: 모, tags: [outer_corner, shortcut_entry]}
+
+  # 뒷밭
+  - {id: back_do, name: 뒷도, tags: [outer, buk_candidate]}
+  - {id: back_gae, name: 뒷개, tags: [outer, buk_candidate]}
+  - {id: back_geol, name: 뒷걸, tags: [outer, buk_candidate]}
+  - {id: back_yut, name: 뒷윷, tags: [outer, buk_candidate]}
+  - {id: back_mo, name: 뒷모, tags: [outer_corner, shortcut_entry]}
+
+  # 찔밭
+  - {id: jji_do, name: 찌도, tags: [outer, buk_candidate]}
+  - {id: jji_gae, name: 찌개, tags: [outer, buk_candidate]}
+  - {id: jji_geol, name: 찌걸, tags: [outer, buk_candidate]}
+  - {id: jji_yut, name: 찌윷, tags: [outer, buk_candidate]}
+  - {id: jji_mo, name: 찌모, tags: [outer_corner]}
+
+  # 날밭
+  - {id: nal_do, name: 날도, tags: [outer]}
+  - {id: nal_gae, name: 날개, tags: [outer]}
+  - {id: nal_geol, name: 날걸, tags: [outer]}
+  - {id: nal_yut, name: 날윷, tags: [outer]}
+
+  # 모 지름길
+  - {id: mo_do, name: 모도, tags: [inner]}
+  - {id: mo_gae, name: 모개, tags: [inner]}
+
+  # 뒷모 지름길
+  - {id: back_mo_do, name: 뒷모도, tags: [inner]}
+  - {id: back_mo_gae, name: 뒷모개, tags: [inner]}
+
+  # 중앙 및 진출 경로
+  - {id: bang, name: 방, tags: [center, route_choice]}
+  - {id: sok_yut, name: 속윷, tags: [inner, buk_candidate]}
+  - {id: sok_mo, name: 속모, tags: [inner, buk_candidate]}
+  - {id: bangsugi, name: 방수기, tags: [inner, shortcut]}
+  - {id: anjji, name: 안찌, tags: [inner, shortcut]}
+
+forward_edges:
+  # 외곽 정방향
+  - [chammeogi, do]
+  - [do, gae]
+  - [gae, geol]
+  - [geol, yut]
+  - [yut, mo]
+  - [mo, back_do]
+  - [back_do, back_gae]
+  - [back_gae, back_geol]
+  - [back_geol, back_yut]
+  - [back_yut, back_mo]
+  - [back_mo, jji_do]
+  - [jji_do, jji_gae]
+  - [jji_gae, jji_geol]
+  - [jji_geol, jji_yut]
+  - [jji_yut, jji_mo]
+  - [jji_mo, nal_do]
+  - [nal_do, nal_gae]
+  - [nal_gae, nal_geol]
+  - [nal_geol, nal_yut]
+  - [nal_yut, chammeogi]
+
+  # 모에서 중앙으로
+  - [mo, mo_do]
+  - [mo_do, mo_gae]
+  - [mo_gae, bang]
+
+  # 뒷모에서 중앙으로
+  - [back_mo, back_mo_do]
+  - [back_mo_do, back_mo_gae]
+  - [back_mo_gae, bang]
+
+  # 방에서 찌모 방향
+  - [bang, sok_yut]
+  - [sok_yut, sok_mo]
+  - [sok_mo, jji_mo]
+
+  # 방에서 참먹이 방향 지름길
+  - [bang, bangsugi]
+  - [bangsugi, anjji]
+  - [anjji, chammeogi]
+
+route_choices:
+  mo:
+    normal: back_do
+    shortcut: mo_do
+  back_mo:
+    normal: jji_do
+    shortcut: back_mo_do
+  bang:
+    normal: sok_yut
+    shortcut: bangsugi
+
+shortcut_policy:
+  selectable: player_chooses_at_next_forward_move
+  forced:
+    mo: mo_do
+    back_mo: back_mo_do
+    bang: bangsugi
+
+reverse_policy:
+  primary: actual_previous_space
+  state_model: single_nullable_previous_space
+  after_forward_move: immediate_predecessor_on_actual_route
+  after_backdo: space_occupied_before_backdo
+  after_buk: common_space_occupied_before_buk
+  on_stack_history_conflict: last_arriving_piece_or_stack_wins
+  independent_allies_keep_separate_history: true
+  clear_on: [captured_to_waiting, finished]
+  home_checkpoint_backdo: actual_previous_space
+  center_rule: >
+    Backdo may return to bang only when the piece's actual previous space was
+    bang. Backdo cannot use an adjacent inner node to newly enter bang.
+  history_required: true
+
+logical_space_rules:
+  - all incoming routes to bang share one logical space
+  - stacking and capture are valid on bang
+  - pieces on the same node share the same capture space
+  - when stacking is disabled, allied pieces may coexist independently
+
+buk:
+  fixed_destination: jji_do
+  random_candidates:
+    - back_do
+    - back_gae
+    - back_geol
+    - back_yut
+    - jji_do
+    - jji_gae
+    - jji_geol
+    - jji_yut
+    - sok_yut
+    - sok_mo
+  constraints:
+    - destination must not be bang
+    - destination must not require a route choice
+
+finish_distance:
+  definition: minimum legal forward spaces from current position to finish
+  conceptual_finish_edge: [chammeogi, finished]
+  home_checkpoint_distance: 1
+  selectable_shortcut: minimum_over_legal_routes
+  forced_shortcut: forced_edges_only
+  inner_route: forward_edges_reachable_from_current_node_only
+  excluded_states: [waiting, finished]
+  shared_by: [buk_target_selection, cpu_closest_to_finish]
+
+render_reference:
+  coordinate_system: normalized_0_to_1
+  coordinates_status: approximate_from_reference_image
+  coordinates:
+    chammeogi: [0.50, 0.08]
+    do: [0.37, 0.11]
+    gae: [0.24, 0.17]
+    geol: [0.15, 0.27]
+    yut: [0.09, 0.40]
+    mo: [0.06, 0.52]
+    back_do: [0.09, 0.64]
+    back_gae: [0.15, 0.76]
+    back_geol: [0.25, 0.85]
+    back_yut: [0.38, 0.90]
+    back_mo: [0.50, 0.92]
+    jji_do: [0.63, 0.90]
+    jji_gae: [0.76, 0.84]
+    jji_geol: [0.85, 0.75]
+    jji_yut: [0.91, 0.64]
+    jji_mo: [0.94, 0.52]
+    nal_do: [0.91, 0.40]
+    nal_gae: [0.85, 0.28]
+    nal_geol: [0.76, 0.18]
+    nal_yut: [0.63, 0.11]
+    mo_do: [0.20, 0.52]
+    mo_gae: [0.35, 0.52]
+    bang: [0.50, 0.52]
+    sok_yut: [0.65, 0.52]
+    sok_mo: [0.80, 0.52]
+    back_mo_do: [0.50, 0.78]
+    back_mo_gae: [0.50, 0.65]
+    bangsugi: [0.50, 0.39]
+    anjji: [0.50, 0.25]

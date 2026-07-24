@@ -1,0 +1,28 @@
+version: 1
+queue_order: fifo
+shortcut_choice: always_shortcut_when_available
+priority:
+  - immediate_finish
+  - capture_opponent
+  - resolve_buk
+  - stack_with_ally
+  - enter_shortcut
+  - move_piece_closest_to_finish
+  - deploy_waiting_piece
+  - weighted_or_uniform_random_tiebreak
+
+finish_distance:
+  source: board_graph.finish_distance
+  definition: minimum_legal_forward_spaces_to_finish
+  selectable_shortcut: minimum_over_legal_routes
+  forced_shortcut: forced_edges_only
+  home_checkpoint: 1
+  excluded_states: [waiting, finished]
+  shared_with: buk_target_selection
+
+tiebreak:
+  ordinary_equal_candidates: server_random
+  buk_equal_distance:
+    unit: position_group
+    weight: current_piece_count
+  test_mode: deterministic_seed
