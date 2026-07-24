@@ -29,6 +29,8 @@ def validate_parse() -> None:
             *ROOT.joinpath("spec").glob("*.yaml"),
             *ROOT.joinpath(".github", "workflows").glob("*.yml"),
             *ROOT.joinpath(".github", "workflows").glob("*.yaml"),
+            *ROOT.joinpath(".github", "ISSUE_TEMPLATE").glob("*.yml"),
+            *ROOT.joinpath(".github", "ISSUE_TEMPLATE").glob("*.yaml"),
         ]
     )
     json_paths = sorted(SCHEMAS.rglob("*.json"))
@@ -86,17 +88,33 @@ def validate_contracts() -> None:
     room_validator = validator_for(SCHEMAS / "room_settings.schema.json")
     room_settings = load_yaml(ROOT / "spec" / "room_settings.yaml")
     room_errors = sorted(
-        room_validator.iter_errors(room_settings),
+        room_validator.iter_errors(room_settings["defaults"]),
         key=lambda error: list(error.path),
     )
     if room_errors:
         details = "; ".join(error.message for error in room_errors)
-        raise AssertionError(f"room_settings.yaml failed: {details}")
+        raise AssertionError(f"room_settings.yaml defaults failed: {details}")
+
+    room_schema = load_json(SCHEMAS / "room_settings.schema.json")
+    schema_props = room_schema["properties"]
+    for key, allowed_values in room_settings["allowed"].items():
+        if "enum" not in schema_props[key]:
+            continue
+        if allowed_values != schema_props[key]["enum"]:
+            raise AssertionError(f"room_settings allowed values differ for {key}")
+
+    turn_state_machine = load_yaml(ROOT / "spec" / "turn_state_machine.yaml")
+    retry_delays = turn_state_machine["persistence"].get("retry_delays_seconds")
+    if retry_delays != [1, 2, 5]:
+        raise AssertionError("storage retry delays must be [1, 2, 5] seconds")
+    if turn_state_machine["persistence"].get("retries_after_initial_failure") != len(retry_delays):
+        raise AssertionError("storage retry count must match retry_delays_seconds")
 
     print(
         f"CONTRACTS_OK schemas={len(schema_paths)} "
         + " ".join(counts)
         + " room_settings.yaml=1"
+        + " storage_retry_delays=1,2,5"
     )
 
 

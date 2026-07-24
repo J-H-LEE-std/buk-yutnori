@@ -24,8 +24,8 @@ docs/noissue-fix-broken-link
 ```
 
 허용 type은 `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`,
-`ci`, `chore`, `spike`다. `noissue`는 의미를 바꾸지 않는 단순 오탈자,
-링크 또는 표현 수정에만 사용할 수 있다.
+`ci`, `chore`, `spike`다. `noissue`는 `docs/noissue-*` 브랜치에서 의미를 바꾸지
+않는 단순 오탈자, 링크 또는 표현 수정에만 사용할 수 있다.
 
 ## 커밋과 PR
 
@@ -33,6 +33,8 @@ docs/noissue-fix-broken-link
 - 한 PR에는 하나의 기능 또는 위험 영역만 포함한다.
 - PR 템플릿의 자기 검토와 Codex 자체 리뷰를 완료한다.
 - 모든 적용 가능한 CI가 통과해야 한다.
+- Milestone 0~1에서는 외부 승인 필요 체크를 비워 두고, Milestone 2 이후 고위험
+  변경에서만 독립 리뷰 증빙을 작성한다.
 - 정본 규칙, 보드 또는 프로토콜 문서는 경로가 문서라는 이유로 축소 검사를 적용하지 않는다.
 - 게임 규칙 의미 변경은 항상 사용자 승인을 기록한다.
 
@@ -59,6 +61,7 @@ docs(workflow): define GitHub Flow policy
 - squash merge만 허용
 - 병합 뒤 브랜치 삭제
 - 마일스톤 릴리스만 `main`에 annotated SemVer 태그 생성
+- 태그 형식은 `vMAJOR.MINOR.PATCH`이며 `release / tag policy`로 검사한다.
 - 게시한 태그의 재사용·이동 금지
 
 이 문서의 절차는 Git 저장소가 초기화되고 GitHub 설정이 실제 적용된 뒤 효력을

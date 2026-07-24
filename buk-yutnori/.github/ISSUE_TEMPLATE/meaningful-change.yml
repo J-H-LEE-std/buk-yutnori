@@ -1,0 +1,62 @@
+name: Meaningful change
+description: Track a feature, bug, test, refactor, spike, or high-risk change.
+title: "<type>(<scope>): <summary>"
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for any meaningful change. `noissue` is only allowed for simple typo, link, or wording-only fixes that do not change canonical meaning.
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone
+      options:
+        - "0"
+        - "1"
+        - "2"
+        - "3"
+        - "4"
+        - "5"
+        - "6"
+    validations:
+      required: true
+  - type: dropdown
+    id: change_type
+    attributes:
+      label: Change type
+      options:
+        - feat
+        - fix
+        - docs
+        - test
+        - refactor
+        - perf
+        - build
+        - ci
+        - chore
+        - spike
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Describe the single feature or risk area this issue covers.
+    validations:
+      required: true
+  - type: checkboxes
+    id: risk
+    attributes:
+      label: Risk classification
+      options:
+        - label: This changes canonical docs, spec, or schema meaning.
+        - label: This is high risk.
+        - label: This changes game-rule meaning and needs user approval before implementation.
+  - type: textarea
+    id: validation
+    attributes:
+      label: Expected validation
+      description: List the CI, tests, or review evidence expected before merge.
+    validations:
+      required: true

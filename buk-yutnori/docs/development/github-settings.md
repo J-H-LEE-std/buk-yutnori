@@ -21,6 +21,8 @@ bootstrap 완료 직후 다음 설정을 적용한다.
 - required status checks:
   - `policy / required`
   - `ci / required`
+- 태그 push workflow:
+  - `release / tag policy`
 - branch 최신화 요구 여부는 CI 시간과 충돌률을 측정한 뒤 결정
 - force push 금지
 - branch 삭제 금지

@@ -48,6 +48,8 @@
 - docs-only 여부는 경로가 아니라 의미 변화로 판단한다.
 - bootstrap 종료 뒤 `main` 직접 push와 force push를 금지한다.
 - squash merge만 사용하고 병합 뒤 브랜치를 삭제한다.
+- 커밋과 PR 제목은 Conventional Commits 형식을 사용한다.
+- 마일스톤 릴리스는 `main`의 해당 완료 커밋에 annotated SemVer 태그로만 표시한다.
 
 ## 6. 권장 초기 PR 순서
 

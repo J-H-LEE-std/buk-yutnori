@@ -24,6 +24,13 @@ def checked(body: str, label: str) -> bool:
     ) is not None
 
 
+def unchecked(body: str, label: str) -> bool:
+    return re.search(
+        rf"(?im)^-\s*\[\s\]\s*{re.escape(label)}\s*$",
+        body,
+    ) is not None
+
+
 def field(body: str, label: str) -> str:
     match = re.search(rf"(?im)^{re.escape(label)}:\s*(.*?)\s*$", body)
     return match.group(1).strip() if match else ""
@@ -63,6 +70,12 @@ def validate(branch: str, title: str, body: str, base: str = "main") -> None:
     canonical_change = checked(body, "정본 문서·spec·schema의 의미 변경")
     high_risk = checked(body, "고위험 변경")
     game_rule_change = checked(body, "게임 규칙의 의미 변경")
+
+    if not (trivial_docs or canonical_change or high_risk or game_rule_change):
+        raise ValueError("PR body must classify the change")
+    if trivial_docs and (canonical_change or high_risk or game_rule_change):
+        raise ValueError("trivial docs cannot be combined with semantic or high-risk changes")
+
     if tracking == "noissue":
         if (
             branch_match.group("type") != "docs"
@@ -81,9 +94,17 @@ def validate(branch: str, title: str, body: str, base: str = "main") -> None:
         raise ValueError("self-review checklist is not complete")
     if not checked(body, "Codex 자체 리뷰 완료"):
         raise ValueError("Codex review checklist is not complete")
+    if not checked(body, "모든 적용 가능한 CI 통과"):
+        raise ValueError("applicable CI checklist is not complete")
+    if not checked(body, "미해결 review conversation 없음"):
+        raise ValueError("unresolved review conversation checklist is not complete")
     require_evidence(body, "Codex 리뷰 증빙")
 
+    if milestone in (0, 1) and not unchecked(body, "외부 승인 필요"):
+        raise ValueError("Milestone 0-1 must explicitly leave external approval unchecked")
     if milestone >= 2 and high_risk:
+        if not checked(body, "외부 승인 필요"):
+            raise ValueError("Milestone 2+ high-risk changes must mark external approval required")
         require_evidence(body, "독립 리뷰 증빙")
     if game_rule_change:
         require_evidence(body, "사용자 승인 증빙")

@@ -81,6 +81,7 @@ persistence:
     auto_pause: true
     preserve_active_timer_remaining_ms: true
   retries_after_initial_failure: 3
+  retry_delays_seconds: [1, 2, 5]
   during_storage_pause:
     state_changing_command: reject_retriable
     queue_for_later: false
