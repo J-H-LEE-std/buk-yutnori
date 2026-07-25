@@ -13,10 +13,6 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-defaults:
-  run:
-    working-directory: buk-yutnori
-
 jobs:
   docs:
     name: docs / integrity
@@ -37,7 +33,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: buk-yutnori/requirements-ci.txt
+          cache-dependency-path: requirements-ci.txt
       - run: python -m pip install -r requirements-ci.txt
       - run: python tools/validate_specs.py parse
 
@@ -50,7 +46,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: buk-yutnori/requirements-ci.txt
+          cache-dependency-path: requirements-ci.txt
       - run: python -m pip install -r requirements-ci.txt
       - run: python tools/validate_specs.py contracts
 
@@ -63,7 +59,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: buk-yutnori/requirements-ci.txt
+          cache-dependency-path: requirements-ci.txt
       - run: python -m pip install -r requirements-ci.txt
       - run: python tools/validate_specs.py board
 
@@ -77,7 +73,7 @@ jobs:
         with:
           go-version: "1.26.x"
           cache: true
-          cache-dependency-path: buk-yutnori/go.sum
+          cache-dependency-path: go.sum
       - name: Verify module files
         run: |
           go mod verify
@@ -102,7 +98,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require all applicable checks
-        working-directory: .
         env:
           PARSE_RESULT: ${{ needs.parse.result }}
           CONTRACTS_RESULT: ${{ needs.contracts.result }}
