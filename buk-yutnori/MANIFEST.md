@@ -33,12 +33,12 @@
 
 ## GitHub
 
-- `.github/pull_request_template.md`: PR 분류·검증·리뷰 체크리스트
-- `.github/ISSUE_TEMPLATE/meaningful-change.yml`: 의미 있는 변경과 고위험 변경 추적용 Issue 템플릿
-- `.github/ISSUE_TEMPLATE/config.yml`: Issue 템플릿 설정
-- `.github/workflows/pr-policy.yml`: 브랜치·PR·리뷰 증빙 정책 검사
-- `.github/workflows/spec-validation.yml`: 문서·스키마·보드 검사와 필수 집계 체크
-- `.github/workflows/release-tag-policy.yml`: annotated SemVer 마일스톤 태그 검사
+- `../.github/pull_request_template.md`: PR 분류·검증·리뷰 체크리스트
+- `../.github/ISSUE_TEMPLATE/meaningful-change.yml`: 의미 있는 변경과 고위험 변경 추적용 Issue 템플릿
+- `../.github/ISSUE_TEMPLATE/config.yml`: Issue 템플릿 설정
+- `../.github/workflows/pr-policy.yml`: 브랜치·PR·리뷰 증빙 정책 검사
+- `../.github/workflows/spec-validation.yml`: 문서·스키마·보드·Go 검사와 필수 집계 체크
+- `../.github/workflows/release-tag-policy.yml`: annotated SemVer 마일스톤 태그 검사
 
 ## tools
 
