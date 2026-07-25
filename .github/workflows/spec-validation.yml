@@ -102,6 +102,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require all applicable checks
+        working-directory: .
         env:
           PARSE_RESULT: ${{ needs.parse.result }}
           CONTRACTS_RESULT: ${{ needs.contracts.result }}
