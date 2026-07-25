@@ -12,7 +12,6 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY_ROOT = ROOT.parent if (ROOT.parent / ".git").exists() else ROOT
 SCHEMAS = ROOT / "schemas"
 
 
@@ -28,10 +27,10 @@ def validate_parse() -> None:
     yaml_paths = sorted(
         [
             *ROOT.joinpath("spec").glob("*.yaml"),
-            *REPOSITORY_ROOT.joinpath(".github", "workflows").glob("*.yml"),
-            *REPOSITORY_ROOT.joinpath(".github", "workflows").glob("*.yaml"),
-            *REPOSITORY_ROOT.joinpath(".github", "ISSUE_TEMPLATE").glob("*.yml"),
-            *REPOSITORY_ROOT.joinpath(".github", "ISSUE_TEMPLATE").glob("*.yaml"),
+            *ROOT.joinpath(".github", "workflows").glob("*.yml"),
+            *ROOT.joinpath(".github", "workflows").glob("*.yaml"),
+            *ROOT.joinpath(".github", "ISSUE_TEMPLATE").glob("*.yml"),
+            *ROOT.joinpath(".github", "ISSUE_TEMPLATE").glob("*.yaml"),
         ]
     )
     json_paths = sorted(SCHEMAS.rglob("*.json"))
