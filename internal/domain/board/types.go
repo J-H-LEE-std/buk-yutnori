@@ -7,10 +7,12 @@ package board
 import (
 	"errors"
 	"fmt"
+
+	"buk-yutnori/internal/domain"
 )
 
 // SpaceID is the stable identifier of a logical board space.
-type SpaceID string
+type SpaceID = domain.SpaceID
 
 // Tag describes a static property of a board node.
 type Tag string
@@ -69,13 +71,13 @@ const (
 )
 
 // PieceState is the subset of piece state needed by board calculations.
-type PieceState string
+type PieceState = domain.PieceState
 
 const (
-	PieceWaiting        PieceState = "waiting"
-	PieceOnBoard        PieceState = "on_board"
-	PieceHomeCheckpoint PieceState = "home_checkpoint"
-	PieceFinished       PieceState = "finished"
+	PieceWaiting        = domain.PieceWaiting
+	PieceOnBoard        = domain.PieceOnBoard
+	PieceHomeCheckpoint = domain.PieceHomeCheckpoint
+	PieceFinished       = domain.PieceFinished
 )
 
 // Position identifies a piece state and, when applicable, its logical space.
