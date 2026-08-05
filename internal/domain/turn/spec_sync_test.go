@@ -67,6 +67,47 @@ func TestCanonicalQueueSpecMatchesDomain(t *testing.T) {
 	}
 }
 
+func TestCanonicalTurnStatesMatchDomain(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "spec", "turn_state_machine.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+
+	var document turnSpecDocument
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatalf("Unmarshal(%q) error = %v", path, err)
+	}
+	want := []domain.TurnPhase{
+		domain.TurnStart,
+		domain.TurnWaitThrow,
+		domain.TurnThrowingChain,
+		domain.TurnResolveQueue,
+		domain.TurnWaitResultSelection,
+		domain.TurnWaitPieceSelection,
+		domain.TurnWaitRouteSelection,
+		domain.TurnApplyMove,
+		domain.TurnResolveStackCaptureFinish,
+		domain.TurnResolveBuk,
+		domain.TurnCPUControl,
+		domain.TurnPaused,
+		domain.TurnEnd,
+		domain.TurnMatchEnd,
+	}
+	if !reflect.DeepEqual(document.States, want) {
+		t.Fatalf("spec states = %v, want %v", document.States, want)
+	}
+	if document.ExtraThrow.OnYutOrMo != "immediate_when_enabled" {
+		t.Fatalf("yut/mo extra throw = %q", document.ExtraThrow.OnYutOrMo)
+	}
+	if document.ExtraThrow.OnCapture != "immediate_when_policy_allows" {
+		t.Fatalf("capture extra throw = %q", document.ExtraThrow.OnCapture)
+	}
+	if document.Queue.BukNoCandidate != "discard_buk_and_end_turn" {
+		t.Fatalf("Buk no-candidate policy = %q", document.Queue.BukNoCandidate)
+	}
+}
+
 func TestResultTokenSchemasMatchDomain(t *testing.T) {
 	wantResults := []string{"do", "gae", "geol", "yut", "mo", "backdo", "buk"}
 	wantOrigins := []string{"initial_throw", "yut_extra", "mo_extra", "capture_extra"}
@@ -115,7 +156,8 @@ func containsString(values []string, candidate string) bool {
 }
 
 type turnSpecDocument struct {
-	Version int `yaml:"version"`
+	Version int                `yaml:"version"`
+	States  []domain.TurnPhase `yaml:"states"`
 	Queue   struct {
 		Token struct {
 			StableIDRequired bool                  `yaml:"stable_id_required"`
@@ -127,9 +169,12 @@ type turnSpecDocument struct {
 			Rule string `yaml:"rule"`
 		} `yaml:"free_mode"`
 		UnusableOrdinaryToken string `yaml:"unusable_ordinary_token"`
+		BukNoCandidate        string `yaml:"buk_no_candidate"`
 	} `yaml:"queue"`
 	ExtraThrow struct {
 		AppendPosition string `yaml:"append_position"`
+		OnYutOrMo      string `yaml:"on_yut_or_mo"`
+		OnCapture      string `yaml:"on_capture"`
 	} `yaml:"extra_throw"`
 }
 
