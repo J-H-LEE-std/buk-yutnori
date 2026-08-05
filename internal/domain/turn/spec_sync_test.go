@@ -49,6 +49,29 @@ func TestCanonicalQueueSpecMatchesDomain(t *testing.T) {
 	if !reflect.DeepEqual(document.Queue.Token.ResultValues, wantResults) {
 		t.Fatalf("spec results = %v, want %v", document.Queue.Token.ResultValues, wantResults)
 	}
+	wantSpaces := map[domain.YutResult]int{
+		domain.YutDo:   1,
+		domain.YutGae:  2,
+		domain.YutGeol: 3,
+		domain.YutYut:  4,
+		domain.YutMo:   5,
+	}
+	if !reflect.DeepEqual(document.Queue.Token.OrdinaryMovementSpaces, wantSpaces) {
+		t.Fatalf(
+			"spec ordinary movement spaces = %v, want %v",
+			document.Queue.Token.OrdinaryMovementSpaces,
+			wantSpaces,
+		)
+	}
+	for result, want := range wantSpaces {
+		got, err := result.OrdinaryMovementSpaces()
+		if err != nil {
+			t.Fatalf("OrdinaryMovementSpaces(%q) error = %v", result, err)
+		}
+		if got != want {
+			t.Fatalf("OrdinaryMovementSpaces(%q) = %d, want %d", result, got, want)
+		}
+	}
 	if !reflect.DeepEqual(document.Queue.Token.Origins, wantOrigins) {
 		t.Fatalf("spec origins = %v, want %v", document.Queue.Token.Origins, wantOrigins)
 	}
@@ -160,9 +183,10 @@ type turnSpecDocument struct {
 	States  []domain.TurnPhase `yaml:"states"`
 	Queue   struct {
 		Token struct {
-			StableIDRequired bool                  `yaml:"stable_id_required"`
-			ResultValues     []domain.YutResult    `yaml:"result_values"`
-			Origins          []domain.ResultOrigin `yaml:"origins"`
+			StableIDRequired       bool                     `yaml:"stable_id_required"`
+			ResultValues           []domain.YutResult       `yaml:"result_values"`
+			OrdinaryMovementSpaces map[domain.YutResult]int `yaml:"ordinary_movement_spaces"`
+			Origins                []domain.ResultOrigin    `yaml:"origins"`
 		} `yaml:"token"`
 		BaseOrder room.MovementOrder `yaml:"base_order"`
 		FreeMode  struct {

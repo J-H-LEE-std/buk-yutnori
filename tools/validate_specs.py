@@ -104,6 +104,21 @@ def validate_contracts() -> None:
             raise AssertionError(f"room_settings allowed values differ for {key}")
 
     turn_state_machine = load_yaml(ROOT / "spec" / "turn_state_machine.yaml")
+    ordinary_movement_spaces = turn_state_machine["queue"]["token"].get(
+        "ordinary_movement_spaces"
+    )
+    expected_ordinary_movement_spaces = {
+        "do": 1,
+        "gae": 2,
+        "geol": 3,
+        "yut": 4,
+        "mo": 5,
+    }
+    if ordinary_movement_spaces != expected_ordinary_movement_spaces:
+        raise AssertionError(
+            "ordinary movement spaces must be "
+            f"{expected_ordinary_movement_spaces}, got {ordinary_movement_spaces}"
+        )
     retry_delays = turn_state_machine["persistence"].get("retry_delays_seconds")
     if retry_delays != [1, 2, 5]:
         raise AssertionError("storage retry delays must be [1, 2, 5] seconds")
@@ -114,6 +129,7 @@ def validate_contracts() -> None:
         f"CONTRACTS_OK schemas={len(schema_paths)} "
         + " ".join(counts)
         + " room_settings.yaml=1"
+        + " ordinary_movement_spaces=do:1,gae:2,geol:3,yut:4,mo:5"
         + " storage_retry_delays=1,2,5"
     )
 

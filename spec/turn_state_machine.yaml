@@ -20,6 +20,12 @@ queue:
   token:
     stable_id_required: true
     result_values: [do, gae, geol, yut, mo, backdo, buk]
+    ordinary_movement_spaces:
+      do: 1
+      gae: 2
+      geol: 3
+      yut: 4
+      mo: 5
     origins: [initial_throw, yut_extra, mo_extra, capture_extra]
   base_order: fifo
   free_mode:
