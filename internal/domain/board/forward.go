@@ -18,8 +18,9 @@ var (
 	ErrNoForwardSpace = errors.New("no legal forward space")
 )
 
-// ForwardPlanner is the minimal immutable board dependency required by a
-// future piece and match movement engine.
+// ForwardPlanner is the minimal immutable board dependency required by the
+// match movement engine. Every implementation must pass the reusable contract
+// in internal/domain/board/boardtest against the canonical Graph.
 type ForwardPlanner interface {
 	ForwardPlans(position Position, spaces int, policy ShortcutPolicy) ([]ForwardPlan, error)
 }
