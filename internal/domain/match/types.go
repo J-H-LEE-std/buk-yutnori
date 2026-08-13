@@ -22,8 +22,9 @@ type Piece struct {
 
 // Snapshot is an atomic copy of all match state exposed by Game.
 type Snapshot struct {
-	Pieces       []Piece
-	WinnerTeamID domain.TeamID
+	Pieces                []Piece
+	WinnerTeamID          domain.TeamID
+	BukDestinationSpaceID domain.SpaceID
 }
 
 // OrdinaryMovePlan is one currently legal ordinary forward movement.
@@ -43,6 +44,27 @@ type BackdoMovePlan struct {
 	ActualPreviousSpace domain.SpaceID
 	Traversed           []domain.SpaceID
 	MovedPieceIDs       []domain.PieceID
+}
+
+// BukOutcome describes one automatic Buk resolution.
+//
+// Move is populated only when the selected group changes spaces. A selected
+// group already at DestinationSpaceID consumes Buk without a move.
+type BukOutcome struct {
+	NoCandidate        bool
+	Moved              bool
+	DestinationSpaceID domain.SpaceID
+	SelectedPieceIDs   []domain.PieceID
+	Move               MoveOutcome
+}
+
+// TurnOutcome returns the decisions needed by the turn state machine.
+func (outcome BukOutcome) TurnOutcome() turn.BukOutcome {
+	return turn.BukOutcome{
+		NoCandidate:       outcome.NoCandidate,
+		CaptureExtraThrow: outcome.Move.CaptureExtraThrow,
+		MatchEnded:        outcome.Move.MatchEnded,
+	}
 }
 
 // MoveOutcome describes one piece movement already committed to the game.
