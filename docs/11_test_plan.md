@@ -36,6 +36,11 @@ C++ format/build/test, WASM build, SQLite·WebSocket 통합 검사와 Docker smo
 
 ## 보드 그래프 무결성
 
+- 모든 `board.ForwardPlanner` 구현은 정본 `board.Graph`를 기준으로
+  `internal/domain/board/boardtest.CheckForwardPlanner` 계약을 통과해야 함
+- 계약 검사는 모든 정본 말 위치, 선택·강제 지름길 정책과 최장 완주 거리 초과 이동까지
+  destination, `actual_previous_space`, traversed 노드·간선, route 순서 및
+  홈 체크포인트·완주 전이를 비교함
 - 모든 노드 ID가 유일함
 - 참먹이에서 외곽 모든 노드에 도달 가능
 - 외곽 경로가 참먹이로 돌아옴
