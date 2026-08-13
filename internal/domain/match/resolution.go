@@ -12,10 +12,44 @@ func (game *Game) applyOrdinaryMovePlanLocked(
 	plan OrdinaryMovePlan,
 	movingIndices []int,
 ) MoveOutcome {
+	movementKind := domain.MovementForward
+	if plan.DestinationState == domain.PieceFinished {
+		movementKind = domain.MovementFinish
+	}
+	return game.applyMoveResolutionLocked(teamID, pieceID, result, moveResolutionPlan{
+		Route:               plan.Route,
+		MovementKind:        movementKind,
+		DestinationState:    plan.DestinationState,
+		DestinationSpaceID:  plan.DestinationSpaceID,
+		ActualPreviousSpace: plan.ActualPreviousSpace,
+		MovingIndices:       movingIndices,
+	})
+}
+
+type moveResolutionPlan struct {
+	Route               domain.Route
+	MovementKind        domain.MovementKind
+	DestinationState    domain.PieceState
+	DestinationSpaceID  domain.SpaceID
+	ActualPreviousSpace domain.SpaceID
+	MovingIndices       []int
+}
+
+func (game *Game) applyMoveResolutionLocked(
+	teamID domain.TeamID,
+	pieceID domain.PieceID,
+	result domain.YutResult,
+	plan moveResolutionPlan,
+) MoveOutcome {
 	selectedIndex := game.pieceIndex[pieceID]
 	fromSpaceID := game.pieces[selectedIndex].CurrentSpaceID
-	movedPieceIDs := game.pieceIDsLocked(movingIndices)
-	destinationAllies := game.destinationAlliesLocked(teamID, plan, movingIndices)
+	movedPieceIDs := game.pieceIDsLocked(plan.MovingIndices)
+	destinationAllies := game.destinationAlliesLocked(
+		teamID,
+		plan.DestinationState,
+		plan.DestinationSpaceID,
+		plan.MovingIndices,
+	)
 	capturedIndices := game.capturedPieceIndicesLocked(teamID, plan)
 	capturedPieceIDs := game.pieceIDsLocked(capturedIndices)
 
@@ -24,7 +58,7 @@ func (game *Game) applyOrdinaryMovePlanLocked(
 		game.pieces[index].CurrentSpaceID = ""
 		game.pieces[index].ActualPreviousSpace = ""
 	}
-	finalGroup := append(append([]int(nil), movingIndices...), destinationAllies...)
+	finalGroup := append(append([]int(nil), plan.MovingIndices...), destinationAllies...)
 	for _, index := range finalGroup {
 		game.pieces[index].State = plan.DestinationState
 		game.pieces[index].CurrentSpaceID = plan.DestinationSpaceID
@@ -39,11 +73,6 @@ func (game *Game) applyOrdinaryMovePlanLocked(
 	if matchEnded {
 		game.winnerTeamID = teamID
 	}
-	movementKind := domain.MovementForward
-	if plan.DestinationState == domain.PieceFinished {
-		movementKind = domain.MovementFinish
-	}
-
 	var stackedPieceIDs []domain.PieceID
 	if game.settings.StackingEnabled && plan.DestinationState != domain.PieceFinished &&
 		len(finalGroup) > 1 {
@@ -57,7 +86,7 @@ func (game *Game) applyOrdinaryMovePlanLocked(
 
 	return MoveOutcome{
 		Route:             plan.Route,
-		MovementKind:      movementKind,
+		MovementKind:      plan.MovementKind,
 		FromSpaceID:       fromSpaceID,
 		ToSpaceID:         plan.DestinationSpaceID,
 		MovedPieceIDs:     movedPieceIDs,
@@ -71,10 +100,11 @@ func (game *Game) applyOrdinaryMovePlanLocked(
 
 func (game *Game) destinationAlliesLocked(
 	teamID domain.TeamID,
-	plan OrdinaryMovePlan,
+	destinationState domain.PieceState,
+	destinationSpaceID domain.SpaceID,
 	movingIndices []int,
 ) []int {
-	if !game.settings.StackingEnabled || plan.DestinationState == domain.PieceFinished {
+	if !game.settings.StackingEnabled || destinationState == domain.PieceFinished {
 		return nil
 	}
 	moving := make(map[int]bool, len(movingIndices))
@@ -83,8 +113,8 @@ func (game *Game) destinationAlliesLocked(
 	}
 	var indices []int
 	for index, piece := range game.pieces {
-		if !moving[index] && piece.TeamID == teamID && piece.State == plan.DestinationState &&
-			piece.CurrentSpaceID == plan.DestinationSpaceID {
+		if !moving[index] && piece.TeamID == teamID && piece.State == destinationState &&
+			piece.CurrentSpaceID == destinationSpaceID {
 			indices = append(indices, index)
 		}
 	}
@@ -93,7 +123,7 @@ func (game *Game) destinationAlliesLocked(
 
 func (game *Game) capturedPieceIndicesLocked(
 	teamID domain.TeamID,
-	plan OrdinaryMovePlan,
+	plan moveResolutionPlan,
 ) []int {
 	if plan.DestinationState == domain.PieceFinished {
 		return nil
@@ -110,7 +140,7 @@ func (game *Game) capturedPieceIndicesLocked(
 
 func (game *Game) teamPieceIDsAtDestinationLocked(
 	teamID domain.TeamID,
-	plan OrdinaryMovePlan,
+	plan moveResolutionPlan,
 ) []domain.PieceID {
 	var ids []domain.PieceID
 	for _, piece := range game.pieces {
@@ -136,7 +166,8 @@ func (game *Game) captureGrantsExtraThrowLocked(result domain.YutResult) bool {
 	case room.CaptureExtraThrowAlways:
 		return true
 	case room.CaptureExtraThrowDoToGeolPlusSpecial:
-		return result == domain.YutDo || result == domain.YutGae || result == domain.YutGeol
+		return result == domain.YutDo || result == domain.YutGae || result == domain.YutGeol ||
+			result == domain.YutBackdo || result == domain.YutBuk
 	case room.CaptureExtraThrowNone:
 		return false
 	default:

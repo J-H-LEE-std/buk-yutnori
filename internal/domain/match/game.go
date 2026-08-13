@@ -19,7 +19,7 @@ import (
 type Game struct {
 	mutex sync.RWMutex
 
-	planner      board.ForwardPlanner
+	planner      board.MovementPlanner
 	settings     room.Settings
 	pieces       []Piece
 	pieceIndex   map[domain.PieceID]int
@@ -28,11 +28,11 @@ type Game struct {
 
 // NewGame creates a game with every configured piece waiting off the board.
 func NewGame(
-	planner board.ForwardPlanner,
+	planner board.MovementPlanner,
 	settings room.Settings,
 	teams []TeamSetup,
 ) (*Game, error) {
-	if isNilForwardPlanner(planner) {
+	if isNilMovementPlanner(planner) {
 		return nil, fmt.Errorf("%w: board planner is required", ErrInvalidGameConfig)
 	}
 	if err := settings.Validate(); err != nil {
@@ -89,7 +89,7 @@ func NewGame(
 	}, nil
 }
 
-func isNilForwardPlanner(planner board.ForwardPlanner) bool {
+func isNilMovementPlanner(planner board.MovementPlanner) bool {
 	if planner == nil {
 		return true
 	}

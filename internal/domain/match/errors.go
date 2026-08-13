@@ -26,4 +26,7 @@ var (
 
 	// ErrInvalidForwardPlan identifies a board planner result that cannot be applied.
 	ErrInvalidForwardPlan = errors.New("invalid forward plan")
+
+	// ErrInvalidBackdoPlan identifies a board planner reversal that cannot be applied.
+	ErrInvalidBackdoPlan = errors.New("invalid backdo plan")
 )
