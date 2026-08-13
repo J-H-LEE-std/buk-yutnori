@@ -36,7 +36,16 @@ type OrdinaryMovePlan struct {
 	MovedPieceIDs       []domain.PieceID
 }
 
-// MoveOutcome describes an ordinary movement already committed to the game.
+// BackdoMovePlan is the currently legal reversal along recorded path history.
+type BackdoMovePlan struct {
+	DestinationState    domain.PieceState
+	DestinationSpaceID  domain.SpaceID
+	ActualPreviousSpace domain.SpaceID
+	Traversed           []domain.SpaceID
+	MovedPieceIDs       []domain.PieceID
+}
+
+// MoveOutcome describes one piece movement already committed to the game.
 type MoveOutcome struct {
 	Route             domain.Route
 	MovementKind      domain.MovementKind

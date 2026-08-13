@@ -42,7 +42,7 @@ func TestNewGameRejectsInvalidConfiguration(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		planner  board.ForwardPlanner
+		planner  board.MovementPlanner
 		settings room.Settings
 		teams    []TeamSetup
 	}{

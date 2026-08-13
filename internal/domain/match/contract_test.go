@@ -74,7 +74,7 @@ func TestMalformedForwardPlannerResultsDoNotMutateGame(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		planner        board.ForwardPlanner
+		planner        board.MovementPlanner
 		shortcutPolicy room.ShortcutPolicy
 		wantError      error
 	}{
@@ -182,6 +182,92 @@ func TestMalformedForwardPlannerResultsDoNotMutateGame(t *testing.T) {
 	}
 }
 
+func TestMalformedBackdoPlannerResultsDoNotMutateGame(t *testing.T) {
+	plannerError := errors.New("planner unavailable")
+	tests := []struct {
+		name      string
+		plan      board.BackdoPlan
+		err       error
+		wantError error
+	}{
+		{
+			name:      "planner error",
+			err:       plannerError,
+			wantError: plannerError,
+		},
+		{
+			name: "invalid destination state",
+			plan: board.BackdoPlan{
+				Destination:         board.Position{State: domain.PieceWaiting},
+				ActualPreviousSpace: "do",
+			},
+			wantError: ErrInvalidBackdoPlan,
+		},
+		{
+			name: "empty destination space",
+			plan: board.BackdoPlan{
+				Destination:         board.Position{State: domain.PieceOnBoard},
+				ActualPreviousSpace: "do",
+			},
+			wantError: ErrInvalidBackdoPlan,
+		},
+		{
+			name: "previous does not become source",
+			plan: board.BackdoPlan{
+				Destination:         board.Position{State: domain.PieceHomeCheckpoint, Space: "chammeogi"},
+				ActualPreviousSpace: "gae",
+				Traversed:           []domain.SpaceID{"chammeogi"},
+			},
+			wantError: ErrInvalidBackdoPlan,
+		},
+		{
+			name: "empty traversal",
+			plan: board.BackdoPlan{
+				Destination:         board.Position{State: domain.PieceHomeCheckpoint, Space: "chammeogi"},
+				ActualPreviousSpace: "do",
+			},
+			wantError: ErrInvalidBackdoPlan,
+		},
+		{
+			name: "traversal destination mismatch",
+			plan: board.BackdoPlan{
+				Destination:         board.Position{State: domain.PieceHomeCheckpoint, Space: "chammeogi"},
+				ActualPreviousSpace: "do",
+				Traversed:           []domain.SpaceID{"gae"},
+			},
+			wantError: ErrInvalidBackdoPlan,
+		},
+		{
+			name: "extra traversal",
+			plan: board.BackdoPlan{
+				Destination:         board.Position{State: domain.PieceHomeCheckpoint, Space: "chammeogi"},
+				ActualPreviousSpace: "do",
+				Traversed:           []domain.SpaceID{"gae", "chammeogi"},
+			},
+			wantError: ErrInvalidBackdoPlan,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			settings := room.DefaultSettings()
+			settings.PieceCount = 2
+			game := newCanonicalGame(t, settings)
+			applyMove(t, game, domain.TeamA, "A-1", domain.YutDo, "")
+			game.planner = stubForwardPlanner{backdoPlan: test.plan, backdoErr: test.err}
+
+			before := game.Snapshot()
+			_, err := game.ApplyBackdoMove(domain.TeamA, "A-1")
+			if !errors.Is(err, test.wantError) {
+				t.Fatalf("ApplyBackdoMove() error = %v, want %v", err, test.wantError)
+			}
+			if after := game.Snapshot(); !reflect.DeepEqual(after, before) {
+				t.Fatalf("malformed Backdo plan changed state:\nbefore=%#v\nafter=%#v", before, after)
+			}
+		})
+	}
+}
+
 func TestInvalidRouteEnumDoesNotMutateGame(t *testing.T) {
 	settings := room.DefaultSettings()
 	settings.PieceCount = 2
@@ -278,8 +364,10 @@ func TestGameSupportsConcurrentPlanningSnapshotsAndApplication(t *testing.T) {
 }
 
 type stubForwardPlanner struct {
-	plans []board.ForwardPlan
-	err   error
+	plans      []board.ForwardPlan
+	err        error
+	backdoPlan board.BackdoPlan
+	backdoErr  error
 }
 
 func (planner stubForwardPlanner) ForwardPlans(
@@ -288,6 +376,13 @@ func (planner stubForwardPlanner) ForwardPlans(
 	board.ShortcutPolicy,
 ) ([]board.ForwardPlan, error) {
 	return planner.plans, planner.err
+}
+
+func (planner stubForwardPlanner) BackdoPlan(
+	board.Position,
+	board.SpaceID,
+) (board.BackdoPlan, error) {
+	return planner.backdoPlan, planner.backdoErr
 }
 
 func validateSnapshotPieceStates(snapshot Snapshot) error {
