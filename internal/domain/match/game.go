@@ -19,11 +19,20 @@ import (
 type Game struct {
 	mutex sync.RWMutex
 
-	planner      board.MovementPlanner
-	settings     room.Settings
-	pieces       []Piece
-	pieceIndex   map[domain.PieceID]int
-	winnerTeamID domain.TeamID
+	planner               board.MovementPlanner
+	bukPlanner            board.BukPlanner
+	randomSource          BoundedSource
+	settings              room.Settings
+	pieces                []Piece
+	pieceIndex            map[domain.PieceID]int
+	winnerTeamID          domain.TeamID
+	bukDestinationSpaceID domain.SpaceID
+}
+
+// BoundedSource supplies a uniform integer in the half-open interval [0, limit).
+// math/rand/v2.Rand satisfies this interface.
+type BoundedSource interface {
+	Uint64N(limit uint64) uint64
 }
 
 // NewGame creates a game with every configured piece waiting off the board.
@@ -31,6 +40,25 @@ func NewGame(
 	planner board.MovementPlanner,
 	settings room.Settings,
 	teams []TeamSetup,
+) (*Game, error) {
+	return newGame(planner, settings, teams, nil)
+}
+
+// NewGameWithRandomSource creates a game with server-owned randomness for Buk.
+func NewGameWithRandomSource(
+	planner board.MovementPlanner,
+	settings room.Settings,
+	teams []TeamSetup,
+	randomSource BoundedSource,
+) (*Game, error) {
+	return newGame(planner, settings, teams, randomSource)
+}
+
+func newGame(
+	planner board.MovementPlanner,
+	settings room.Settings,
+	teams []TeamSetup,
+	randomSource BoundedSource,
 ) (*Game, error) {
 	if isNilMovementPlanner(planner) {
 		return nil, fmt.Errorf("%w: board planner is required", ErrInvalidGameConfig)
@@ -40,6 +68,22 @@ func NewGame(
 	}
 	if len(teams) != 2 {
 		return nil, fmt.Errorf("%w: got %d teams, want 2", ErrInvalidGameConfig, len(teams))
+	}
+	if settings.BukModeEnabled && isNilBoundedSource(randomSource) {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidGameConfig, ErrNilRandomSource)
+	}
+
+	var bukPlanner board.BukPlanner
+	if settings.BukModeEnabled {
+		var ok bool
+		bukPlanner, ok = planner.(board.BukPlanner)
+		if !ok {
+			return nil, fmt.Errorf(
+				"%w: %w: planner does not implement board.BukPlanner",
+				ErrInvalidGameConfig,
+				ErrInvalidBukPlanner,
+			)
+		}
 	}
 
 	pieceIndex := make(map[domain.PieceID]int, settings.PieceCount*2)
@@ -81,11 +125,23 @@ func NewGame(
 		return nil, fmt.Errorf("%w: teams A and B are required", ErrInvalidGameConfig)
 	}
 
+	bukDestinationSpaceID, err := initialBukDestination(
+		bukPlanner,
+		settings,
+		randomSource,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidGameConfig, err)
+	}
+
 	return &Game{
-		planner:    planner,
-		settings:   settings,
-		pieces:     pieces,
-		pieceIndex: pieceIndex,
+		planner:               planner,
+		bukPlanner:            bukPlanner,
+		randomSource:          randomSource,
+		settings:              settings,
+		pieces:                pieces,
+		pieceIndex:            pieceIndex,
+		bukDestinationSpaceID: bukDestinationSpaceID,
 	}, nil
 }
 
@@ -102,13 +158,27 @@ func isNilMovementPlanner(planner board.MovementPlanner) bool {
 	}
 }
 
+func isNilBoundedSource(source BoundedSource) bool {
+	if source == nil {
+		return true
+	}
+	value := reflect.ValueOf(source)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
 // Snapshot returns a copy that callers may mutate without changing the game.
 func (game *Game) Snapshot() Snapshot {
 	game.mutex.RLock()
 	defer game.mutex.RUnlock()
 	return Snapshot{
-		Pieces:       append([]Piece(nil), game.pieces...),
-		WinnerTeamID: game.winnerTeamID,
+		Pieces:                append([]Piece(nil), game.pieces...),
+		WinnerTeamID:          game.winnerTeamID,
+		BukDestinationSpaceID: game.bukDestinationSpaceID,
 	}
 }
 

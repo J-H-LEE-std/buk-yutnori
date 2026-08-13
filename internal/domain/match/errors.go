@@ -29,4 +29,16 @@ var (
 
 	// ErrInvalidBackdoPlan identifies a board planner reversal that cannot be applied.
 	ErrInvalidBackdoPlan = errors.New("invalid backdo plan")
+
+	// ErrBukModeDisabled identifies Buk resolution in a match without Buk enabled.
+	ErrBukModeDisabled = errors.New("Buk mode is disabled")
+
+	// ErrInvalidBukPlanner identifies invalid Buk topology data from a board planner.
+	ErrInvalidBukPlanner = errors.New("invalid Buk planner")
+
+	// ErrNilRandomSource identifies a Buk-enabled game without server-owned randomness.
+	ErrNilRandomSource = errors.New("nil match random source")
+
+	// ErrRandomSourceOutOfRange identifies a source that violated BoundedSource.
+	ErrRandomSourceOutOfRange = errors.New("match random source returned an out-of-range value")
 )
