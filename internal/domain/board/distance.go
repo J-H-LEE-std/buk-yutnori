@@ -2,6 +2,14 @@ package board
 
 import "fmt"
 
+// FinishDistancePlanner is the shared immutable distance dependency used by
+// Buk target selection and the CPU closest-to-finish policy.
+type FinishDistancePlanner interface {
+	RemainingForwardDistance(position Position, policy ShortcutPolicy) (int, error)
+}
+
+var _ FinishDistancePlanner = (*Graph)(nil)
+
 // ReachableFrom returns all spaces reachable through legal forward edges.
 func (g *Graph) ReachableFrom(origin SpaceID, policy ShortcutPolicy) ([]SpaceID, error) {
 	if _, ok := g.nodeByID[origin]; !ok {
