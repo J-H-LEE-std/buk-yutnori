@@ -20,7 +20,7 @@
 
 ## 구현 전 ADR 필요
 
-- Go HTTP/WebSocket 프레임워크
+- Go WebSocket 라이브러리
 - 이벤트 저장 방식과 인덱스
 - 방 actor/goroutine 모델
 

@@ -4,3 +4,6 @@ __pycache__/
 /.tools/
 /build/
 /external/
+
+# Local independent-review guides, reports, and verification artifacts.
+/.local-verification/

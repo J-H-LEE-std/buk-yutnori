@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "http_auth.schema.json",
+  "title": "HTTP authentication request and response payloads",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/googleLoginRequest"
+    },
+    {
+      "$ref": "#/$defs/loginResponse"
+    },
+    {
+      "$ref": "#/$defs/sessionResponse"
+    },
+    {
+      "$ref": "#/$defs/authConfigResponse"
+    },
+    {
+      "$ref": "#/$defs/errorResponse"
+    }
+  ],
+  "$defs": {
+    "googleLoginRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "credential"
+      ],
+      "properties": {
+        "credential": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Transient Google ID token; never returned or persisted as a session."
+        }
+      }
+    },
+    "loginResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "expires_at"
+      ],
+      "properties": {
+        "user_id": {
+          "$ref": "#/$defs/userID"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "sessionResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authenticated",
+        "user_id"
+      ],
+      "properties": {
+        "authenticated": {
+          "const": true
+        },
+        "user_id": {
+          "$ref": "#/$defs/userID"
+        }
+      }
+    },
+    "authConfigResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "google_client_id"
+      ],
+      "properties": {
+        "google_client_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Public Google OAuth web client ID used as the ID-token audience."
+        }
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "enum": [
+            "request_not_allowed",
+            "json_required",
+            "invalid_request",
+            "invalid_credential",
+            "unauthenticated",
+            "internal_error"
+          ]
+        }
+      }
+    },
+    "userID": {
+      "type": "string",
+      "pattern": "^usr_[A-Za-z0-9_-]{22}$"
+    }
+  }
+}

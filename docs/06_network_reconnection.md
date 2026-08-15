@@ -10,6 +10,17 @@
 - 방 생성
 - 운영자 API
 
+### 인증 HTTP 경로
+
+- `GET /api/v1/auth/config`: 브라우저에 공개 Google web client ID 전달
+- `POST /api/v1/auth/google`: Google ID 토큰을 내부 사용자와 자체 세션으로 교환
+- `GET /api/v1/auth/session`: 현재 자체 세션 검증
+- `DELETE /api/v1/auth/session`: 현재 자체 세션 폐기
+
+인증 HTTP payload는 `schemas/http_auth.schema.json`을 따른다. Google 로그인과
+로그아웃은 같은 origin JavaScript가 보내는 JSON 요청만 사용하며
+`X-Buk-Request: 1` 헤더를 요구한다. 인증 응답은 캐시하지 않는다.
+
 ### WebSocket
 - 방 상태
 - 팀 선택과 준비
