@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 )
 
-// NewHandler mounts authentication APIs before the generated static client.
-func NewHandler(authHandler http.Handler, webRoot string) (http.Handler, error) {
-	if authHandler == nil || webRoot == "" {
+// NewHandler mounts versioned APIs before the generated static client.
+func NewHandler(authHandler, websocketHandler http.Handler, webRoot string) (http.Handler, error) {
+	if authHandler == nil || websocketHandler == nil || webRoot == "" {
 		return nil, errors.New("invalid server configuration")
 	}
 	info, err := os.Stat(webRoot)
@@ -31,6 +31,7 @@ func NewHandler(authHandler http.Handler, webRoot string) (http.Handler, error) 
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/auth/", authHandler)
+	mux.Handle("GET /api/v1/ws", websocketHandler)
 	mux.Handle("/", http.FileServer(http.Dir(webRoot)))
 	return securityHeaders(mux), nil
 }

@@ -30,6 +30,7 @@
 - `adr/0003_start_confirmation_and_pause_timers.md`: 10초 시작 확인과 타이머 보존 일시 정지
 - `adr/0004_c_raylib_wasm_client.md`: C raylib/WASM 클라이언트와 브라우저 경계
 - `adr/0005_http_google_auth_session_boundary.md`: Go HTTP Google 인증과 자체 세션 경계
+- `adr/0006_authenticated_websocket_transport.md`: 인증·origin·JSON WebSocket 전송 경계
 - `development/git-workflow.md`: 브랜치·커밋·PR·리뷰·병합·릴리스 정본
 - `development/github-settings.md`: bootstrap과 GitHub 저장소 설정 초안
 
@@ -66,7 +67,9 @@
 - `internal/auth/`: Google 외부 식별자와 해시된 자체 세션 도메인
 - `internal/auth/googleid/`: Google 공식 ID 토큰 검증 어댑터
 - `internal/httpapi/auth_handler.go`: 인증 JSON HTTP API와 hardened cookie
-- `internal/server/app.go`: 인증 API와 생성된 WASM 정적 파일 조합
+- `internal/protocol/client_command.go`: v1 WebSocket client command 엄격한 decode 계약
+- `internal/wsapi/handler.go`: 인증된 same-host WebSocket 전송 어댑터
+- `internal/server/app.go`: 인증·WebSocket API와 생성된 WASM 정적 파일 조합
 
 ## assets
 - `board_reference/README.md`: 윷판 참고자료 설명

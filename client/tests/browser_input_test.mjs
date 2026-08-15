@@ -223,9 +223,11 @@ try {
     return {
       value: input.value,
       echo: document.getElementById("echo").textContent,
+      realtimeStatus: document.getElementById("realtime-status").textContent,
     };
   })()`);
-  if (initial.value !== "가나다" || initial.echo !== "가나다") {
+  if (initial.value !== "가나다" || initial.echo !== "가나다"
+      || initial.realtimeStatus !== "로그인 후 실시간 연결") {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
   }
 

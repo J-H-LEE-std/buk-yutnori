@@ -12,6 +12,7 @@
 - sequence 공백 감지 시 재동기화 요청과 오류 코드
 - 최근 채팅 스냅샷의 정확한 개수와 페이지 경계
 - `ERROR` 이벤트의 표준 오류 코드 목록
+- WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
 
 ## 방·운영 흐름 미결정
 
@@ -20,7 +21,6 @@
 
 ## 구현 전 ADR 필요
 
-- Go WebSocket 라이브러리
 - 이벤트 저장 방식과 인덱스
 - 방 actor/goroutine 모델
 
