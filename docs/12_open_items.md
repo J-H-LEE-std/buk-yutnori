@@ -20,9 +20,7 @@
 
 ## 구현 전 ADR 필요
 
-- raylib 클라이언트 언어: C 또는 C++
 - Go HTTP/WebSocket 프레임워크
-- Google 로그인 셸과 WASM 연동 방식
 - 이벤트 저장 방식과 인덱스
 - 방 actor/goroutine 모델
 

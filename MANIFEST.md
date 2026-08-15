@@ -28,6 +28,7 @@
 - `adr/0001_sqlite_v1_and_scale_out.md`: v1 SQLite 선택과 PostgreSQL 전환 조건
 - `adr/0002_command_idempotency_and_event_commit.md`: 멱등 처리와 DB 저장 후 이벤트 확정
 - `adr/0003_start_confirmation_and_pause_timers.md`: 10초 시작 확인과 타이머 보존 일시 정지
+- `adr/0004_c_raylib_wasm_client.md`: C raylib/WASM 클라이언트와 브라우저 경계
 - `development/git-workflow.md`: 브랜치·커밋·PR·리뷰·병합·릴리스 정본
 - `development/github-settings.md`: bootstrap과 GitHub 저장소 설정 초안
 
@@ -45,6 +46,17 @@
 - `tools/check_pr_policy.py`: PR 정책 검사기
 - `tools/validate_docs.py`: Markdown 기본 구조와 로컬 링크 검사기
 - `tools/validate_specs.py`: YAML·JSON Schema·보드 검증기
+
+## client
+
+- `client/Makefile`: C 네이티브 테스트와 raylib WebAssembly 빌드
+- `client/README.md`: 로컬 테스트·WASM 빌드 절차와 고정 도구 버전
+- `client/include/buk_client/bridge.h`: JavaScript에 공개하는 좁은 C ABI
+- `client/include/buk_client/state.h`: 브라우저 입력을 받는 표시 상태 계약
+- `client/src/state.c`: raylib와 분리된 표시 상태 구현
+- `client/src/main.c`: raylib 프레임 콜백과 WASM 공개 함수
+- `client/tests/state_test.c`: UTF-8 입력 및 경계 단위 테스트
+- `client/web/shell.html`: 캔버스와 한글 IME HTML 셸
 
 ## assets
 - `board_reference/README.md`: 윷판 참고자료 설명

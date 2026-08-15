@@ -7,6 +7,17 @@
 - 현대 브라우저 호환 목표
 - 정확한 최소 지원 버전은 기술 검증 후 확정
 
+## 구현 언어와 실행 경계
+
+- raylib/WASM 클라이언트는 C11로 구현한다.
+- 브라우저 프레임 콜백으로 raylib 갱신·렌더링을 실행하며 기본 빌드에서
+  ASYNCIFY를 사용하지 않는다.
+- HTML/JavaScript와 C/WASM은 명시적인 C ABI로 연결하고 문자열은 UTF-8로
+  전달한다.
+- 세션 원문과 Google 토큰은 WASM에 전달하지 않는다.
+- 상세 근거와 최초 검증 도구 버전은
+  `docs/adr/0004_c_raylib_wasm_client.md`를 따른다.
+
 ## HTML/JavaScript 셸 권장 역할
 
 - Google 로그인

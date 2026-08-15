@@ -101,10 +101,61 @@ jobs:
       - name: Run tests with race detector
         run: go test -race -count=1 ./...
 
+  client-native:
+    name: client / native tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run C client tests
+        run: make -C client test
+
+  client-wasm:
+    name: client / wasm build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned raylib
+        uses: actions/checkout@v4
+        with:
+          repository: raysan5/raylib
+          ref: dbc56a87da87d973a9c5baa4e7438a9d20121d28
+          path: external/raylib
+          persist-credentials: false
+      - name: Check out pinned Emscripten SDK
+        uses: actions/checkout@v4
+        with:
+          repository: emscripten-core/emsdk
+          ref: 56a2c6e3681497b04edfd0a7972e6d435b266114
+          path: .tools/emsdk
+          persist-credentials: false
+      - name: Install Emscripten 5.0.4
+        run: |
+          .tools/emsdk/emsdk install 5.0.4
+          .tools/emsdk/emsdk activate 5.0.4
+      - name: Build C raylib client for WebAssembly
+        run: |
+          source .tools/emsdk/emsdk_env.sh
+          make -C client wasm
+          test -s build/client/web/index.html
+          test -s build/client/web/index.js
+          test -s build/client/web/index.wasm
+      - name: Smoke test WASM initialization in Chrome
+        run: |
+          python3 -m http.server 8765 --directory build/client/web >/tmp/buk-client-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          curl --retry 10 --retry-connrefused --retry-delay 1 --fail --silent http://localhost:8765/ >/dev/null
+          google-chrome --headless=new --no-sandbox --disable-gpu \
+            --virtual-time-budget=5000 --dump-dom http://localhost:8765/ \
+            >/tmp/buk-client-dom.html
+          grep -q "WASM 준비 완료" /tmp/buk-client-dom.html
+
   required:
     name: ci / required
     if: always()
-    needs: [docs, parse, contracts, board, release-policy, go]
+    needs: [docs, parse, contracts, board, release-policy, go, client-native, client-wasm]
     runs-on: ubuntu-latest
     steps:
       - name: Require all applicable checks
@@ -115,6 +166,8 @@ jobs:
           RELEASE_POLICY_RESULT: ${{ needs.release-policy.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           GO_RESULT: ${{ needs.go.result }}
+          CLIENT_NATIVE_RESULT: ${{ needs.client-native.result }}
+          CLIENT_WASM_RESULT: ${{ needs.client-wasm.result }}
         run: |
           test "$DOCS_RESULT" = "success"
           test "$PARSE_RESULT" = "success"
@@ -122,3 +175,5 @@ jobs:
           test "$BOARD_RESULT" = "success"
           test "$RELEASE_POLICY_RESULT" = "success"
           test "$GO_RESULT" = "success"
+          test "$CLIENT_NATIVE_RESULT" = "success"
+          test "$CLIENT_WASM_RESULT" = "success"

@@ -26,9 +26,9 @@
   - 보드 그래프 무결성
   - 문서 기본 구조와 내부 링크
 
-서버·클라이언트 코드가 추가되면 `ci / required`에 적용 가능한 Go format/vet/test,
-C++ format/build/test, WASM build, SQLite·WebSocket 통합 검사와 Docker smoke 검사를
-단계적으로 연결한다.
+`ci / required`는 적용 가능한 Go format/vet/test, C 경고 없는 네이티브 단위 테스트,
+WASM build를 실행한다. SQLite·WebSocket 통합 검사와 Docker smoke 검사는 해당
+서버·배포 코드가 추가될 때 단계적으로 연결한다.
 
 의미를 바꾸지 않는 단순 문서 수정은 제품 빌드 검사를 생략할 수 있다. 정본 규칙,
 보드, RNG, 턴, 승패, 백도, 북, CPU, 프로토콜, 인증, DB 또는 배포 의미를 바꾸면

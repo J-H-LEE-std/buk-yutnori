@@ -29,7 +29,7 @@ Milestone 0~1은 필수 외부 승인 수가 0이다. 자기 검토, Codex 자�
 
 ## Milestone 2 — 웹 수직 프로토타입
 
-- raylib WASM
+- C raylib WASM
 - HTML 셸
 - Google 로그인
 - 30일 자체 세션

@@ -1,1 +1,6 @@
 session.txt
+.venv/
+__pycache__/
+/.tools/
+/build/
+/external/
