@@ -29,6 +29,15 @@
 - 브라우저 오류 표시
 - 캔버스 크기·회전·가상 키보드 대응
 
+DOM 텍스트 입력은 브라우저의 기본 편집 동작을 유지한다. Emscripten GLFW의 전역 키
+캡처가 입력창의 Backspace·Tab을 막거나 게임 입력으로 중복 전달하지 않도록 DOM 입력
+이벤트와 캔버스 키 이벤트의 경계를 분리한다.
+
+Google Identity Services callback의 ID 토큰은 HTML/JavaScript가 같은 origin의
+HTTP 인증 API로 직접 전달한다. 서버가 발급한 세션은 HttpOnly 쿠키이므로
+JavaScript와 C/WASM이 읽지 않는다. 인증 서버가 없는 정적 WASM 실행에서는 로그인
+영역만 비활성 안내를 표시하고 raylib 초기화와 IME 왕복은 계속 동작한다.
+
 ## raylib/WASM 역할
 
 - 윷판 렌더링

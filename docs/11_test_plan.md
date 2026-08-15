@@ -27,8 +27,16 @@
   - 문서 기본 구조와 내부 링크
 
 `ci / required`는 적용 가능한 Go format/vet/test, C 경고 없는 네이티브 단위 테스트,
-WASM build를 실행한다. SQLite·WebSocket 통합 검사와 Docker smoke 검사는 해당
-서버·배포 코드가 추가될 때 단계적으로 연결한다.
+WASM build를 실행한다. WASM 브라우저 검사는 실제 Backspace 키 입력이 DOM 값을
+삭제하고 변경된 UTF-8 값이 C/WASM 상태와 다시 일치하는지도 확인한다.
+SQLite·WebSocket 통합 검사와 Docker smoke 검사는 해당 서버·배포 코드가 추가될 때
+단계적으로 연결한다.
+
+인증 코드가 있는 PR은 Google verifier의 audience·issuer·subject 거부, 내부 user ID
+분리, 세션 원문 미저장, 정확한 30일 만료, 만료·폐기 세션 거부,
+`Secure`/`HttpOnly`/`SameSite` 쿠키와 로그인·세션 조회·로그아웃 HTTP 계약을
+검사한다. 실제 Google 서명과 키 회전은 공식 검증 라이브러리에 맡기고 저장소 및
+HTTP 테스트에서는 검증기 경계를 대역으로 주입한다.
 
 의미를 바꾸지 않는 단순 문서 수정은 제품 빌드 검사를 생략할 수 있다. 정본 규칙,
 보드, RNG, 턴, 승패, 백도, 북, CPU, 프로토콜, 인증, DB 또는 배포 의미를 바꾸면

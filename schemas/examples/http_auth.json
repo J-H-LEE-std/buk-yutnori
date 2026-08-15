@@ -1,0 +1,19 @@
+[
+  {
+    "credential": "header.payload.signature"
+  },
+  {
+    "user_id": "usr_EREREREREREREREREREREQ",
+    "expires_at": "2026-09-14T12:00:00Z"
+  },
+  {
+    "authenticated": true,
+    "user_id": "usr_EREREREREREREREREREREQ"
+  },
+  {
+    "google_client_id": "123456789-example.apps.googleusercontent.com"
+  },
+  {
+    "error": "unauthenticated"
+  }
+]

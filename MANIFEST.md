@@ -29,6 +29,7 @@
 - `adr/0002_command_idempotency_and_event_commit.md`: 멱등 처리와 DB 저장 후 이벤트 확정
 - `adr/0003_start_confirmation_and_pause_timers.md`: 10초 시작 확인과 타이머 보존 일시 정지
 - `adr/0004_c_raylib_wasm_client.md`: C raylib/WASM 클라이언트와 브라우저 경계
+- `adr/0005_http_google_auth_session_boundary.md`: Go HTTP Google 인증과 자체 세션 경계
 - `development/git-workflow.md`: 브랜치·커밋·PR·리뷰·병합·릴리스 정본
 - `development/github-settings.md`: bootstrap과 GitHub 저장소 설정 초안
 
@@ -55,8 +56,17 @@
 - `client/include/buk_client/state.h`: 브라우저 입력을 받는 표시 상태 계약
 - `client/src/state.c`: raylib와 분리된 표시 상태 구현
 - `client/src/main.c`: raylib 프레임 콜백과 WASM 공개 함수
+- `client/tests/browser_input_test.mjs`: Chrome의 DOM 편집과 C/WASM 입력 동기화 회귀 테스트
 - `client/tests/state_test.c`: UTF-8 입력 및 경계 단위 테스트
 - `client/web/shell.html`: 캔버스와 한글 IME HTML 셸
+
+## server
+
+- `cmd/server/main.go`: 로컬 인증 수직 프로토타입 서버 진입점
+- `internal/auth/`: Google 외부 식별자와 해시된 자체 세션 도메인
+- `internal/auth/googleid/`: Google 공식 ID 토큰 검증 어댑터
+- `internal/httpapi/auth_handler.go`: 인증 JSON HTTP API와 hardened cookie
+- `internal/server/app.go`: 인증 API와 생성된 WASM 정적 파일 조합
 
 ## assets
 - `board_reference/README.md`: 윷판 참고자료 설명
@@ -76,10 +86,12 @@
 - `ws_server_response.schema.json`
 - `ws_server_event.schema.json`
 - `game_snapshot.schema.json`
+- `http_auth.schema.json`
 - `examples/client_commands.json`
 - `examples/server_responses.json`
 - `examples/server_events.json`
 - `examples/game_snapshot.json`
+- `examples/http_auth.json`
 
 ## reference
 - `requirements_qa_finished.md`: 사용자가 작성한 완성 Q&A 원본

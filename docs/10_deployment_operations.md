@@ -15,6 +15,14 @@
 - 로컬 개발은 HTTP/WS 허용 가능
 - 운영은 HTTPS/WSS만 허용
 - 비밀값은 이미지에 포함하지 않고 환경변수 또는 시크릿으로 주입
+- `BUK_GOOGLE_CLIENT_ID`: Google OAuth web client ID. 공개 설정이지만 환경별
+  audience를 고정하기 위해 서버 설정으로 주입
+- `BUK_LISTEN_ADDR`: 프로토타입 서버 주소, 기본 `127.0.0.1:8080`
+- `BUK_WEB_ROOT`: 생성된 WASM 정적 파일 경로, 기본 `build/client/web`
+
+현재 프로토타입 서버의 인증 저장소는 메모리형이므로 운영 배포하지 않는다. SQLite
+세션 저장소가 연결되기 전에는 30일 쿠키가 있더라도 서버 재시작 시 다시 로그인해야
+한다.
 
 ## 서버 로그
 

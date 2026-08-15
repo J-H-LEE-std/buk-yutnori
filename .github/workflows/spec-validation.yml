@@ -145,12 +145,26 @@ jobs:
         run: |
           python3 -m http.server 8765 --directory build/client/web >/tmp/buk-client-http.log 2>&1 &
           server_pid=$!
-          trap 'kill "$server_pid"' EXIT
+          chrome_pid=
+          cleanup() {
+            if [ -n "$chrome_pid" ]; then kill "$chrome_pid" 2>/dev/null || true; fi
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
           curl --retry 10 --retry-connrefused --retry-delay 1 --fail --silent http://localhost:8765/ >/dev/null
           google-chrome --headless=new --no-sandbox --disable-gpu \
             --virtual-time-budget=5000 --dump-dom http://localhost:8765/ \
             >/tmp/buk-client-dom.html
-          grep -q "WASM 준비 완료" /tmp/buk-client-dom.html
+          grep -q '<span id="status" role="status">WASM 준비 완료</span>' /tmp/buk-client-dom.html
+          grep -q '<span id="auth-status" role="status">인증 서버 미연결 (WASM 단독 모드)</span>' /tmp/buk-client-dom.html
+          chrome_profile=$(mktemp -d)
+          google-chrome --headless=new --no-sandbox --disable-gpu \
+            --remote-debugging-port=9222 --remote-allow-origins='*' \
+            --user-data-dir="$chrome_profile" http://localhost:8765/ \
+            >/tmp/buk-client-chrome.log 2>&1 &
+          chrome_pid=$!
+          node client/tests/browser_input_test.mjs \
+            http://127.0.0.1:9222 http://localhost:8765/
 
   required:
     name: ci / required
