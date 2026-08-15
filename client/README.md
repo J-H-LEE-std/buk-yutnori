@@ -53,6 +53,11 @@ BUK_GOOGLE_CLIENT_ID="<web-client-id>.apps.googleusercontent.com" \
 조회하고 Google popup callback의 ID 토큰을 같은 origin JSON API로 전달한다.
 서버 세션은 HttpOnly 쿠키라 JavaScript나 C/WASM에서 읽을 수 없다.
 
+유효한 세션이 확인되면 셸은 같은 origin의 `/api/v1/ws`에 연결하고 로그인 영역에
+실시간 연결 상태를 표시한다. 현재 단계는 인증된 전송 기반만 제공하므로 브라우저가
+application command를 보내면 서버는 상태를 변경하지 않고 `1013`으로 연결을 닫는다.
+명령 처리와 자동 재접속은 후속 단계에서 추가한다.
+
 현재 서버는 메모리 인증 저장소를 사용하는 기술 프로토타입이다. 쿠키 만료는
 30일이지만 서버를 재시작하면 다시 로그인해야 한다. 운영 전에 SQLite 세션 저장소로
 교체해야 한다.

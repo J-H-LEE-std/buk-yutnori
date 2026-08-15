@@ -33,6 +33,26 @@
 - 연결 상태
 - 재접속 동기화
 
+### 인증 WebSocket 경계
+
+- endpoint는 `GET /api/v1/ws`다.
+- 브라우저는 별도 토큰 query나 JavaScript로 읽은 식별자를 보내지 않고
+  `__Host-buk_session` HttpOnly 쿠키로 인증한다.
+- 서버는 세션 검증에 성공한 내부 `user_id`만 application session에 전달하며,
+  쿠키 원문을 그 아래 계층이나 로그에 전달하지 않는다.
+- `Origin`이 없거나 Origin host와 요청 Host가 다르면 인증 조회와 upgrade 전에
+  거부한다. 로컬 개발은 HTTP/WS, 운영은 HTTPS/WSS를 사용한다.
+- client command는 UTF-8 텍스트 JSON만 허용하고 한 메시지를 16 KiB로 제한한다.
+  binary는 close `1003`, 과대 메시지는 `1009`, 비정상 v1 command는 `1008`로
+  fail closed 처리한다.
+- WebSocket 압축은 벤치마크로 필요성이 확인되기 전까지 사용하지 않는다.
+- Milestone 2 전송 기반 단계에서는 인증 연결만 유지한다. 유효한 application
+  command가 도착해도 상태를 적용하지 않고 `1013 application_unavailable`로 닫으며,
+  실제 명령 처리와 멱등 결과 재전송은 후속 단계에서 연결한다.
+
+라이브러리와 계층 분리 결정은
+`docs/adr/0006_authenticated_websocket_transport.md`를 따른다.
+
 ## 메시지 원칙
 
 이 절의 envelope는 WebSocket 메시지에만 적용한다. HTTP API 요청과 응답에는 적용하지 않는다.

@@ -38,6 +38,12 @@ SQLite·WebSocket 통합 검사와 Docker smoke 검사는 해당 서버·배포 
 검사한다. 실제 Google 서명과 키 회전은 공식 검증 라이브러리에 맡기고 저장소 및
 HTTP 테스트에서는 검증기 경계를 대역으로 주입한다.
 
+WebSocket 전송 코드가 있는 PR은 세션 인증이 upgrade 전에 수행되는지, 쿠키 원문이
+application session으로 내려가지 않는지, same-host Origin만 허용하는지 검사한다.
+또한 UTF-8 텍스트 JSON과 모든 v1 client command payload를 엄격히 decode하고,
+binary·16 KiB 초과·unknown/duplicate/trailing JSON을 각각 정해진 close code로
+fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한다.
+
 의미를 바꾸지 않는 단순 문서 수정은 제품 빌드 검사를 생략할 수 있다. 정본 규칙,
 보드, RNG, 턴, 승패, 백도, 북, CPU, 프로토콜, 인증, DB 또는 배포 의미를 바꾸면
 문서 파일만 수정했더라도 전체 관련 검사를 실행한다.
@@ -141,6 +147,9 @@ HTTP 테스트에서는 검증기 경계를 대역으로 주입한다.
 - 스냅샷 sequence와 이후 누락 이벤트의 원자적 경계
 - 결과 토큰 ID와 생성 원인의 재접속 복구
 - 최소 명령·이벤트 예제의 JSON Schema 검증
+- 인증 WebSocket의 Origin 누락·cross-host·세션 누락·만료·저장 실패 거부
+- binary `1003`, 과대 메시지 `1009`, 비정상 command `1008` close
+- 유효한 한글 텍스트 command의 transport 왕복
 - 다중 탭
 - 관전자 입퇴장
 - 게임 종료 후 대기실

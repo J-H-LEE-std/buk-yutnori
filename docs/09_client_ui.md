@@ -22,6 +22,7 @@
 
 - Google 로그인
 - 세션 및 초기 부트스트랩
+- 인증된 WebSocket 생성과 연결 상태 표시
 - 한글 IME 입력
 - 채팅 텍스트 입력
 - 클립보드
@@ -37,6 +38,11 @@ Google Identity Services callback의 ID 토큰은 HTML/JavaScript가 같은 orig
 HTTP 인증 API로 직접 전달한다. 서버가 발급한 세션은 HttpOnly 쿠키이므로
 JavaScript와 C/WASM이 읽지 않는다. 인증 서버가 없는 정적 WASM 실행에서는 로그인
 영역만 비활성 안내를 표시하고 raylib 초기화와 IME 왕복은 계속 동작한다.
+
+유효한 세션이 확인되면 HTML/JavaScript 셸이 현재 origin의 `/api/v1/ws`에 연결하고
+연결 중·연결됨·끊김·실패 상태를 접근성 DOM에 표시한다. 로그아웃 시 브라우저
+WebSocket을 먼저 닫는다. application command, event sequence와 재접속 스냅샷의
+의미는 C/WASM 표시 상태가 아니라 후속 프로토콜 모듈이 검증한다.
 
 ## raylib/WASM 역할
 

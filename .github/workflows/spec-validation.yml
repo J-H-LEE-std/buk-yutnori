@@ -157,6 +157,7 @@ jobs:
             >/tmp/buk-client-dom.html
           grep -q '<span id="status" role="status">WASM 준비 완료</span>' /tmp/buk-client-dom.html
           grep -q '<span id="auth-status" role="status">인증 서버 미연결 (WASM 단독 모드)</span>' /tmp/buk-client-dom.html
+          grep -q '<span id="realtime-status" role="status">로그인 후 실시간 연결</span>' /tmp/buk-client-dom.html
           chrome_profile=$(mktemp -d)
           google-chrome --headless=new --no-sandbox --disable-gpu \
             --remote-debugging-port=9222 --remote-allow-origins='*' \

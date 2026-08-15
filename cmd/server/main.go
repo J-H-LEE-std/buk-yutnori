@@ -17,6 +17,7 @@ import (
 	"buk-yutnori/internal/auth/googleid"
 	"buk-yutnori/internal/httpapi"
 	"buk-yutnori/internal/server"
+	"buk-yutnori/internal/wsapi"
 )
 
 type config struct {
@@ -49,7 +50,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	handler, err := server.NewHandler(authHandler, config.webRoot)
+	websocketHandler, err := wsapi.NewHandler(
+		authService,
+		wsapi.PendingSession{},
+		wsapi.DefaultConfig(httpapi.SessionCookieName),
+	)
+	if err != nil {
+		return err
+	}
+	handler, err := server.NewHandler(authHandler, websocketHandler, config.webRoot)
 	if err != nil {
 		return err
 	}

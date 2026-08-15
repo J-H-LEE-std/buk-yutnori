@@ -14,6 +14,8 @@
 
 - 로컬 개발은 HTTP/WS 허용 가능
 - 운영은 HTTPS/WSS만 허용
+- 리버스 프록시는 WebSocket upgrade와 외부 Host·Origin을 보존한다. 서버는
+  cross-host Origin과 Origin 없는 브라우저 연결을 거부한다.
 - 비밀값은 이미지에 포함하지 않고 환경변수 또는 시크릿으로 주입
 - `BUK_GOOGLE_CLIENT_ID`: Google OAuth web client ID. 공개 설정이지만 환경별
   audience를 고정하기 위해 서버 설정으로 주입
@@ -23,6 +25,10 @@
 현재 프로토타입 서버의 인증 저장소는 메모리형이므로 운영 배포하지 않는다. SQLite
 세션 저장소가 연결되기 전에는 30일 쿠키가 있더라도 서버 재시작 시 다시 로그인해야
 한다.
+
+WebSocket 수신 메시지는 16 KiB로 제한하고 압축은 기본 비활성이다. active connection
+graceful shutdown과 heartbeat/idle timeout 정책은 connection registry 도입 전
+확정해야 한다.
 
 ## 서버 로그
 
