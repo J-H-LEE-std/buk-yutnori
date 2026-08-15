@@ -5,7 +5,7 @@
 ## 기술 방향
 
 - 게임 서버: Go
-- 게임 클라이언트: raylib 기반 WebAssembly
+- 게임 클라이언트: C로 구현하는 raylib 기반 WebAssembly
 - 인증: Google 로그인 검증 후 서버 자체 30일 세션
 - 실시간 통신: 서버 권위형 WebSocket
 - 일반 API: HTTPS 기반 HTTP API
