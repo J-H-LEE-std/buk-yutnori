@@ -42,17 +42,6 @@ func (function SessionFunc) Serve(ctx context.Context, user auth.User, connectio
 	return function(ctx, user, connection)
 }
 
-// PendingSession keeps an authenticated transport open until the client sends
-// an application command, then closes without applying state.
-type PendingSession struct{}
-
-func (PendingSession) Serve(ctx context.Context, _ auth.User, connection *Connection) error {
-	if _, err := connection.ReadCommand(ctx); err != nil {
-		return err
-	}
-	return connection.CloseApplicationUnavailable()
-}
-
 // Config contains transport limits and the server session cookie name.
 type Config struct {
 	SessionCookieName string
@@ -169,10 +158,13 @@ func (c *Connection) CloseNormal(reason string) error {
 	return c.connection.Close(websocket.StatusNormalClosure, reason)
 }
 
-// CloseApplicationUnavailable closes a transport-only connection without
-// accepting or applying the received application command.
-func (c *Connection) CloseApplicationUnavailable() error {
-	return c.connection.Close(websocket.StatusTryAgainLater, "application_unavailable")
+// CloseCommandIDConflict rejects semantic reuse of an idempotency key as a
+// protocol policy violation.
+func (c *Connection) CloseCommandIDConflict() error {
+	if err := c.connection.Close(websocket.StatusPolicyViolation, "command_id_conflict"); err != nil {
+		return fmt.Errorf("%w: close command_id conflict: %v", ErrInvalidCommand, err)
+	}
+	return ErrInvalidCommand
 }
 
 func hasSameHostOrigin(request *http.Request) bool {

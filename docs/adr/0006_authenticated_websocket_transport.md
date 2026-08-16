@@ -32,9 +32,11 @@ Milestone 2는 브라우저가 30일 자체 세션으로 인증된 WebSocket 연
 - 프로젝트 연결 어댑터는 현재 스키마의 모든 client command envelope와 payload를
   엄격히 decode한다. 알 수 없는 필드, 중복 object key, trailing JSON, 잘못된
   command scope를 거부한다.
-- 이 PR의 기본 session handler는 연결 기반만 제공한다. 유효한 application
-  command가 오면 상태를 바꾸지 않고 `1013`으로 닫는다. 실제 처리와
-  `(user_id, command_id)` 멱등 결과 재전송은 후속 application PR에서 연결한다.
+- 최초 transport PR의 기본 session handler는 유효한 application command에 상태를
+  바꾸지 않고 `1013`으로 닫는 기반만 제공했다. 후속 Issue #42 application PR은
+  인증된 command processor와 `COMMAND_RESULT` loop를 실제 서버에 연결한다. 방·경기
+  executor가 없는 동안에는 상태를 적용하지 않고 retriable
+  `APPLICATION_UNAVAILABLE` 결과를 반환한다.
 - 전송 계층은 방, 경기, RNG, 턴, sequence 또는 승패 상태를 소유하지 않는다.
 
 ## 대안

@@ -46,9 +46,10 @@
   binary는 close `1003`, 과대 메시지는 `1009`, 비정상 v1 command는 `1008`로
   fail closed 처리한다.
 - WebSocket 압축은 벤치마크로 필요성이 확인되기 전까지 사용하지 않는다.
-- Milestone 2 전송 기반 단계에서는 인증 연결만 유지한다. 유효한 application
-  command가 도착해도 상태를 적용하지 않고 `1013 application_unavailable`로 닫으며,
-  실제 명령 처리와 멱등 결과 재전송은 후속 단계에서 연결한다.
+- Milestone 2 멱등 application 기반 단계에서는 유효한 command를 인증된
+  `(user_id, command_id)` processor로 전달한다. 방·경기 executor가 아직 없는
+  command는 상태를 적용하지 않고 `APPLICATION_UNAVAILABLE` 일시적 거부를 반환한다.
+  이 응답은 `error.retriable=true`이므로 방 생명주기 결과로 보존하지 않는다.
 
 라이브러리와 계층 분리 결정은
 `docs/adr/0006_authenticated_websocket_transport.md`를 따른다.
@@ -125,10 +126,21 @@
 
 - 각 명령의 멱등 키는 인증된 `(user_id, command_id)` 쌍이다.
 - 같은 사용자는 처리 결과 보존 기간 안에 같은 `command_id`를 다른 명령 내용에 재사용할 수 없다. 내용이 다르면 프로토콜 오류다.
-- 최초 처리 시 성공과 거부 결과를 모두 멱등 결과로 기록한다.
+- 최초 처리 시 accepted 결과와 결정적 rejected 결과를 멱등 결과로 기록한다.
+- accepted 결과와 `error.retriable=false`인 결정적 rejected 결과를 보존한다.
+  `error.retriable=true`인 일시적 거부와 application 실행 오류는 영구 멱등 결과로
+  보존하지 않으며 같은 명령의 재시도를 다시 실행할 수 있다.
 - 같은 명령의 재전송은 상태를 다시 적용하거나 새 도메인 이벤트를 만들지 않는다.
 - 중복 요청에는 최초 응답과 최초 처리에서 생성된 이벤트 sequence 범위를 재전송한다.
+- 동일 명령 비교는 decode된 `version`, `direction`, `type`, `request_id`, `command_id`,
+  `room_id`, `match_id`, `payload`를 사용하므로 JSON 필드 순서는 무관하다. 같은
+  `(user_id, command_id)`에 이 내용 중 하나라도 다르면 기존 결과를 덮어쓰지 않고
+  WebSocket `1008 command_id_conflict`로 거부한다.
 - 방 명령의 멱등 결과는 방이 닫힐 때까지, 경기 명령의 결과는 적어도 해당 경기와 소속 방이 닫힐 때까지 보존한다. 방 폐쇄 뒤 감사 보존 기간은 별도 데이터 보존 정책을 따른다.
+- 방 생명주기 소유자는 새 command 유입을 원자적으로 중단한 뒤 processor의
+  `ForgetClosedRoom` 경계를 호출한다. 이 경계는 완료 결과를 제거하고 이미 실행
+  중인 한 건은 중복과 결과를 공유한 채 완료한 직후 제거한다. processor는 방 입장
+  권한이나 폐쇄 상태 자체를 판정하지 않는다.
 - 서버 이벤트는 경기별 단조 증가 `sequence`
 - 클라이언트는 마지막 적용 `sequence`를 보관
 - 결과 큐의 각 토큰은 재접속 전후에도 변하지 않는 `token_id`와 생성 원인을 가진다.

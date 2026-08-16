@@ -2,14 +2,17 @@ package wsapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"buk-yutnori/internal/application"
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/protocol"
 
@@ -186,8 +189,120 @@ func TestConnectionClosesOnInvalidData(t *testing.T) {
 	}
 }
 
-func TestPendingSessionRejectsValidApplicationCommandWithoutApplyingIt(t *testing.T) {
-	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, PendingSession{}, DefaultConfig(testCookieName))
+func TestCommandSessionWritesAndReplaysCommandResultAcrossConnections(t *testing.T) {
+	start, end := uint64(23), uint64(25)
+	executor := &sessionExecutor{outcomes: []protocol.CommandOutcome{{
+		Status: protocol.CommandAccepted, EventSequenceStart: &start, EventSequenceEnd: &end,
+	}}}
+	processor, err := application.NewProcessor(executor)
+	if err != nil {
+		t.Fatalf("application.NewProcessor() error = %v", err)
+	}
+	session, err := NewCommandSession(processor)
+	if err != nil {
+		t.Fatalf("NewCommandSession() error = %v", err)
+	}
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, session, DefaultConfig(testCookieName))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	first, _, err := dial(t, server.URL, server.URL, testRawToken)
+	if err != nil {
+		t.Fatalf("first Dial() error = %v", err)
+	}
+	defer first.CloseNow()
+	second, _, err := dial(t, server.URL, server.URL, testRawToken)
+	if err != nil {
+		t.Fatalf("second Dial() error = %v", err)
+	}
+	defer second.CloseNow()
+
+	message := []byte(`{"version":1,"direction":"client_command","type":"THROW_YUT","request_id":"req-1","command_id":"cmd-1","room_id":"room-1","match_id":"match-1","payload":{}}`)
+	firstResponse := commandRoundTrip(t, first, message)
+	reorderedDuplicate := []byte(`{"payload":{},"match_id":"match-1","room_id":"room-1","command_id":"cmd-1","request_id":"req-1","type":"THROW_YUT","direction":"client_command","version":1}`)
+	secondResponse := commandRoundTrip(t, second, reorderedDuplicate)
+	if string(firstResponse) != string(secondResponse) {
+		t.Fatalf("duplicate response changed:\nfirst  = %s\nsecond = %s", firstResponse, secondResponse)
+	}
+	var result protocol.CommandResult
+	if err := json.Unmarshal(secondResponse, &result); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if result.CommandID != "cmd-1" || result.Payload.Status != protocol.CommandAccepted || result.Payload.EventSequenceStart == nil || *result.Payload.EventSequenceStart != 23 || result.Payload.EventSequenceEnd == nil || *result.Payload.EventSequenceEnd != 25 {
+		t.Fatalf("COMMAND_RESULT = %+v", result)
+	}
+	if executor.callCount() != 1 {
+		t.Fatalf("Execute() calls = %d, want 1", executor.callCount())
+	}
+}
+
+func TestCommandSessionSharesConcurrentDuplicateAcrossConnections(t *testing.T) {
+	started := make(chan struct{})
+	releaseExecutor := make(chan struct{})
+	executor := &blockingSessionExecutor{started: started, release: releaseExecutor}
+	processor, err := application.NewProcessor(executor)
+	if err != nil {
+		t.Fatalf("application.NewProcessor() error = %v", err)
+	}
+	arrived := make(chan struct{}, 2)
+	releaseProcessor := make(chan struct{})
+	barrier := &barrierCommandProcessor{inner: processor, arrived: arrived, release: releaseProcessor}
+	session, err := NewCommandSession(barrier)
+	if err != nil {
+		t.Fatalf("NewCommandSession() error = %v", err)
+	}
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, session, DefaultConfig(testCookieName))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	first, _, err := dial(t, server.URL, server.URL, testRawToken)
+	if err != nil {
+		t.Fatalf("first Dial() error = %v", err)
+	}
+	defer first.CloseNow()
+	second, _, err := dial(t, server.URL, server.URL, testRawToken)
+	if err != nil {
+		t.Fatalf("second Dial() error = %v", err)
+	}
+	defer second.CloseNow()
+
+	message := []byte(`{"version":1,"direction":"client_command","type":"THROW_YUT","command_id":"cmd-concurrent","room_id":"room-1","match_id":"match-1","payload":{}}`)
+	writeCommand(t, first, message)
+	writeCommand(t, second, message)
+	for range 2 {
+		select {
+		case <-arrived:
+		case <-time.After(2 * time.Second):
+			t.Fatal("both WebSocket sessions did not reach the processor")
+		}
+	}
+	close(releaseProcessor)
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("executor did not start")
+	}
+	close(releaseExecutor)
+	firstResponse := readCommandResult(t, first)
+	secondResponse := readCommandResult(t, second)
+	if string(firstResponse) != string(secondResponse) {
+		t.Fatalf("concurrent duplicate response changed:\nfirst  = %s\nsecond = %s", firstResponse, secondResponse)
+	}
+	if got := executor.calls.Load(); got != 1 {
+		t.Fatalf("Execute() calls = %d, want 1", got)
+	}
+}
+
+func TestCommandSessionClosesOnConflictingCommandIDReuse(t *testing.T) {
+	executor := &sessionExecutor{outcomes: []protocol.CommandOutcome{{Status: protocol.CommandAccepted}}}
+	processor, err := application.NewProcessor(executor)
+	if err != nil {
+		t.Fatalf("application.NewProcessor() error = %v", err)
+	}
+	session, err := NewCommandSession(processor)
+	if err != nil {
+		t.Fatalf("NewCommandSession() error = %v", err)
+	}
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, session, DefaultConfig(testCookieName))
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	connection, _, err := dial(t, server.URL, server.URL, testRawToken)
@@ -196,13 +311,30 @@ func TestPendingSessionRejectsValidApplicationCommandWithoutApplyingIt(t *testin
 	}
 	defer connection.CloseNow()
 
-	message := `{"version":1,"direction":"client_command","type":"SEND_CHAT","command_id":"cmd-1","room_id":"room-1","payload":{"text":"not applied"}}`
-	if err := connection.Write(context.Background(), websocket.MessageText, []byte(message)); err != nil {
+	first := []byte(`{"version":1,"direction":"client_command","type":"SEND_CHAT","command_id":"cmd-1","room_id":"room-1","payload":{"text":"first"}}`)
+	commandRoundTrip(t, connection, first)
+	conflict := []byte(`{"version":1,"direction":"client_command","type":"SEND_CHAT","command_id":"cmd-1","room_id":"room-1","payload":{"text":"different"}}`)
+	if err := connection.Write(context.Background(), websocket.MessageText, conflict); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 	_, _, err = connection.Read(context.Background())
-	if got := websocket.CloseStatus(err); got != websocket.StatusTryAgainLater {
-		t.Fatalf("close status = %v, want %v, error = %v", got, websocket.StatusTryAgainLater, err)
+	if got := websocket.CloseStatus(err); got != websocket.StatusPolicyViolation {
+		t.Fatalf("close status = %v, want %v, error = %v", got, websocket.StatusPolicyViolation, err)
+	}
+	var closeError websocket.CloseError
+	if !errors.As(err, &closeError) || closeError.Reason != "command_id_conflict" {
+		t.Fatalf("close error = %#v, want reason command_id_conflict", err)
+	}
+	if executor.callCount() != 1 {
+		t.Fatalf("Execute() calls = %d, want 1", executor.callCount())
+	}
+}
+
+func TestNewCommandSessionRejectsMissingProcessor(t *testing.T) {
+	t.Parallel()
+
+	if session, err := NewCommandSession(nil); !errors.Is(err, ErrInvalidConfiguration) || session != nil {
+		t.Fatalf("NewCommandSession(nil) = %v, %v", session, err)
 	}
 }
 
@@ -245,12 +377,102 @@ func dial(t *testing.T, serverURL, origin, token string) (*websocket.Conn, *http
 	return websocket.Dial(ctx, "ws"+strings.TrimPrefix(serverURL, "http")+"/api/v1/ws", &websocket.DialOptions{HTTPHeader: header})
 }
 
+func commandRoundTrip(t *testing.T, connection *websocket.Conn, message []byte) []byte {
+	t.Helper()
+	writeCommand(t, connection, message)
+	return readCommandResult(t, connection)
+}
+
+func writeCommand(t *testing.T, connection *websocket.Conn, message []byte) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := connection.Write(ctx, websocket.MessageText, message); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+}
+
+func readCommandResult(t *testing.T, connection *websocket.Conn) []byte {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	messageType, response, err := connection.Read(ctx)
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if messageType != websocket.MessageText {
+		t.Fatalf("response type = %v, want text", messageType)
+	}
+	return response
+}
+
 type recordingAuthenticator struct {
 	mu    sync.Mutex
 	user  auth.User
 	err   error
 	token string
 	calls int
+}
+
+type sessionExecutor struct {
+	mu       sync.Mutex
+	outcomes []protocol.CommandOutcome
+	calls    int
+}
+
+type blockingSessionExecutor struct {
+	started chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (executor *blockingSessionExecutor) Execute(ctx context.Context, _ auth.User, _ protocol.ClientCommand) (protocol.CommandOutcome, error) {
+	if executor.calls.Add(1) == 1 {
+		close(executor.started)
+	}
+	select {
+	case <-executor.release:
+		return protocol.CommandOutcome{Status: protocol.CommandAccepted}, nil
+	case <-ctx.Done():
+		return protocol.CommandOutcome{}, ctx.Err()
+	}
+}
+
+type barrierCommandProcessor struct {
+	inner   CommandProcessor
+	arrived chan struct{}
+	release chan struct{}
+}
+
+func (processor *barrierCommandProcessor) Process(ctx context.Context, user auth.User, command protocol.ClientCommand) (protocol.CommandResult, error) {
+	select {
+	case processor.arrived <- struct{}{}:
+	case <-ctx.Done():
+		return protocol.CommandResult{}, ctx.Err()
+	}
+	select {
+	case <-processor.release:
+		return processor.inner.Process(ctx, user, command)
+	case <-ctx.Done():
+		return protocol.CommandResult{}, ctx.Err()
+	}
+}
+
+func (executor *sessionExecutor) Execute(_ context.Context, _ auth.User, _ protocol.ClientCommand) (protocol.CommandOutcome, error) {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	index := executor.calls
+	executor.calls++
+	if index >= len(executor.outcomes) {
+		return protocol.CommandOutcome{}, errors.New("unexpected executor call")
+	}
+	return executor.outcomes[index], nil
+}
+
+func (executor *sessionExecutor) callCount() int {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	return executor.calls
 }
 
 func (a *recordingAuthenticator) Authenticate(_ context.Context, token string) (auth.User, error) {
