@@ -54,10 +54,15 @@ BUK_GOOGLE_CLIENT_ID="<web-client-id>.apps.googleusercontent.com" \
 서버 세션은 HttpOnly 쿠키라 JavaScript나 C/WASM에서 읽을 수 없다.
 
 유효한 세션이 확인되면 셸은 같은 origin의 `/api/v1/ws`에 연결하고 로그인 영역에
-실시간 연결 상태를 표시한다. 현재 서버는 인증된 명령을 멱등 application processor로
-전달하지만 방·경기 executor는 아직 없다. application command에는 상태를 변경하지
-않고 retriable `APPLICATION_UNAVAILABLE` `COMMAND_RESULT`를 반환한다. 실제 방·경기
-명령 처리와 자동 재접속은 후속 단계에서 추가한다.
+실시간 연결 상태를 표시한다. 로그인한 연결은 Milestone 2 전용
+`prototype-room`에 자동 구독하며, HTML 채팅 입력의 `SEND_CHAT`을 멱등 application
+processor로 전달한다. 서버가 확정한 `CHAT_MESSAGE`는 같은 방의 모든 활성 연결에
+전달되고 셸은 내용을 DOM `textContent`로 렌더링한다. 닉네임 경계가 아직 없으므로
+현재 발신자는 내부 `user_id`로 표시한다.
+
+채팅 이외의 방·경기 command에는 상태를 변경하지 않고 retriable
+`APPLICATION_UNAVAILABLE` `COMMAND_RESULT`를 반환한다. 정식 방 membership, 영구
+채팅 로그, sequence 재동기화와 자동 재접속은 후속 단계에서 추가한다.
 
 현재 서버는 메모리 인증 저장소를 사용하는 기술 프로토타입이다. 쿠키 만료는
 30일이지만 서버를 재시작하면 다시 로그인해야 한다. 운영 전에 SQLite 세션 저장소로

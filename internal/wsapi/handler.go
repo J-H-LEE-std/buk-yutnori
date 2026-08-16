@@ -23,6 +23,7 @@ var (
 	ErrUnsupportedData      = errors.New("unsupported WebSocket data")
 	ErrInvalidCommand       = errors.New("invalid WebSocket command")
 	ErrMessageTooBig        = errors.New("WebSocket message too big")
+	ErrEventBackpressure    = errors.New("WebSocket event backpressure")
 )
 
 // Authenticator resolves a raw HttpOnly cookie to a server-owned user.
@@ -108,7 +109,7 @@ func (h *handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 	defer cancel()
 	wrapped := &Connection{connection: connection}
 	if err := h.session.Serve(sessionContext, user, wrapped); err != nil {
-		if websocket.CloseStatus(err) != -1 || errors.Is(err, ErrUnsupportedData) || errors.Is(err, ErrInvalidCommand) || errors.Is(err, ErrMessageTooBig) {
+		if websocket.CloseStatus(err) != -1 || errors.Is(err, ErrUnsupportedData) || errors.Is(err, ErrInvalidCommand) || errors.Is(err, ErrMessageTooBig) || errors.Is(err, ErrEventBackpressure) {
 			return
 		}
 		_ = connection.Close(websocket.StatusInternalError, "session_failed")
@@ -165,6 +166,15 @@ func (c *Connection) CloseCommandIDConflict() error {
 		return fmt.Errorf("%w: close command_id conflict: %v", ErrInvalidCommand, err)
 	}
 	return ErrInvalidCommand
+}
+
+// CloseEventBackpressure disconnects a subscriber before silently dropping a
+// room event and creating an unrecoverable sequence gap.
+func (c *Connection) CloseEventBackpressure() error {
+	if err := c.connection.Close(websocket.StatusTryAgainLater, "event_backpressure"); err != nil {
+		return fmt.Errorf("%w: close event backpressure: %v", ErrEventBackpressure, err)
+	}
+	return ErrEventBackpressure
 }
 
 func hasSameHostOrigin(request *http.Request) bool {

@@ -34,9 +34,10 @@ Milestone 2는 브라우저가 30일 자체 세션으로 인증된 WebSocket 연
   command scope를 거부한다.
 - 최초 transport PR의 기본 session handler는 유효한 application command에 상태를
   바꾸지 않고 `1013`으로 닫는 기반만 제공했다. 후속 Issue #42 application PR은
-  인증된 command processor와 `COMMAND_RESULT` loop를 실제 서버에 연결한다. 방·경기
-  executor가 없는 동안에는 상태를 적용하지 않고 retriable
-  `APPLICATION_UNAVAILABLE` 결과를 반환한다.
+  인증된 command processor와 `COMMAND_RESULT` loop를 실제 서버에 연결했다. Issue
+  #46의 고정 프로토타입 방은 `SEND_CHAT`과 `CHAT_MESSAGE`를 처리하며, 그 밖의 방·경기
+  command는 executor가 생길 때까지 상태를 적용하지 않고 retriable
+  `APPLICATION_UNAVAILABLE` 결과를 반환한다. 채팅 세션 결정은 ADR-0008을 따른다.
 - 전송 계층은 방, 경기, RNG, 턴, sequence 또는 승패 상태를 소유하지 않는다.
 
 ## 대안

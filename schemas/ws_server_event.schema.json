@@ -48,6 +48,7 @@
         { "$ref": "ws_server_event.schema.json#/$defs/game_paused" },
         { "$ref": "ws_server_event.schema.json#/$defs/game_resumed" },
         { "$ref": "ws_server_event.schema.json#/$defs/game_ended" },
+        { "$ref": "ws_server_event.schema.json#/$defs/chat_message" },
         { "$ref": "ws_server_event.schema.json#/$defs/error" }
       ]
     }
@@ -413,6 +414,25 @@
           }
         }
       ]
+    },
+    "chat_message": {
+      "required": ["room_id"],
+      "properties": {
+        "type": { "const": "CHAT_MESSAGE" },
+        "room_id": { "type": "string", "minLength": 1 },
+        "match_id": { "type": "null" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message_id", "sender_user_id", "text", "sent_at"],
+          "properties": {
+            "message_id": { "type": "string", "minLength": 1 },
+            "sender_user_id": { "type": "string", "minLength": 1 },
+            "text": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "sent_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
     },
     "error": {
       "properties": {

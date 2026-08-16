@@ -15,5 +15,6 @@
   {"version":1,"direction":"server_event","type":"GAME_PAUSED","sequence":14,"room_id":"room-1","match_id":"match-1","payload":{"reason":"host_request","paused_by_player_id":"user-a","ends_at":"2026-07-22T08:10:00Z","preserved_timer_remaining_ms":17350}},
   {"version":1,"direction":"server_event","type":"GAME_RESUMED","sequence":15,"room_id":"room-1","match_id":"match-1","payload":{"reason":"host_request"}},
   {"version":1,"direction":"server_event","type":"GAME_ENDED","sequence":16,"room_id":"room-1","match_id":"match-1","payload":{"status":"finished","winner_team_id":"A","reason":"all_pieces_finished"}},
-  {"version":1,"direction":"server_event","type":"ERROR","request_id":"req-reconnect","sequence":17,"room_id":"room-1","match_id":"match-1","payload":{"code":"STALE_SEQUENCE","message":"재동기화가 필요합니다.","retriable":true}}
+  {"version":1,"direction":"server_event","type":"CHAT_MESSAGE","sequence":17,"room_id":"room-1","payload":{"message_id":"chat-17","sender_user_id":"usr_EREREREREREREREREREREQ","text":"안녕하세요","sent_at":"2026-07-22T08:02:00Z"}},
+  {"version":1,"direction":"server_event","type":"ERROR","request_id":"req-reconnect","sequence":18,"room_id":"room-1","match_id":"match-1","payload":{"code":"STALE_SEQUENCE","message":"재동기화가 필요합니다.","retriable":true}}
 ]
