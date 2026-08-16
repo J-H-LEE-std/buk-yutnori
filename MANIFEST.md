@@ -63,12 +63,16 @@
 
 ## server
 
-- `cmd/server/main.go`: 로컬 인증 수직 프로토타입 서버 진입점
+- `cmd/server/main.go`: 로컬 인증·멱등 WebSocket 수직 프로토타입 서버 진입점
 - `internal/auth/`: Google 외부 식별자와 해시된 자체 세션 도메인
 - `internal/auth/googleid/`: Google 공식 ID 토큰 검증 어댑터
 - `internal/httpapi/auth_handler.go`: 인증 JSON HTTP API와 hardened cookie
 - `internal/protocol/client_command.go`: v1 WebSocket client command 엄격한 decode 계약
+- `internal/protocol/server_response.go`: v1 `COMMAND_RESULT` 응답과 결과 불변조건
+- `internal/application/processor.go`: 인증 사용자 명령의 멱등 실행과 결과 보존 경계
+- `internal/application/unavailable_executor.go`: 방·경기 연결 전 일시적 명령 거부 어댑터
 - `internal/wsapi/handler.go`: 인증된 same-host WebSocket 전송 어댑터
+- `internal/wsapi/command_session.go`: 명령 처리와 응답 재전송 WebSocket 세션 루프
 - `internal/server/app.go`: 인증·WebSocket API와 생성된 WASM 정적 파일 조합
 
 ## assets

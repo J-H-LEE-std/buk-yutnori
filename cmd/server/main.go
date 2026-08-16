@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"buk-yutnori/internal/application"
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/auth/googleid"
 	"buk-yutnori/internal/httpapi"
@@ -50,9 +51,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	commandProcessor, err := application.NewProcessor(application.UnavailableExecutor{})
+	if err != nil {
+		return err
+	}
+	commandSession, err := wsapi.NewCommandSession(commandProcessor)
+	if err != nil {
+		return err
+	}
 	websocketHandler, err := wsapi.NewHandler(
 		authService,
-		wsapi.PendingSession{},
+		commandSession,
 		wsapi.DefaultConfig(httpapi.SessionCookieName),
 	)
 	if err != nil {

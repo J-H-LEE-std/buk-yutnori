@@ -54,8 +54,9 @@ BUK_GOOGLE_CLIENT_ID="<web-client-id>.apps.googleusercontent.com" \
 서버 세션은 HttpOnly 쿠키라 JavaScript나 C/WASM에서 읽을 수 없다.
 
 유효한 세션이 확인되면 셸은 같은 origin의 `/api/v1/ws`에 연결하고 로그인 영역에
-실시간 연결 상태를 표시한다. 현재 단계는 인증된 전송 기반만 제공하므로 브라우저가
-application command를 보내면 서버는 상태를 변경하지 않고 `1013`으로 연결을 닫는다.
+실시간 연결 상태를 표시한다. 현재 서버는 인증된 명령을 멱등 application processor로
+전달하지만 방·경기 executor는 아직 없다. application command에는 상태를 변경하지
+않고 retriable `APPLICATION_UNAVAILABLE` `COMMAND_RESULT`를 반환한다. 실제 방·경기
 명령 처리와 자동 재접속은 후속 단계에서 추가한다.
 
 현재 서버는 메모리 인증 저장소를 사용하는 기술 프로토타입이다. 쿠키 만료는
