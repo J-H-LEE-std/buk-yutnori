@@ -57,7 +57,7 @@ func TestNewCommandResultBuildsCanonicalServerResponse(t *testing.T) {
 func TestNewCommandResultRejectsInvalidOutcomes(t *testing.T) {
 	t.Parallel()
 
-	start, end, reversed := uint64(3), uint64(4), uint64(2)
+	zero, start, end, reversed := uint64(0), uint64(3), uint64(4), uint64(2)
 	validCommand := ClientCommand{
 		Version: Version1, Direction: DirectionClientCommand, Type: CommandSetReady,
 		CommandID: "cmd-1", RoomID: "room-1", Payload: SetReadyPayload{Ready: true},
@@ -71,6 +71,7 @@ func TestNewCommandResultRejectsInvalidOutcomes(t *testing.T) {
 		{name: "rejected without error", outcome: CommandOutcome{Status: CommandRejected}},
 		{name: "missing sequence end", outcome: CommandOutcome{Status: CommandAccepted, EventSequenceStart: &start}},
 		{name: "missing sequence start", outcome: CommandOutcome{Status: CommandAccepted, EventSequenceEnd: &end}},
+		{name: "zero sequence range", outcome: CommandOutcome{Status: CommandAccepted, EventSequenceStart: &zero, EventSequenceEnd: &zero}},
 		{name: "reversed sequence", outcome: CommandOutcome{Status: CommandAccepted, EventSequenceStart: &start, EventSequenceEnd: &reversed}},
 		{name: "empty error code", outcome: CommandOutcome{Status: CommandRejected, Error: &CommandError{Message: "rejected"}}},
 		{name: "empty error message", outcome: CommandOutcome{Status: CommandRejected, Error: &CommandError{Code: "REJECTED"}}},

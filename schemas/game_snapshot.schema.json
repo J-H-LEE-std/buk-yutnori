@@ -24,7 +24,7 @@
   "properties": {
     "room_id": { "type": "string", "minLength": 1 },
     "match_id": { "type": "string", "minLength": 1 },
-    "sequence": { "type": "integer", "minimum": 0 },
+    "sequence": { "type": "integer", "minimum": 1 },
     "status": {
       "enum": ["starting", "active", "paused", "finished", "invalid"]
     },
@@ -281,7 +281,7 @@
       "required": ["message_id", "sequence", "sender_user_id", "sender_nickname", "text", "sent_at"],
       "properties": {
         "message_id": { "$ref": "#/$defs/string_id" },
-        "sequence": { "type": "integer", "minimum": 0 },
+        "sequence": { "type": "integer", "minimum": 1 },
         "sender_user_id": { "$ref": "#/$defs/string_id" },
         "sender_nickname": { "type": "string", "minLength": 1 },
         "text": { "type": "string", "minLength": 1, "maxLength": 200 },

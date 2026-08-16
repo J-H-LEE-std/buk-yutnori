@@ -122,6 +122,9 @@ func validateCommandOutcome(outcome CommandOutcome) error {
 	if (outcome.EventSequenceStart == nil) != (outcome.EventSequenceEnd == nil) {
 		return fmt.Errorf("%w: sequence range must contain both bounds", ErrInvalidCommandOutcome)
 	}
+	if outcome.EventSequenceStart != nil && (*outcome.EventSequenceStart == 0 || *outcome.EventSequenceEnd == 0) {
+		return fmt.Errorf("%w: event sequence range must start at one", ErrInvalidCommandOutcome)
+	}
 	if outcome.EventSequenceStart != nil && *outcome.EventSequenceStart > *outcome.EventSequenceEnd {
 		return fmt.Errorf("%w: reversed sequence range", ErrInvalidCommandOutcome)
 	}
