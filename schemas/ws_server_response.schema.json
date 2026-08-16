@@ -56,14 +56,14 @@
                 "integer",
                 "null"
               ],
-              "minimum": 0
+              "minimum": 1
             },
             "event_sequence_end": {
               "type": [
                 "integer",
                 "null"
               ],
-              "minimum": 0
+              "minimum": 1
             },
             "error": {
               "oneOf": [

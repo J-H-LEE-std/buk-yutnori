@@ -86,6 +86,39 @@ def validate_contracts() -> None:
                 raise AssertionError(f"{example_name}[{index}] failed: {details}")
         counts.append(f"{example_name}={len(examples)}")
 
+    server_event_validator = validator_for(SCHEMAS / "ws_server_event.schema.json")
+    zero_server_event = load_json(SCHEMAS / "examples" / "server_events.json")[0]
+    zero_server_event["sequence"] = 0
+    if server_event_validator.is_valid(zero_server_event):
+        raise AssertionError("server event sequence zero must be rejected")
+
+    unscoped_server_error = load_json(SCHEMAS / "examples" / "server_events.json")[-1]
+    unscoped_server_error.pop("room_id")
+    if server_event_validator.is_valid(unscoped_server_error):
+        raise AssertionError("server events must require room_id")
+
+    server_response_validator = validator_for(SCHEMAS / "ws_server_response.schema.json")
+    zero_event_range = load_json(SCHEMAS / "examples" / "server_responses.json")[0]
+    zero_event_range["payload"]["event_sequence_start"] = 0
+    zero_event_range["payload"]["event_sequence_end"] = 0
+    if server_response_validator.is_valid(zero_event_range):
+        raise AssertionError("command result event sequence zero must be rejected")
+
+    snapshot_validator = validator_for(SCHEMAS / "game_snapshot.schema.json")
+    zero_game_snapshot = load_json(SCHEMAS / "examples" / "game_snapshot.json")
+    zero_game_snapshot["sequence"] = 0
+    if snapshot_validator.is_valid(zero_game_snapshot):
+        raise AssertionError("game snapshot sequence zero must be rejected")
+
+    zero_chat_sequence = load_json(SCHEMAS / "examples" / "game_snapshot.json")
+    zero_chat_sequence["recent_chat"][0]["sequence"] = 0
+    if snapshot_validator.is_valid(zero_chat_sequence):
+        raise AssertionError("snapshot chat sequence zero must be rejected")
+
+    snapshot = load_json(SCHEMAS / "examples" / "game_snapshot.json")
+    if any(message["sequence"] > snapshot["sequence"] for message in snapshot["recent_chat"]):
+        raise AssertionError("snapshot chat sequence exceeds snapshot boundary")
+
     room_validator = validator_for(SCHEMAS / "room_settings.schema.json")
     room_settings = load_yaml(ROOT / "spec" / "room_settings.yaml")
     room_errors = sorted(
@@ -132,6 +165,7 @@ def validate_contracts() -> None:
         + " room_settings.yaml=1"
         + " ordinary_movement_spaces=do:1,gae:2,geol:3,yut:4,mo:5"
         + " storage_retry_delays=1,2,5"
+        + " room_sequence=event:1+,game_snapshot:1+,empty_boundary:0"
     )
 
 

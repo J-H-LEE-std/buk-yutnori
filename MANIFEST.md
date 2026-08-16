@@ -31,6 +31,7 @@
 - `adr/0004_c_raylib_wasm_client.md`: C raylib/WASM 클라이언트와 브라우저 경계
 - `adr/0005_http_google_auth_session_boundary.md`: Go HTTP Google 인증과 자체 세션 경계
 - `adr/0006_authenticated_websocket_transport.md`: 인증·origin·JSON WebSocket 전송 경계
+- `adr/0007_room_scoped_event_sequence.md`: 방 생명주기 단위 서버 이벤트 순서 경계
 - `development/git-workflow.md`: 브랜치·커밋·PR·리뷰·병합·릴리스 정본
 - `development/github-settings.md`: bootstrap과 GitHub 저장소 설정 초안
 
@@ -70,6 +71,7 @@
 - `internal/protocol/client_command.go`: v1 WebSocket client command 엄격한 decode 계약
 - `internal/protocol/server_response.go`: v1 `COMMAND_RESULT` 응답과 결과 불변조건
 - `internal/application/processor.go`: 인증 사용자 명령의 멱등 실행과 결과 보존 경계
+- `internal/application/room_event_sequences.go`: 방별 확정 이벤트 sequence 메모리 경계
 - `internal/application/unavailable_executor.go`: 방·경기 연결 전 일시적 명령 거부 어댑터
 - `internal/wsapi/handler.go`: 인증된 same-host WebSocket 전송 어댑터
 - `internal/wsapi/command_session.go`: 명령 처리와 응답 재전송 WebSocket 세션 루프

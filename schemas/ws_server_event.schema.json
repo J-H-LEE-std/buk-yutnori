@@ -10,7 +10,8 @@
       "type": "object",
       "required": [
         "direction",
-        "sequence"
+        "sequence",
+        "room_id"
       ],
       "properties": {
         "direction": {
@@ -21,7 +22,11 @@
         },
         "sequence": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 1
+        },
+        "room_id": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
