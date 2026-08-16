@@ -14,6 +14,18 @@
 
     * { box-sizing: border-box; }
 
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     body {
       margin: 0;
       min-height: 100vh;
@@ -67,6 +79,36 @@
       margin-top: 18px;
     }
 
+    .chat {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+      padding: 16px;
+      border: 1px solid #6f5b4e;
+      border-radius: 12px;
+      background: rgb(255 250 240 / 8%);
+    }
+
+    .chat h2 { margin: 0; font-size: 1.05rem; }
+
+    #chat-messages {
+      min-height: 96px;
+      max-height: 220px;
+      margin: 0;
+      padding: 12px 12px 12px 32px;
+      overflow-y: auto;
+      border-radius: 8px;
+      background: rgb(0 0 0 / 22%);
+    }
+
+    #chat-messages li { margin: 4px 0; overflow-wrap: anywhere; }
+
+    #chat-form {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+
     label { font-weight: 700; }
 
     input {
@@ -85,6 +127,7 @@
 
     #status { color: #d6c4b7; }
     #realtime-status { display: block; color: #d6c4b7; }
+    #chat-status { color: #d6c4b7; }
   </style>
 </head>
 <body>
@@ -108,6 +151,17 @@
       <output id="echo" for="ime-input" aria-live="polite"></output>
       <span id="status" role="status">WASM 초기화 중…</span>
     </section>
+    <section class="chat" aria-labelledby="chat-heading">
+      <h2 id="chat-heading">프로토타입 전체 채팅</h2>
+      <ol id="chat-messages" aria-live="polite" aria-label="채팅 메시지"></ol>
+      <form id="chat-form">
+        <label class="visually-hidden" for="chat-input">채팅 메시지</label>
+        <input id="chat-input" type="text" autocomplete="off"
+               placeholder="한국어 메시지 (최대 200자)" disabled>
+        <button id="chat-send" type="submit" disabled>전송</button>
+      </form>
+      <span id="chat-status" role="status">로그인 후 채팅할 수 있습니다.</span>
+    </section>
   </main>
 
   <script>
@@ -118,8 +172,18 @@
     const realtimeStatus = document.getElementById("realtime-status");
     const googleSignin = document.getElementById("google-signin");
     const logout = document.getElementById("logout");
+    const chatForm = document.getElementById("chat-form");
+    const chatInput = document.getElementById("chat-input");
+    const chatSend = document.getElementById("chat-send");
+    const chatMessages = document.getElementById("chat-messages");
+    const chatStatus = document.getElementById("chat-status");
+    const PROTOTYPE_ROOM_ID = "prototype-room";
+    const MAX_CHAT_CODE_POINTS = 200;
+    const MAX_RENDERED_CHAT_MESSAGES = 100;
     let composing = false;
+    let chatComposing = false;
     let realtimeSocket = null;
+    const pendingChatCommands = new Set();
 
     function isDOMTextInput(target) {
       return target instanceof Element && target.closest(
@@ -157,15 +221,24 @@
       realtimeSocket = socket;
       realtimeStatus.textContent = "실시간 서버 연결 중…";
       socket.addEventListener("open", () => {
-        if (realtimeSocket === socket) realtimeStatus.textContent = "실시간 서버 연결됨";
+        if (realtimeSocket !== socket) return;
+        realtimeStatus.textContent = "실시간 서버 연결됨";
+        setChatAvailable(true);
+        chatStatus.textContent = "prototype-room 전체 채팅에 연결됐습니다.";
       });
+      socket.addEventListener("message", (event) => { handleRealtimeMessage(socket, event); });
       socket.addEventListener("close", () => {
         if (realtimeSocket !== socket) return;
         realtimeSocket = null;
         realtimeStatus.textContent = "실시간 서버 연결 끊김";
+        setChatAvailable(false);
+        pendingChatCommands.clear();
+        chatStatus.textContent = "채팅 연결이 끊겼습니다.";
       });
       socket.addEventListener("error", () => {
-        if (realtimeSocket === socket) realtimeStatus.textContent = "실시간 서버 연결 실패";
+        if (realtimeSocket !== socket) return;
+        realtimeStatus.textContent = "실시간 서버 연결 실패";
+        setChatAvailable(false);
       });
     }
 
@@ -174,6 +247,53 @@
       realtimeSocket = null;
       if (socket) socket.close(1000, "logout");
       realtimeStatus.textContent = "로그인 후 실시간 연결";
+      setChatAvailable(false);
+      pendingChatCommands.clear();
+      chatStatus.textContent = "로그인 후 채팅할 수 있습니다.";
+    }
+
+    function setChatAvailable(available) {
+      chatInput.disabled = !available;
+      chatSend.disabled = !available;
+    }
+
+    function appendChatMessage(message) {
+      const item = document.createElement("li");
+      const sender = document.createElement("strong");
+      sender.textContent = message.sender_user_id;
+      item.append(sender, document.createTextNode(`: ${message.text}`));
+      chatMessages.append(item);
+      while (chatMessages.childElementCount > MAX_RENDERED_CHAT_MESSAGES) {
+        chatMessages.firstElementChild.remove();
+      }
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function handleRealtimeMessage(socket, event) {
+      if (realtimeSocket !== socket || typeof event.data !== "string") return;
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch (error) {
+        console.error("Invalid realtime JSON", error);
+        return;
+      }
+      if (message.version !== 1 || message.room_id !== PROTOTYPE_ROOM_ID) return;
+      if (message.direction === "server_event" && message.type === "CHAT_MESSAGE") {
+        const payload = message.payload;
+        if (!Number.isInteger(message.sequence) || message.sequence < 1
+            || typeof payload?.sender_user_id !== "string"
+            || typeof payload?.text !== "string") return;
+        appendChatMessage(payload);
+        return;
+      }
+      if (message.direction !== "server_response" || message.type !== "COMMAND_RESULT"
+          || !pendingChatCommands.delete(message.command_id)) return;
+      if (message.payload?.status === "accepted") {
+        chatStatus.textContent = "메시지가 서버에서 확정됐습니다.";
+      } else {
+        chatStatus.textContent = message.payload?.error?.message ?? "메시지가 거부됐습니다.";
+      }
     }
 
     function loadGoogleIdentityServices() {
@@ -295,6 +415,38 @@
     });
     input.addEventListener("input", () => {
       if (!composing) syncInputToWasm();
+    });
+
+    chatInput.addEventListener("compositionstart", () => { chatComposing = true; });
+    chatInput.addEventListener("compositionend", () => { chatComposing = false; });
+    chatInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (chatComposing || event.isComposing)) {
+        event.preventDefault();
+      }
+    });
+    chatForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const socket = realtimeSocket;
+      if (chatComposing || !socket || socket.readyState !== WebSocket.OPEN) return;
+      const text = chatInput.value;
+      const length = Array.from(text).length;
+      if (length < 1 || length > MAX_CHAT_CODE_POINTS) {
+        chatStatus.textContent = "채팅은 1자 이상 200자 이하로 입력하세요.";
+        return;
+      }
+      const commandID = crypto.randomUUID();
+      pendingChatCommands.add(commandID);
+      socket.send(JSON.stringify({
+        version: 1,
+        direction: "client_command",
+        type: "SEND_CHAT",
+        command_id: commandID,
+        room_id: PROTOTYPE_ROOM_ID,
+        payload: { text },
+      }));
+      chatInput.value = "";
+      chatStatus.textContent = "서버 확인 중…";
+      chatInput.focus();
     });
 
     var Module = {

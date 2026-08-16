@@ -47,9 +47,11 @@
   fail closed 처리한다.
 - WebSocket 압축은 벤치마크로 필요성이 확인되기 전까지 사용하지 않는다.
 - Milestone 2 멱등 application 기반 단계에서는 유효한 command를 인증된
-  `(user_id, command_id)` processor로 전달한다. 방·경기 executor가 아직 없는
-  command는 상태를 적용하지 않고 `APPLICATION_UNAVAILABLE` 일시적 거부를 반환한다.
-  이 응답은 `error.retriable=true`이므로 방 생명주기 결과로 보존하지 않는다.
+  `(user_id, command_id)` processor로 전달한다. `SEND_CHAT`은 고정
+  `prototype-room`의 메모리형 application executor가 처리하고, 로그인한 WebSocket
+  연결은 이 방의 event stream에 자동 구독한다. 그 밖의 방·경기 command는 상태를
+  적용하지 않고 `APPLICATION_UNAVAILABLE` 일시적 거부를 반환한다. 이 응답은
+  `error.retriable=true`이므로 방 생명주기 결과로 보존하지 않는다.
 
 라이브러리와 계층 분리 결정은
 `docs/adr/0006_authenticated_websocket_transport.md`를 따른다.
@@ -106,6 +108,7 @@
 - `GAME_PAUSED`
 - `GAME_RESUMED`
 - `GAME_ENDED`
+- `CHAT_MESSAGE`
 - `ERROR`
 
 ## 서버 권위형

@@ -97,6 +97,16 @@ def validate_contracts() -> None:
     if server_event_validator.is_valid(unscoped_server_error):
         raise AssertionError("server events must require room_id")
 
+    oversized_chat_event = load_json(SCHEMAS / "examples" / "server_events.json")[-2]
+    oversized_chat_event["payload"]["text"] = "가" * 201
+    if server_event_validator.is_valid(oversized_chat_event):
+        raise AssertionError("CHAT_MESSAGE over 200 code points must be rejected")
+
+    match_scoped_chat_event = load_json(SCHEMAS / "examples" / "server_events.json")[-2]
+    match_scoped_chat_event["match_id"] = "match-1"
+    if server_event_validator.is_valid(match_scoped_chat_event):
+        raise AssertionError("CHAT_MESSAGE must remain room-scoped")
+
     server_response_validator = validator_for(SCHEMAS / "ws_server_response.schema.json")
     zero_event_range = load_json(SCHEMAS / "examples" / "server_responses.json")[0]
     zero_event_range["payload"]["event_sequence_start"] = 0

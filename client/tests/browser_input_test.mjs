@@ -224,11 +224,34 @@ try {
       value: input.value,
       echo: document.getElementById("echo").textContent,
       realtimeStatus: document.getElementById("realtime-status").textContent,
+      chatDisabled: document.getElementById("chat-input").disabled,
+      chatSendDisabled: document.getElementById("chat-send").disabled,
+      chatStatus: document.getElementById("chat-status").textContent,
     };
   })()`);
   if (initial.value !== "가나다" || initial.echo !== "가나다"
-      || initial.realtimeStatus !== "로그인 후 실시간 연결") {
+      || initial.realtimeStatus !== "로그인 후 실시간 연결"
+      || !initial.chatDisabled || !initial.chatSendDisabled
+      || initial.chatStatus !== "로그인 후 채팅할 수 있습니다.") {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
+  }
+
+  const safeChat = await evaluate(`(() => {
+    appendChatMessage({
+      sender_user_id: "<img src=x onerror=alert(1)>",
+      text: "<script>globalThis.chatXss = true</" + "script>",
+    });
+    const messages = document.getElementById("chat-messages");
+    return {
+      text: messages.textContent,
+      imageCount: messages.querySelectorAll("img").length,
+      scriptCount: messages.querySelectorAll("script").length,
+      executed: globalThis.chatXss === true,
+    };
+  })()`);
+  if (safeChat.text !== "<img src=x onerror=alert(1)>: <script>globalThis.chatXss = true</script>"
+      || safeChat.imageCount !== 0 || safeChat.scriptCount !== 0 || safeChat.executed) {
+    throw new Error(`chat renderer did not preserve text safely: ${JSON.stringify(safeChat)}`);
   }
 
   await command("Input.dispatchKeyEvent", {

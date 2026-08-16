@@ -31,7 +31,8 @@ const (
 	CommandReconnect        CommandType = "RECONNECT"
 	CommandConfirmGameStart CommandType = "CONFIRM_GAME_START"
 
-	maxChatCodePoints = 200
+	// MaxChatCodePoints is the v1 SEND_CHAT and CHAT_MESSAGE text limit.
+	MaxChatCodePoints = 200
 )
 
 var ErrInvalidClientCommand = errors.New("invalid client command")
@@ -237,7 +238,7 @@ func decodePayload(commandType CommandType, raw json.RawMessage) (any, error) {
 		var payload struct {
 			Text *string `json:"text"`
 		}
-		if err := decodeStrict(raw, &payload); err != nil || payload.Text == nil || *payload.Text == "" || utf8.RuneCountInString(*payload.Text) > maxChatCodePoints {
+		if err := decodeStrict(raw, &payload); err != nil || payload.Text == nil || *payload.Text == "" || utf8.RuneCountInString(*payload.Text) > MaxChatCodePoints {
 			return nil, invalidCommand("invalid SEND_CHAT payload")
 		}
 		return SendChatPayload{Text: *payload.Text}, nil

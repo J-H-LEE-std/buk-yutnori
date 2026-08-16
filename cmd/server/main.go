@@ -51,17 +51,21 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	commandProcessor, err := application.NewProcessor(application.UnavailableExecutor{})
+	chatRoom, err := application.NewPrototypeChatRoom(application.NewRoomEventSequences(), time.Now)
 	if err != nil {
 		return err
 	}
-	commandSession, err := wsapi.NewCommandSession(commandProcessor)
+	commandProcessor, err := application.NewProcessor(chatRoom)
+	if err != nil {
+		return err
+	}
+	realtimeSession, err := wsapi.NewRealtimeSession(commandProcessor, chatRoom)
 	if err != nil {
 		return err
 	}
 	websocketHandler, err := wsapi.NewHandler(
 		authService,
-		commandSession,
+		realtimeSession,
 		wsapi.DefaultConfig(httpapi.SessionCookieName),
 	)
 	if err != nil {
@@ -92,6 +96,7 @@ func run() error {
 	}()
 
 	slog.Warn("using in-memory authentication store; sessions do not survive restart")
+	slog.Warn("using in-memory prototype chat room; messages do not survive restart", "room_id", application.PrototypeRoomID)
 	slog.Info("serving local prototype", "address", config.listenAddr, "web_root", config.webRoot)
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("serve HTTP: %w", err)
