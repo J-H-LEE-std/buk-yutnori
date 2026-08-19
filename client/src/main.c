@@ -55,6 +55,7 @@ const char *BukClientGetInput(void)
 int main(void)
 {
     BukClientStateInit(&client_state);
+    BukClientProtocolRuntimeInit();
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Buk Yutnori WASM prototype");
 

@@ -35,6 +35,7 @@
 - `adr/0008_in_memory_prototype_chat.md`: 고정 방 메모리 채팅과 WebSocket 방송 경계
 - `adr/0009_reconnect_synchronization_bundle.md`: 재접속 snapshot/event 번들과 클라이언트 staging
 - `adr/0010_chat_history_not_restored_on_reconnect.md`: 재접속 시 이전 채팅 기록 비복구 결정
+- `adr/0011_browser_reconnect_runtime.md`: 브라우저 backoff와 JavaScript/C sequence bridge
 - `development/git-workflow.md`: 브랜치·커밋·PR·리뷰·병합·릴리스 정본
 - `development/github-settings.md`: bootstrap과 GitHub 저장소 설정 초안
 
@@ -61,10 +62,12 @@
 - `client/include/buk_client/protocol_state.h`: 재접속 sequence staging 계약
 - `client/include/buk_client/state.h`: 브라우저 입력을 받는 표시 상태 계약
 - `client/src/protocol_state.c`: snapshot/event sequence 원자 적용 상태 구현
+- `client/src/protocol_bridge.c`: 10진 sequence C ABI와 protocol state runtime
 - `client/src/state.c`: raylib와 분리된 표시 상태 구현
 - `client/src/main.c`: raylib 프레임 콜백과 WASM 공개 함수
 - `client/tests/browser_input_test.mjs`: Chrome의 DOM 편집과 C/WASM 입력 동기화 회귀 테스트
 - `client/tests/protocol_state_test.c`: 재동기화 공백·중복·롤백 방지 테스트
+- `client/tests/protocol_bridge_test.c`: JavaScript/C sequence 문자열 경계 테스트
 - `client/tests/state_test.c`: UTF-8 입력 및 경계 단위 테스트
 - `client/web/shell.html`: 캔버스와 한글 IME HTML 셸
 

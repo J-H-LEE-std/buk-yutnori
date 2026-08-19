@@ -254,6 +254,385 @@ try {
     throw new Error(`chat renderer did not preserve text safely: ${JSON.stringify(safeChat)}`);
   }
 
+  const reconnectRuntime = await evaluate(`(() => {
+    Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    const initial = {
+      canSend: Module.ccall("BukClientCanSendStateCommands", "number", [], []),
+      lastSequence: Module.ccall("BukClientLastSequence", "string", [], []),
+    };
+    const began = Module.ccall("BukClientBeginSynchronization", "number", [], []);
+    const snapshot = Module.ccall(
+      "BukClientApplySnapshotSequence", "number", ["string"], ["41"],
+    );
+    const event = Module.ccall(
+      "BukClientApplyEventSequence", "number", ["string"], ["42"],
+    );
+    const completed = Module.ccall("BukClientCompleteSynchronization", "number", [], []);
+    const confirmed = {
+      canSend: Module.ccall("BukClientCanSendStateCommands", "number", [], []),
+      lastSequence: Module.ccall("BukClientLastSequence", "string", [], []),
+    };
+    Module.ccall("BukClientBeginSynchronization", "number", [], []);
+    Module.ccall("BukClientApplySnapshotSequence", "number", ["string"], ["50"]);
+    const gapAccepted = Module.ccall(
+      "BukClientApplyEventSequence", "number", ["string"], ["52"],
+    );
+    return {
+      initial,
+      began,
+      snapshot,
+      event,
+      completed,
+      confirmed,
+      gapAccepted,
+      requiresResync: Module.ccall("BukClientRequiresResynchronization", "number", [], []),
+      preservedSequence: Module.ccall("BukClientLastSequence", "string", [], []),
+      delays: Array.from({ length: 6 }, (_, attempt) => reconnectDelayForAttempt(attempt)),
+    };
+  })()`);
+  if (reconnectRuntime.initial.canSend !== 0 || reconnectRuntime.initial.lastSequence !== "0"
+      || reconnectRuntime.began !== 1 || reconnectRuntime.snapshot !== 1
+      || reconnectRuntime.event !== 1 || reconnectRuntime.completed !== 1
+      || reconnectRuntime.confirmed.canSend !== 1
+      || reconnectRuntime.confirmed.lastSequence !== "42"
+      || reconnectRuntime.gapAccepted !== 0 || reconnectRuntime.requiresResync !== 1
+      || reconnectRuntime.preservedSequence !== "42"
+      || JSON.stringify(reconnectRuntime.delays) !== "[250,500,1000,2000,5000,null]") {
+    throw new Error(`reconnect runtime boundary failed: ${JSON.stringify(reconnectRuntime)}`);
+  }
+
+  const synchronizationBundle = await evaluate(`(() => {
+    Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    const valid = applySynchronizationSequenceBundle({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: "sync-1",
+      room_id: "room-1",
+      match_id: "match-1",
+      payload: {
+        status: "accepted",
+        synchronization: {
+          snapshot: { room_id: "room-1", match_id: "match-1", sequence: 41 },
+          events: [{
+            version: 1,
+            direction: "server_event",
+            type: "PLAYER_RECONNECTED",
+            sequence: 42,
+            room_id: "room-1",
+            match_id: "match-1",
+            payload: {},
+          }],
+        },
+      },
+    });
+    const confirmed = Module.ccall("BukClientLastSequence", "string", [], []);
+    const gap = applySynchronizationSequenceBundle({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: "sync-2",
+      room_id: "room-1",
+      match_id: "match-1",
+      payload: {
+        status: "accepted",
+        synchronization: {
+          snapshot: { room_id: "room-1", match_id: "match-1", sequence: 50 },
+          events: [{
+            version: 1,
+            direction: "server_event",
+            type: "PLAYER_RECONNECTED",
+            sequence: 52,
+            room_id: "room-1",
+            match_id: "match-1",
+            payload: {},
+          }],
+        },
+      },
+    });
+    return {
+      valid,
+      confirmed,
+      gap,
+      requiresResync: Module.ccall("BukClientRequiresResynchronization", "number", [], []),
+      canSend: Module.ccall("BukClientCanSendStateCommands", "number", [], []),
+      preserved: Module.ccall("BukClientLastSequence", "string", [], []),
+    };
+  })()`);
+  if (!synchronizationBundle.valid || synchronizationBundle.confirmed !== "42"
+      || synchronizationBundle.gap || synchronizationBundle.requiresResync !== 1
+      || synchronizationBundle.canSend !== 0 || synchronizationBundle.preserved !== "42") {
+    throw new Error(`synchronization bundle validation failed: ${JSON.stringify(synchronizationBundle)}`);
+  }
+
+  const automaticReconnect = await evaluate(`new Promise((resolve, reject) => {
+    const originalWebSocket = globalThis.WebSocket;
+    const instances = [];
+    class FakeWebSocket extends EventTarget {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      constructor(url) {
+        super();
+        this.url = url;
+        this.readyState = FakeWebSocket.CONNECTING;
+        instances.push(this);
+      }
+      send() {}
+      close() { this.readyState = FakeWebSocket.CLOSED; }
+      open() {
+        this.readyState = FakeWebSocket.OPEN;
+        this.dispatchEvent(new Event("open"));
+      }
+      drop() {
+        this.readyState = FakeWebSocket.CLOSED;
+        this.dispatchEvent(new CloseEvent("close"));
+      }
+    }
+    globalThis.WebSocket = FakeWebSocket;
+    realtimeReconnectEnabled = true;
+    realtimeReconnectAttempt = 4;
+    clearRealtimeReconnectTimer();
+    realtimeSocket = null;
+    connectRealtime();
+    instances[0].open();
+    instances[0].drop();
+    const scheduledStatus = realtimeStatus.textContent;
+    setTimeout(() => {
+      try {
+        const result = {
+          instanceCount: instances.length,
+          scheduledStatus,
+          reconnectingState: instances[1]?.readyState,
+        };
+        disconnectRealtime();
+        globalThis.WebSocket = originalWebSocket;
+        resolve(result);
+      } catch (error) {
+        globalThis.WebSocket = originalWebSocket;
+        reject(error);
+      }
+    }, 350);
+  })`, true);
+  if (automaticReconnect.instanceCount !== 2
+      || automaticReconnect.scheduledStatus !== "실시간 서버 재연결 대기 (250ms)"
+      || automaticReconnect.reconnectingState !== 0) {
+    throw new Error(`automatic reconnect failed: ${JSON.stringify(automaticReconnect)}`);
+  }
+
+  const logoutCancelsReconnect = await evaluate(`new Promise((resolve, reject) => {
+    const originalWebSocket = globalThis.WebSocket;
+    const instances = [];
+    class FakeWebSocket extends EventTarget {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      constructor() {
+        super();
+        this.readyState = FakeWebSocket.CONNECTING;
+        instances.push(this);
+      }
+      send() {}
+      close() { this.readyState = FakeWebSocket.CLOSED; }
+      open() {
+        this.readyState = FakeWebSocket.OPEN;
+        this.dispatchEvent(new Event("open"));
+      }
+      drop() {
+        this.readyState = FakeWebSocket.CLOSED;
+        this.dispatchEvent(new CloseEvent("close"));
+      }
+    }
+    globalThis.WebSocket = FakeWebSocket;
+    realtimeReconnectEnabled = true;
+    realtimeReconnectAttempt = 0;
+    clearRealtimeReconnectTimer();
+    realtimeSocket = null;
+    connectRealtime();
+    instances[0].open();
+    instances[0].drop();
+    disconnectRealtime();
+    setTimeout(() => {
+      try {
+        const result = {
+          instanceCount: instances.length,
+          reconnectEnabled: realtimeReconnectEnabled,
+          timerCleared: realtimeReconnectTimer === null,
+        };
+        globalThis.WebSocket = originalWebSocket;
+        resolve(result);
+      } catch (error) {
+        globalThis.WebSocket = originalWebSocket;
+        reject(error);
+      }
+    }, 350);
+  })`, true);
+  if (logoutCancelsReconnect.instanceCount !== 1 || logoutCancelsReconnect.reconnectEnabled
+      || !logoutCancelsReconnect.timerCleared) {
+    throw new Error(`logout reconnect cancellation failed: ${JSON.stringify(logoutCancelsReconnect)}`);
+  }
+
+  const resyncRetry = await evaluate(`(() => {
+    const originalWebSocket = globalThis.WebSocket;
+    class CaptureWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      constructor() {
+        this.readyState = CaptureWebSocket.OPEN;
+        this.messages = [];
+      }
+      send(text) { this.messages.push(JSON.parse(text)); }
+      close() { this.readyState = CaptureWebSocket.CLOSED; }
+    }
+    globalThis.WebSocket = CaptureWebSocket;
+    const capture = new CaptureWebSocket();
+    realtimeSocket = capture;
+    Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    Module.ccall("BukClientBeginSynchronization", "number", [], []);
+    Module.ccall("BukClientApplySnapshotSequence", "number", ["string"], ["7"]);
+    Module.ccall("BukClientCompleteSynchronization", "number", [], []);
+    const scopeAccepted = setStateReconnectScope("room-1", "match-1");
+    const first = capture.messages[0];
+    const blockedBeforeSynchronization = sendStateChangingCommand({
+      version: 1,
+      direction: "client_command",
+      type: "SET_READY",
+      command_id: "blocked-command",
+      room_id: "room-1",
+      payload: { ready: true },
+    });
+    handleRealtimeMessage(capture, { data: JSON.stringify({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: first.command_id,
+      room_id: "room-1",
+      match_id: "match-1",
+      payload: {
+        status: "rejected",
+        event_sequence_start: null,
+        event_sequence_end: null,
+        error: { code: "RESYNC_REQUIRED", message: "retry", retriable: true },
+        synchronization: null,
+      },
+    }) });
+    const second = capture.messages[1];
+    handleRealtimeMessage(capture, { data: JSON.stringify({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: second.command_id,
+      room_id: "room-1",
+      match_id: "match-1",
+      payload: {
+        status: "accepted",
+        event_sequence_start: null,
+        event_sequence_end: null,
+        error: null,
+        synchronization: {
+          snapshot: { room_id: "room-1", match_id: "match-1", sequence: 8 },
+          events: [{
+            version: 1,
+            direction: "server_event",
+            type: "PLAYER_RECONNECTED",
+            sequence: 9,
+            room_id: "room-1",
+            match_id: "match-1",
+            payload: {},
+          }],
+        },
+      },
+    }) });
+    const syncRequestCount = capture.messages.length;
+    const sentAfterSynchronization = sendStateChangingCommand({
+      version: 1,
+      direction: "client_command",
+      type: "SET_READY",
+      command_id: "allowed-command",
+      room_id: "room-1",
+      payload: { ready: true },
+    });
+    const result = {
+      scopeAccepted,
+      blockedBeforeSynchronization,
+      syncRequestCount,
+      firstLastSequence: first.payload.last_sequence,
+      secondLastSequence: second.payload.last_sequence,
+      commandIDsDiffer: first.command_id !== second.command_id,
+      canSend: canSendStateChangingCommand(),
+      sentAfterSynchronization,
+      sentCommandType: capture.messages[2]?.type,
+      lastSequence: Module.ccall("BukClientLastSequence", "string", [], []),
+      status: realtimeStatus.textContent,
+    };
+    clearStateReconnectScope();
+    realtimeSocket = null;
+    globalThis.WebSocket = originalWebSocket;
+    return result;
+  })()`);
+  if (!resyncRetry.scopeAccepted || resyncRetry.blockedBeforeSynchronization
+      || resyncRetry.syncRequestCount !== 2
+      || resyncRetry.firstLastSequence !== 7 || resyncRetry.secondLastSequence !== 0
+      || !resyncRetry.commandIDsDiffer || !resyncRetry.canSend
+      || !resyncRetry.sentAfterSynchronization || resyncRetry.sentCommandType !== "SET_READY"
+      || resyncRetry.lastSequence !== "9"
+      || resyncRetry.status !== "실시간 서버 상태 동기화 완료") {
+    throw new Error(`RESYNC_REQUIRED retry failed: ${JSON.stringify(resyncRetry)}`);
+  }
+
+  const staleScopeResponse = await evaluate(`(() => {
+    const originalWebSocket = globalThis.WebSocket;
+    class CaptureWebSocket {
+      static OPEN = 1;
+      constructor() { this.readyState = CaptureWebSocket.OPEN; this.messages = []; }
+      send(text) { this.messages.push(JSON.parse(text)); }
+      close() {}
+    }
+    globalThis.WebSocket = CaptureWebSocket;
+    const capture = new CaptureWebSocket();
+    realtimeSocket = capture;
+    Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    setStateReconnectScope("room-old", "match-old");
+    const staleCommand = capture.messages[0];
+    setStateReconnectScope("room-new", "match-new");
+    handleRealtimeMessage(capture, { data: JSON.stringify({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: staleCommand.command_id,
+      room_id: "room-old",
+      match_id: "match-old",
+      payload: {
+        status: "accepted",
+        event_sequence_start: null,
+        event_sequence_end: null,
+        error: null,
+        synchronization: {
+          snapshot: { room_id: "room-old", match_id: "match-old", sequence: 1 },
+          events: [],
+        },
+      },
+    }) });
+    const result = {
+      requestCount: capture.messages.length,
+      pendingCount: pendingSynchronizationCommands.size,
+      lastSequence: Module.ccall("BukClientLastSequence", "string", [], []),
+      canSend: canSendStateChangingCommand(),
+    };
+    clearStateReconnectScope();
+    realtimeSocket = null;
+    globalThis.WebSocket = originalWebSocket;
+    return result;
+  })()`);
+  if (staleScopeResponse.requestCount !== 2 || staleScopeResponse.pendingCount !== 1
+      || staleScopeResponse.lastSequence !== "0" || staleScopeResponse.canSend) {
+    throw new Error(`stale reconnect scope response was applied: ${JSON.stringify(staleScopeResponse)}`);
+  }
+
   await command("Input.dispatchKeyEvent", {
     type: "keyDown",
     key: "Backspace",
@@ -278,7 +657,7 @@ try {
     throw new Error(`Backspace did not update DOM and C/WASM state: ${JSON.stringify(result)}`);
   }
 
-  console.log("BROWSER_INPUT_OK backspace=DOM->C/WASM->DOM");
+  console.log("BROWSER_INPUT_OK backspace=DOM->C/WASM->DOM reconnect=JS->C/WASM");
 } finally {
   socket.close();
 }

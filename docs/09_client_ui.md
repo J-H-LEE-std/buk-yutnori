@@ -45,6 +45,11 @@ WebSocket을 먼저 닫는다. application command와 JSON 전송은 셸이 소�
 C 프로토콜 상태 모듈이 event sequence와 재접속 snapshot의 원자적 적용 경계를
 검증한다. 재동기화가 완료되기 전에는 상태 변경 command를 보내지 않는다.
 
+예상하지 못한 연결 종료에서는 셸이 제한된 backoff로 새 WebSocket을 만들며,
+로그아웃에서는 재연결을 예약하지 않는다. JavaScript는 room/match routing과 bundle
+sequence를 먼저 검사한 뒤 10진 문자열 C ABI로 snapshot/event sequence를 staging한다.
+실패하면 기존 확정 표시 상태를 유지하고 상태 변경 UI를 잠근다.
+
 ## raylib/WASM 역할
 
 - 윷판 렌더링

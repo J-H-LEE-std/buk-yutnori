@@ -56,6 +56,29 @@
 라이브러리와 계층 분리 결정은
 `docs/adr/0006_authenticated_websocket_transport.md`를 따른다.
 
+### 브라우저 재연결 경계
+
+- 로그인 상태에서 예상하지 못한 WebSocket 종료가 발생하면 브라우저는 250ms,
+  500ms, 1초, 2초, 5초 뒤 순서대로 최대 5회 새 연결을 시도한다.
+- 연결에 성공하면 재시도 횟수를 초기화한다. 5회가 모두 실패하면 자동 재연결을
+  중단하고 사용자가 새로고침하도록 안내한다.
+- 로그아웃은 예약된 재연결을 취소하고 새 연결을 만들지 않는다.
+- 채팅 입력은 연결이 열려 있을 때만 허용한다. 이전 연결의 미확인 채팅 command를
+  새 연결에서 자동 재전송하지 않는다.
+- 진행 중 경기 scope가 설정된 클라이언트는 새 연결이 열린 뒤 마지막 확정
+  `sequence`로 `RECONNECT`를 보낸다. `RESYNC_REQUIRED`를 받으면 새 `command_id`와
+  `last_sequence=0`으로 전체 재동기화를 한 번만 다시 요청한다.
+- room/match scope가 바뀌면 이전 scope의 pending `RECONNECT`를 폐기한다. 응답은
+  command를 보낼 때 기록한 room/match와 일치할 때만 적용한다.
+- state-changing command는 C protocol state가 synchronization 완료를 확정한 뒤에만
+  허용한다. invalid bundle은 기존 확정 sequence를 유지하고 command gate를 잠근다.
+- JSON number와 WASM `uint64_t` 경계에서 정밀도를 잃지 않도록 sequence는
+  JavaScript와 C ABI 사이에서 10진 문자열로 전달한다.
+
+세부 결정은 `docs/adr/0011_browser_reconnect_runtime.md`를 따른다. 현재 Milestone 2
+서버에는 경기 scope와 snapshot 생성기가 없으므로 고정 채팅 prototype은 transport
+재연결만 실제 사용하고, `RECONNECT` 경계는 mock bundle 브라우저 테스트로 검증한다.
+
 ## 메시지 원칙
 
 이 절의 envelope는 WebSocket 메시지에만 적용한다. HTTP API 요청과 응답에는 적용하지 않는다.
