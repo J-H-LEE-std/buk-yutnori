@@ -180,10 +180,46 @@
     const PROTOTYPE_ROOM_ID = "prototype-room";
     const MAX_CHAT_CODE_POINTS = 200;
     const MAX_RENDERED_CHAT_MESSAGES = 100;
+    const REALTIME_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 5000];
     let composing = false;
     let chatComposing = false;
     let realtimeSocket = null;
+    let realtimeReconnectEnabled = false;
+    let realtimeReconnectAttempt = 0;
+    let realtimeReconnectTimer = null;
+    let stateReconnectScope = null;
+    let fullResynchronizationAttempted = false;
     const pendingChatCommands = new Set();
+    const pendingSynchronizationCommands = new Map();
+
+    function reconnectDelayForAttempt(attempt) {
+      if (!Number.isInteger(attempt) || attempt < 0
+          || attempt >= REALTIME_RECONNECT_DELAYS_MS.length) return null;
+      return REALTIME_RECONNECT_DELAYS_MS[attempt];
+    }
+
+    function clearRealtimeReconnectTimer() {
+      if (realtimeReconnectTimer === null) return;
+      clearTimeout(realtimeReconnectTimer);
+      realtimeReconnectTimer = null;
+    }
+
+    function scheduleRealtimeReconnect() {
+      if (!realtimeReconnectEnabled || realtimeReconnectTimer !== null) return false;
+      const delay = reconnectDelayForAttempt(realtimeReconnectAttempt);
+      if (delay === null) {
+        realtimeStatus.textContent = "실시간 서버 자동 재연결 중단";
+        chatStatus.textContent = "새로고침 후 다시 연결해 주세요.";
+        return false;
+      }
+      realtimeReconnectAttempt += 1;
+      realtimeStatus.textContent = `실시간 서버 재연결 대기 (${delay}ms)`;
+      realtimeReconnectTimer = setTimeout(() => {
+        realtimeReconnectTimer = null;
+        connectRealtime();
+      }, delay);
+      return true;
+    }
 
     function isDOMTextInput(target) {
       return target instanceof Element && target.closest(
@@ -207,6 +243,8 @@
       authStatus.textContent = `로그인됨: ${userId}`;
       googleSignin.hidden = true;
       logout.hidden = false;
+      realtimeReconnectEnabled = true;
+      realtimeReconnectAttempt = 0;
       connectRealtime();
     }
 
@@ -219,12 +257,16 @@
       const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
       const socket = new WebSocket(`${scheme}//${window.location.host}/api/v1/ws`);
       realtimeSocket = socket;
+      clearRealtimeReconnectTimer();
       realtimeStatus.textContent = "실시간 서버 연결 중…";
       socket.addEventListener("open", () => {
         if (realtimeSocket !== socket) return;
+        realtimeReconnectAttempt = 0;
+        fullResynchronizationAttempted = false;
         realtimeStatus.textContent = "실시간 서버 연결됨";
         setChatAvailable(true);
         chatStatus.textContent = "prototype-room 전체 채팅에 연결됐습니다.";
+        if (stateReconnectScope !== null) requestStateSynchronization(false);
       });
       socket.addEventListener("message", (event) => { handleRealtimeMessage(socket, event); });
       socket.addEventListener("close", () => {
@@ -233,7 +275,9 @@
         realtimeStatus.textContent = "실시간 서버 연결 끊김";
         setChatAvailable(false);
         pendingChatCommands.clear();
+        pendingSynchronizationCommands.clear();
         chatStatus.textContent = "채팅 연결이 끊겼습니다.";
+        scheduleRealtimeReconnect();
       });
       socket.addEventListener("error", () => {
         if (realtimeSocket !== socket) return;
@@ -244,12 +288,123 @@
 
     function disconnectRealtime() {
       const socket = realtimeSocket;
+      realtimeReconnectEnabled = false;
+      realtimeReconnectAttempt = 0;
+      clearRealtimeReconnectTimer();
       realtimeSocket = null;
       if (socket) socket.close(1000, "logout");
       realtimeStatus.textContent = "로그인 후 실시간 연결";
       setChatAvailable(false);
       pendingChatCommands.clear();
+      pendingSynchronizationCommands.clear();
       chatStatus.textContent = "로그인 후 채팅할 수 있습니다.";
+    }
+
+    function setStateReconnectScope(roomId, matchId) {
+      if (typeof roomId !== "string" || roomId.length < 1
+          || typeof matchId !== "string" || matchId.length < 1) return false;
+      pendingSynchronizationCommands.clear();
+      stateReconnectScope = { roomId, matchId };
+      fullResynchronizationAttempted = false;
+      Module.ccall("BukClientBeginSynchronization", "number", [], []);
+      if (realtimeSocket?.readyState === WebSocket.OPEN) {
+        requestStateSynchronization(false);
+      }
+      return true;
+    }
+
+    function clearStateReconnectScope() {
+      stateReconnectScope = null;
+      pendingSynchronizationCommands.clear();
+      fullResynchronizationAttempted = false;
+    }
+
+    function canSendStateChangingCommand() {
+      return realtimeSocket?.readyState === WebSocket.OPEN
+        && Module.ccall("BukClientCanSendStateCommands", "number", [], []) === 1;
+    }
+
+    function sendStateChangingCommand(command) {
+      if (!canSendStateChangingCommand() || command === null || typeof command !== "object") {
+        return false;
+      }
+      realtimeSocket.send(JSON.stringify(command));
+      return true;
+    }
+
+    function requestStateSynchronization(full) {
+      const socket = realtimeSocket;
+      if (stateReconnectScope === null || !socket || socket.readyState !== WebSocket.OPEN) {
+        return false;
+      }
+      const lastSequenceText = full
+        ? "0"
+        : Module.ccall("BukClientLastSequence", "string", [], []);
+      const lastSequence = Number(lastSequenceText);
+      if (!Number.isSafeInteger(lastSequence) || lastSequence < 0) return false;
+      Module.ccall("BukClientBeginSynchronization", "number", [], []);
+      const commandID = crypto.randomUUID();
+      pendingSynchronizationCommands.set(commandID, {
+        roomId: stateReconnectScope.roomId,
+        matchId: stateReconnectScope.matchId,
+      });
+      socket.send(JSON.stringify({
+        version: 1,
+        direction: "client_command",
+        type: "RECONNECT",
+        command_id: commandID,
+        room_id: stateReconnectScope.roomId,
+        match_id: stateReconnectScope.matchId,
+        payload: { last_sequence: lastSequence },
+      }));
+      return true;
+    }
+
+    function synchronizationSequences(message) {
+      if (message?.version !== 1 || message.direction !== "server_response"
+          || message.type !== "COMMAND_RESULT" || message.payload?.status !== "accepted"
+          || typeof message.room_id !== "string" || typeof message.match_id !== "string") {
+        return null;
+      }
+      const synchronization = message.payload?.synchronization;
+      const snapshot = synchronization?.snapshot;
+      const events = synchronization?.events;
+      if (!snapshot || !Array.isArray(events)
+          || snapshot.room_id !== message.room_id
+          || snapshot.match_id !== message.match_id
+          || !Number.isSafeInteger(snapshot.sequence) || snapshot.sequence < 1) return null;
+      const sequences = [];
+      let expected = snapshot.sequence;
+      for (const serverEvent of events) {
+        expected += 1;
+        if (serverEvent?.version !== 1 || serverEvent.direction !== "server_event"
+            || typeof serverEvent.type !== "string"
+            || !Number.isSafeInteger(serverEvent.sequence) || serverEvent.sequence !== expected
+            || serverEvent.room_id !== message.room_id
+            || (serverEvent.match_id != null && serverEvent.match_id !== message.match_id)) {
+          return null;
+        }
+        sequences.push(serverEvent.sequence);
+      }
+      return { snapshot: snapshot.sequence, events: sequences };
+    }
+
+    function applySynchronizationSequenceBundle(message) {
+      Module.ccall("BukClientBeginSynchronization", "number", [], []);
+      const sequences = synchronizationSequences(message);
+      if (sequences === null) {
+        Module.ccall("BukClientApplySnapshotSequence", "number", ["string"], ["0"]);
+        return false;
+      }
+      if (Module.ccall(
+        "BukClientApplySnapshotSequence", "number", ["string"], [String(sequences.snapshot)],
+      ) !== 1) return false;
+      for (const sequence of sequences.events) {
+        if (Module.ccall(
+          "BukClientApplyEventSequence", "number", ["string"], [String(sequence)],
+        ) !== 1) return false;
+      }
+      return Module.ccall("BukClientCompleteSynchronization", "number", [], []) === 1;
     }
 
     function setChatAvailable(available) {
@@ -278,7 +433,32 @@
         console.error("Invalid realtime JSON", error);
         return;
       }
-      if (message.version !== 1 || message.room_id !== PROTOTYPE_ROOM_ID) return;
+      if (message.version !== 1) return;
+      if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
+          && pendingSynchronizationCommands.has(message.command_id)) {
+        const expectedScope = pendingSynchronizationCommands.get(message.command_id);
+        pendingSynchronizationCommands.delete(message.command_id);
+        if (message.room_id !== expectedScope.roomId
+            || message.match_id !== expectedScope.matchId) {
+          Module.ccall("BukClientBeginSynchronization", "number", [], []);
+          Module.ccall("BukClientApplySnapshotSequence", "number", ["string"], ["0"]);
+          realtimeStatus.textContent = "실시간 서버 상태 동기화 실패";
+          return;
+        }
+        if (message.payload?.status === "accepted"
+            && applySynchronizationSequenceBundle(message)) {
+          fullResynchronizationAttempted = false;
+          realtimeStatus.textContent = "실시간 서버 상태 동기화 완료";
+        } else if (message.payload?.error?.code === "RESYNC_REQUIRED"
+                   && !fullResynchronizationAttempted) {
+          fullResynchronizationAttempted = true;
+          requestStateSynchronization(true);
+        } else {
+          realtimeStatus.textContent = "실시간 서버 상태 동기화 실패";
+        }
+        return;
+      }
+      if (message.room_id !== PROTOTYPE_ROOM_ID) return;
       if (message.direction === "server_event" && message.type === "CHAT_MESSAGE") {
         const payload = message.payload;
         if (!Number.isInteger(message.sequence) || message.sequence < 1
