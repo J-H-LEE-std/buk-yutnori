@@ -33,6 +33,8 @@
 - `adr/0006_authenticated_websocket_transport.md`: 인증·origin·JSON WebSocket 전송 경계
 - `adr/0007_room_scoped_event_sequence.md`: 방 생명주기 단위 서버 이벤트 순서 경계
 - `adr/0008_in_memory_prototype_chat.md`: 고정 방 메모리 채팅과 WebSocket 방송 경계
+- `adr/0009_reconnect_synchronization_bundle.md`: 재접속 snapshot/event 번들과 클라이언트 staging
+- `adr/0010_chat_history_not_restored_on_reconnect.md`: 재접속 시 이전 채팅 기록 비복구 결정
 - `development/git-workflow.md`: 브랜치·커밋·PR·리뷰·병합·릴리스 정본
 - `development/github-settings.md`: bootstrap과 GitHub 저장소 설정 초안
 
@@ -56,10 +58,13 @@
 - `client/Makefile`: C 네이티브 테스트와 raylib WebAssembly 빌드
 - `client/README.md`: 로컬 테스트·WASM 빌드 절차와 고정 도구 버전
 - `client/include/buk_client/bridge.h`: JavaScript에 공개하는 좁은 C ABI
+- `client/include/buk_client/protocol_state.h`: 재접속 sequence staging 계약
 - `client/include/buk_client/state.h`: 브라우저 입력을 받는 표시 상태 계약
+- `client/src/protocol_state.c`: snapshot/event sequence 원자 적용 상태 구현
 - `client/src/state.c`: raylib와 분리된 표시 상태 구현
 - `client/src/main.c`: raylib 프레임 콜백과 WASM 공개 함수
 - `client/tests/browser_input_test.mjs`: Chrome의 DOM 편집과 C/WASM 입력 동기화 회귀 테스트
+- `client/tests/protocol_state_test.c`: 재동기화 공백·중복·롤백 방지 테스트
 - `client/tests/state_test.c`: UTF-8 입력 및 경계 단위 테스트
 - `client/web/shell.html`: 캔버스와 한글 IME HTML 셸
 
@@ -70,6 +75,7 @@
 - `internal/auth/googleid/`: Google 공식 ID 토큰 검증 어댑터
 - `internal/httpapi/auth_handler.go`: 인증 JSON HTTP API와 hardened cookie
 - `internal/protocol/client_command.go`: v1 WebSocket client command 엄격한 decode 계약
+- `internal/protocol/reconnect_sync.go`: snapshot과 누락 event 재동기화 번들 검증
 - `internal/protocol/server_response.go`: v1 `COMMAND_RESULT` 응답과 결과 불변조건
 - `internal/protocol/server_event.go`: v1 `CHAT_MESSAGE` 서버 이벤트 계약
 - `internal/application/processor.go`: 인증 사용자 명령의 멱등 실행과 결과 보존 경계

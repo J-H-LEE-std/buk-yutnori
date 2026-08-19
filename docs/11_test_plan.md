@@ -145,6 +145,9 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 이벤트 순서
 - 새로고침 재접속
 - 스냅샷 sequence와 이후 누락 이벤트의 원자적 경계
+- snapshot보다 오래된 클라이언트 sequence, event 공백·중복·역전 시
+  `RESYNC_REQUIRED`와 기존 확정 상태 보존
+- 재동기화 staging 완료 전 command 전송 차단과 완료 시 sequence 원자 교체
 - 결과 토큰 ID와 생성 원인의 재접속 복구
 - 최소 명령·이벤트 예제의 JSON Schema 검증
 - 인증 WebSocket의 Origin 누락·cross-host·세션 누락·만료·저장 실패 거부

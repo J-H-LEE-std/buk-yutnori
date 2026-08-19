@@ -36,8 +36,5 @@
     {"group_id":"group-B-home","team_id":"B","space_id":"chammeogi","piece_ids":["B-1"]}
   ],
   "buk": {"enabled":true,"destination_space_id":"sok_yut"},
-  "pause": {"used":false,"paused":false,"ends_at":null},
-  "recent_chat": [
-    {"message_id":"chat-1","sequence":40,"sender_user_id":"user-s","sender_nickname":"구경꾼","text":"좋은 경기입니다.","sent_at":"2026-07-22T07:59:30Z"}
-  ]
+  "pause": {"used":false,"paused":false,"ends_at":null}
 }

@@ -12,7 +12,8 @@
       "status": "accepted",
       "event_sequence_start": 42,
       "event_sequence_end": 42,
-      "error": null
+      "error": null,
+      "synchronization": null
     }
   },
   {
@@ -32,7 +33,8 @@
         "code": "STORAGE_UNAVAILABLE",
         "message": "경기 저장소가 복구 중입니다.",
         "retriable": true
-      }
+      },
+      "synchronization": null
     }
   }
 ]

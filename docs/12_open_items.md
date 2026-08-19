@@ -8,8 +8,6 @@
 
 ## 프로토콜 세부 정책 미결정
 
-- sequence 공백 감지 시 재동기화 요청과 오류 코드
-- 최근 채팅 스냅샷의 정확한 개수와 페이지 경계
 - `ERROR` 이벤트의 표준 오류 코드 목록
 - WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
 
@@ -46,6 +44,5 @@
 - 닉네임 2~20 grapheme
 - 방 제목 1~50 grapheme
 - 방 비밀번호 최대 64자
-- 최근 채팅 재접속 복구 100개
 - 프로토콜 JSON
 - v1 DB SQLite. 단일 서버·로컬 디스크 전제가 깨지거나 부하 시험에서 전환 조건이 확인되면 PostgreSQL 재검토
