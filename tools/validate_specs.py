@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,38 @@ def validate_contracts() -> None:
         raise AssertionError("CHAT_MESSAGE must remain room-scoped")
 
     server_response_validator = validator_for(SCHEMAS / "ws_server_response.schema.json")
+    reconnect_response = deepcopy(load_json(SCHEMAS / "examples" / "server_responses.json")[0])
+    reconnect_response["request_id"] = "req-reconnect"
+    reconnect_response["command_id"] = "cmd-reconnect"
+    reconnect_response["payload"] = {
+        "status": "accepted",
+        "event_sequence_start": None,
+        "event_sequence_end": None,
+        "error": None,
+        "synchronization": {
+            "snapshot": load_json(SCHEMAS / "examples" / "game_snapshot.json"),
+            "events": [],
+        },
+    }
+    if not server_response_validator.is_valid(reconnect_response):
+        raise AssertionError("accepted RECONNECT synchronization must validate")
+
+    missing_synchronization = deepcopy(reconnect_response)
+    missing_synchronization["payload"].pop("synchronization")
+    if server_response_validator.is_valid(missing_synchronization):
+        raise AssertionError("COMMAND_RESULT must require synchronization")
+
+    rejected_with_synchronization = deepcopy(reconnect_response)
+    rejected_with_synchronization["payload"]["status"] = "rejected"
+    rejected_with_synchronization["payload"]["error"] = {
+        "code": "RESYNC_REQUIRED",
+        "message": "fresh synchronization is required",
+        "retriable": True,
+    }
+    if server_response_validator.is_valid(rejected_with_synchronization):
+        raise AssertionError("rejected COMMAND_RESULT must not contain synchronization")
+
+    server_response_validator = validator_for(SCHEMAS / "ws_server_response.schema.json")
     zero_event_range = load_json(SCHEMAS / "examples" / "server_responses.json")[0]
     zero_event_range["payload"]["event_sequence_start"] = 0
     zero_event_range["payload"]["event_sequence_end"] = 0
@@ -120,14 +153,10 @@ def validate_contracts() -> None:
     if snapshot_validator.is_valid(zero_game_snapshot):
         raise AssertionError("game snapshot sequence zero must be rejected")
 
-    zero_chat_sequence = load_json(SCHEMAS / "examples" / "game_snapshot.json")
-    zero_chat_sequence["recent_chat"][0]["sequence"] = 0
-    if snapshot_validator.is_valid(zero_chat_sequence):
-        raise AssertionError("snapshot chat sequence zero must be rejected")
-
-    snapshot = load_json(SCHEMAS / "examples" / "game_snapshot.json")
-    if any(message["sequence"] > snapshot["sequence"] for message in snapshot["recent_chat"]):
-        raise AssertionError("snapshot chat sequence exceeds snapshot boundary")
+    snapshot_with_chat = load_json(SCHEMAS / "examples" / "game_snapshot.json")
+    snapshot_with_chat["recent_chat"] = []
+    if snapshot_validator.is_valid(snapshot_with_chat):
+        raise AssertionError("game snapshot must not restore chat history")
 
     room_validator = validator_for(SCHEMAS / "room_settings.schema.json")
     room_settings = load_yaml(ROOT / "spec" / "room_settings.yaml")

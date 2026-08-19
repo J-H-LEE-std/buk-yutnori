@@ -16,11 +16,14 @@
 - 개인 음소거·차단·신고 없음
 - 채팅은 경기 로그와 함께 저장
 - 보존 기간은 미결정
+- 채팅은 부가 기능이며 새로고침·재접속 때 이전 채팅 목록을 복구하지 않는다.
+  새 연결은 연결 이후 확정된 메시지만 표시한다.
 
 Milestone 2 수직 프로토타입은 로그인한 연결을 고정 `prototype-room`에 자동
-구독시키며 메모리에서만 전달한다. 정식 방 membership, 닉네임 표시, 영구 로그와
-재접속 복구가 없는 운영 비대상 경계는
-`adr/0008_in_memory_prototype_chat.md`를 따른다.
+구독시키며 메모리에서만 전달한다. 정식 방 membership, 닉네임 표시와 영구 로그가
+없는 운영 비대상 경계는 `adr/0008_in_memory_prototype_chat.md`를 따른다. 채팅을
+재접속 snapshot에서 제외하는 제품 결정은
+`adr/0010_chat_history_not_restored_on_reconnect.md`를 따른다.
 
 ## 관전
 

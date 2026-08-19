@@ -32,9 +32,10 @@ Milestone 3 방 서버와 Milestone 5 영구 채팅 범위를 선행 구현하�
 - `CHAT_MESSAGE`는 stable `sender_user_id`만 포함한다. 정식 클라이언트는 향후 방의
   participant 상태에서 닉네임을 해석한다. 현재 프로토타입 UI는 내부 ID를 표시한다.
 - 브라우저는 메시지를 `textContent`로만 렌더링하며 최근 100개 DOM 항목만 유지한다.
-  이 제한은 재접속 recent-chat snapshot 개수 정책이 아니다.
+  이 제한은 현재 연결의 렌더링 메모리 경계이며 재접속 복구 개수가 아니다.
 - 인증과 채팅 상태는 모두 메모리형이며 서버 재시작 시 사라진다. 채팅 영구 저장과
-  replay는 SQLite event store 및 정식 방 생명주기와 함께 후속 구현한다.
+  보존은 SQLite event store 및 정식 방 생명주기와 함께 후속 구현할 수 있지만,
+  재접속 화면에 이전 채팅을 replay하지 않는 결정은 ADR-0010을 따른다.
 
 ## 채팅 제한
 

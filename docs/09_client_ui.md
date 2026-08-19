@@ -41,8 +41,9 @@ JavaScript와 C/WASM이 읽지 않는다. 인증 서버가 없는 정적 WASM �
 
 유효한 세션이 확인되면 HTML/JavaScript 셸이 현재 origin의 `/api/v1/ws`에 연결하고
 연결 중·연결됨·끊김·실패 상태를 접근성 DOM에 표시한다. 로그아웃 시 브라우저
-WebSocket을 먼저 닫는다. application command, event sequence와 재접속 스냅샷의
-의미는 C/WASM 표시 상태가 아니라 후속 프로토콜 모듈이 검증한다.
+WebSocket을 먼저 닫는다. application command와 JSON 전송은 셸이 소유하고, 별도
+C 프로토콜 상태 모듈이 event sequence와 재접속 snapshot의 원자적 적용 경계를
+검증한다. 재동기화가 완료되기 전에는 상태 변경 command를 보내지 않는다.
 
 ## raylib/WASM 역할
 

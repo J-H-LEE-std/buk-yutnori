@@ -37,14 +37,16 @@ type CommandOutcome struct {
 	EventSequenceStart *uint64
 	EventSequenceEnd   *uint64
 	Error              *CommandError
+	Synchronization    *ReconnectSynchronization
 }
 
 // CommandResultPayload is the v1 COMMAND_RESULT payload.
 type CommandResultPayload struct {
-	Status             CommandStatus `json:"status"`
-	EventSequenceStart *uint64       `json:"event_sequence_start"`
-	EventSequenceEnd   *uint64       `json:"event_sequence_end"`
-	Error              *CommandError `json:"error"`
+	Status             CommandStatus             `json:"status"`
+	EventSequenceStart *uint64                   `json:"event_sequence_start"`
+	EventSequenceEnd   *uint64                   `json:"event_sequence_end"`
+	Error              *CommandError             `json:"error"`
+	Synchronization    *ReconnectSynchronization `json:"synchronization"`
 }
 
 // CommandResult is the typed v1 server response for one client command.
@@ -67,7 +69,7 @@ func NewCommandResult(command ClientCommand, outcome CommandOutcome) (CommandRes
 	if err := validateResultCommand(command); err != nil {
 		return CommandResult{}, err
 	}
-	if err := validateCommandOutcome(outcome); err != nil {
+	if err := validateCommandOutcome(command, outcome); err != nil {
 		return CommandResult{}, err
 	}
 	return CommandResult{
@@ -84,6 +86,7 @@ func NewCommandResult(command ClientCommand, outcome CommandOutcome) (CommandRes
 			EventSequenceStart: clonePointer(outcome.EventSequenceStart),
 			EventSequenceEnd:   clonePointer(outcome.EventSequenceEnd),
 			Error:              clonePointer(outcome.Error),
+			Synchronization:    cloneReconnectSynchronization(outcome.Synchronization),
 		},
 	}, nil
 }
@@ -97,6 +100,7 @@ func (result CommandResult) Clone() CommandResult {
 	result.Payload.EventSequenceStart = clonePointer(result.Payload.EventSequenceStart)
 	result.Payload.EventSequenceEnd = clonePointer(result.Payload.EventSequenceEnd)
 	result.Payload.Error = clonePointer(result.Payload.Error)
+	result.Payload.Synchronization = cloneReconnectSynchronization(result.Payload.Synchronization)
 	return result
 }
 
@@ -118,7 +122,7 @@ func validateResultCommand(command ClientCommand) error {
 	return nil
 }
 
-func validateCommandOutcome(outcome CommandOutcome) error {
+func validateCommandOutcome(command ClientCommand, outcome CommandOutcome) error {
 	if (outcome.EventSequenceStart == nil) != (outcome.EventSequenceEnd == nil) {
 		return fmt.Errorf("%w: sequence range must contain both bounds", ErrInvalidCommandOutcome)
 	}
@@ -133,14 +137,41 @@ func validateCommandOutcome(outcome CommandOutcome) error {
 		if outcome.Error != nil {
 			return fmt.Errorf("%w: accepted result must not contain an error", ErrInvalidCommandOutcome)
 		}
+		if command.Type == CommandReconnect {
+			if outcome.Synchronization == nil {
+				return fmt.Errorf("%w: accepted RECONNECT requires synchronization", ErrInvalidCommandOutcome)
+			}
+			if outcome.EventSequenceStart != nil {
+				return fmt.Errorf("%w: synchronization does not consume event sequence", ErrInvalidCommandOutcome)
+			}
+			if err := validateReconnectSynchronization(command, *outcome.Synchronization); err != nil {
+				return fmt.Errorf("%w: %v", ErrInvalidCommandOutcome, err)
+			}
+		} else if outcome.Synchronization != nil {
+			return fmt.Errorf("%w: only RECONNECT may contain synchronization", ErrInvalidCommandOutcome)
+		}
 	case CommandRejected:
 		if outcome.Error == nil || outcome.Error.Code == "" || outcome.Error.Message == "" {
 			return fmt.Errorf("%w: rejected result requires a public error", ErrInvalidCommandOutcome)
+		}
+		if outcome.EventSequenceStart != nil {
+			return fmt.Errorf("%w: rejected result must not contain an event sequence range", ErrInvalidCommandOutcome)
+		}
+		if outcome.Synchronization != nil {
+			return fmt.Errorf("%w: rejected result must not contain synchronization", ErrInvalidCommandOutcome)
 		}
 	default:
 		return fmt.Errorf("%w: unknown status %q", ErrInvalidCommandOutcome, outcome.Status)
 	}
 	return nil
+}
+
+func cloneReconnectSynchronization(value *ReconnectSynchronization) *ReconnectSynchronization {
+	if value == nil {
+		return nil
+	}
+	cloned := value.Clone()
+	return &cloned
 }
 
 func clonePointer[T any](value *T) *T {

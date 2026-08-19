@@ -42,7 +42,8 @@
             "status",
             "event_sequence_start",
             "event_sequence_end",
-            "error"
+            "error",
+            "synchronization"
           ],
           "properties": {
             "status": {
@@ -93,8 +94,77 @@
                   }
                 }
               ]
+            },
+            "synchronization": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "snapshot",
+                    "events"
+                  ],
+                  "properties": {
+                    "snapshot": {
+                      "$ref": "game_snapshot.schema.json"
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "ws_server_event.schema.json"
+                      }
+                    }
+                  }
+                }
+              ]
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "rejected"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "synchronization": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "synchronization": {
+                    "type": "object"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "status": {
+                    "const": "accepted"
+                  },
+                  "event_sequence_start": {
+                    "type": "null"
+                  },
+                  "event_sequence_end": {
+                    "type": "null"
+                  },
+                  "error": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     }

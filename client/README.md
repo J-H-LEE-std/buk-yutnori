@@ -11,7 +11,8 @@ HTML/JavaScript 셸이 소유한다. C/WASM은 표시 상태, 렌더링과 애�
 make -C client test
 ```
 
-이 테스트에는 raylib나 Emscripten이 필요하지 않다.
+이 테스트에는 raylib나 Emscripten이 필요하지 않다. UTF-8 표시 상태와 함께 재접속
+snapshot/event sequence를 staging한 뒤 원자적으로 확정하는 프로토콜 상태를 검사한다.
 
 ## WebAssembly 빌드
 
@@ -62,7 +63,9 @@ processor로 전달한다. 서버가 확정한 `CHAT_MESSAGE`는 같은 방의 �
 
 채팅 이외의 방·경기 command에는 상태를 변경하지 않고 retriable
 `APPLICATION_UNAVAILABLE` `COMMAND_RESULT`를 반환한다. 정식 방 membership, 영구
-채팅 로그, sequence 재동기화와 자동 재접속은 후속 단계에서 추가한다.
+채팅 로그와 자동 재접속은 후속 단계에서 추가한다. 재동기화 JSON 응답 계약과 C의
+sequence staging 상태는 마련됐지만 현재 프로토타입 서버는 아직 game snapshot을
+생성하지 않는다.
 
 현재 서버는 메모리 인증 저장소를 사용하는 기술 프로토타입이다. 쿠키 만료는
 30일이지만 서버를 재시작하면 다시 로그인해야 한다. 운영 전에 SQLite 세션 저장소로

@@ -166,6 +166,9 @@ DB 저장 성공 뒤 sequence를 확정하고, 채팅은 전달 확정 시 seque
 - 응답의 `status`는 `accepted` 또는 `rejected`다.
 - 응답은 원래 `command_id`를 필수로 포함한다.
 - 명령이 서버 이벤트를 만들었다면 최초·마지막 sequence를 포함한다.
+- `RECONNECT`가 승인되면 이벤트 sequence 범위 대신 `synchronization`을 포함한다.
+  이 객체는 `game_snapshot` 하나와 그 스냅샷 경계 뒤의 연속된 `server_event`
+  배열을 가진다. 다른 명령의 응답과 거부 응답에서 `synchronization`은 `null`이다.
 - 중복 명령에는 최초 처리 때 저장한 동일 응답을 다시 보낸다. 중복 수신 자체로 새 sequence를 소비하지 않는다.
 - 명령이 아직 처리 중이면 같은 키의 동시 실행을 만들지 않고 최초 처리가 끝난 뒤 그 결과를 공유한다.
 
@@ -181,9 +184,11 @@ DB 저장 성공 뒤 sequence를 확정하고, 채팅은 전달 확정 시 seque
   - 남은 시간
   - 결과 큐
   - 말 위치
-  - 최근 채팅
   - 플레이어/관전자 권한
 - 전체 스냅샷과 누락 이벤트를 결합하는 방식을 기본으로 한다.
+- 채팅 기록은 authoritative game snapshot 복구 대상이 아니다. 새로고침이나 재접속
+  뒤에는 새 연결 이후의 `CHAT_MESSAGE`만 표시하며, 이전 채팅 목록이 비어 있어도
+  게임 상태 재동기화 실패로 취급하지 않는다.
 
 ### 스냅샷 계약
 
@@ -197,10 +202,20 @@ DB 저장 성공 뒤 sequence를 확정하고, 채팅은 전달 확정 시 seque
 - 모든 말의 상태, 현재 칸, 업기 묶음, 위치 그룹 및 `actual_previous_space`
 - 홈 체크포인트 상태와 북 목적지
 - 일시 정지 사용 여부와 종료 시각
-- 최근 채팅
 - 스냅샷 경계 `sequence`
 
 스냅샷은 해당 방의 `sequence`까지의 상태를 원자적으로 포함한다. 이후 누락 이벤트 스트림의 첫 이벤트는 반드시 `snapshot.sequence + 1`이어야 한다. 스냅샷 생성과 이벤트 조회 사이에 새 이벤트가 발생하더라도 서버는 같은 직렬화 경계에서 스냅샷을 만들고 그보다 큰 sequence만 반환해야 한다. 클라이언트는 공백이나 중복을 발견하면 해당 스냅샷을 적용하지 않고 재동기화를 요청한다.
+
+`RECONNECT`의 `last_sequence`가 서버 snapshot 경계보다 크거나 서버가 동일한
+`room_id`·`match_id`의 연속된 번들을 만들 수 없으면 `COMMAND_RESULT`를
+`RESYNC_REQUIRED`, `retriable=true`로 거부한다. 클라이언트는 기존 확정 표시 상태를
+유지한 채 새 `command_id`로 전체 재동기화를 요청한다. 승인된 재동기화 자체는 새
+room event sequence를 소비하지 않는다.
+
+클라이언트는 snapshot과 모든 후속 event의 routing 및 sequence를 먼저 staging한다.
+전체 번들이 검증된 뒤에만 표시 상태와 마지막 적용 sequence를 함께 교체한다. 검증
+중 공백, 중복, 역전 또는 이전 확정 sequence보다 오래된 snapshot을 발견하면 부분
+상태를 폐기하며 이미 확정된 표시 상태를 롤백하지 않는다.
 
 ## 다중 접속
 
