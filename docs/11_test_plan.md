@@ -129,14 +129,19 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 ## 방·네트워크
 
 - 같은 방 actor가 수락한 command를 동시에 실행하지 않고 admission 순서로 실행
+- 같은 방의 client command와 서버 소유 내부 상태 전이가 같은 mailbox에서 직렬 실행
 - 한 방의 실행이 막혀 있어도 다른 방 actor의 command는 독립적으로 완료
 - caller context가 admission 전에 취소되면 command를 실행하지 않음
 - actor가 수락한 command는 caller context 취소나 방 폐쇄로 중간 취소하지 않음
 - actor가 수락한 command context가 caller value를 보존하면서 취소와 deadline은 분리
+- actor가 수락한 내부 상태 전이는 제출자 context의 값을 보존하면서 취소와 deadline을
+  분리하고, 폐쇄 전 수락되지 않은 내부 상태 전이는 거부
 - 방 폐쇄 시작 뒤 새 command를 거부하고 현재 실행 완료 뒤 cleanup을 정확히 한 번 수행
 - `Close` 대기 context 만료가 actor 종료를 취소하지 않고 후속 `Close`가 같은 완료를 관찰
 - executor 또는 cleanup panic을 해당 방 terminal failure로 격리하고 다른 방과 서버
   프로세스에 전파하지 않음
+- 내부 상태 전이 panic은 해당 방 terminal failure로 격리하되 보통 error는 방을
+  자동 폐쇄하지 않고 제출자에게 반환
 - 새 플레이어의 준비 상태가 `false`로 시작
 - 방 설정 변경 뒤 기존 플레이어의 준비 상태 유지
 - 플레이어 입·퇴장과 미준비 플레이어의 팀 변경 뒤 남은 플레이어의 준비 상태 유지

@@ -48,6 +48,208 @@ func TestRoomActorSerializesAcceptedCommands(t *testing.T) {
 	}
 }
 
+func TestRoomActorSerializesCommandAndInternalOperation(t *testing.T) {
+	t.Parallel()
+
+	executor := &actorBlockingExecutor{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		events:  make(chan string, 1),
+	}
+	actor := mustRoomActor(t, "room-1", executor, func(domain.RoomID) {})
+	defer closeRoomActor(t, actor)
+
+	command := executeRoomCommand(actor, actorCommand("cmd-first", "room-1"))
+	receiveSignal(t, executor.started)
+	operationStarted := make(chan struct{})
+	operation := executeRoomOperation(actor, context.Background(), func(context.Context) error {
+		close(operationStarted)
+		return nil
+	})
+	assertNoSignal(t, operationStarted)
+
+	close(executor.release)
+	assertActorExecutionSucceeded(t, <-command)
+	receiveSignal(t, operationStarted)
+	if err := receiveError(t, operation); err != nil {
+		t.Fatalf("ExecuteInternal() error = %v", err)
+	}
+}
+
+func TestRoomActorOwnsAcceptedInternalOperationAfterCallerCancellation(t *testing.T) {
+	t.Parallel()
+
+	actor := mustRoomActor(t, "room-1", &actorImmediateExecutor{}, func(domain.RoomID) {})
+	defer closeRoomActor(t, actor)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	cancelled := make(chan struct{}, 1)
+	values := make(chan string, 1)
+	ctxWithValue := context.WithValue(context.Background(), actorContextKey("trace_id"), "trace-internal")
+	ctx, cancel := context.WithCancel(ctxWithValue)
+	result := executeRoomOperation(actor, ctx, func(operationCtx context.Context) error {
+		close(started)
+		value, _ := operationCtx.Value(actorContextKey("trace_id")).(string)
+		values <- value
+		select {
+		case <-operationCtx.Done():
+			cancelled <- struct{}{}
+			return operationCtx.Err()
+		case <-release:
+			return nil
+		}
+	})
+	receiveSignal(t, started)
+	if value := receiveString(t, values); value != "trace-internal" {
+		t.Fatalf("accepted internal context value = %q, want trace-internal", value)
+	}
+	cancel()
+	assertNoSignal(t, cancelled)
+	assertNoError(t, result)
+
+	close(release)
+	if err := receiveError(t, result); err != nil {
+		t.Fatalf("ExecuteInternal() error = %v", err)
+	}
+}
+
+func TestRoomActorCloseRejectsInternalOperationsAndCleansUpAfterAcceptedOperation(t *testing.T) {
+	t.Parallel()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	events := make(chan string, 2)
+	var calls atomic.Int32
+	var cleanupCalls atomic.Int32
+	actor := mustRoomActor(t, "room-1", &actorImmediateExecutor{}, func(domain.RoomID) {
+		cleanupCalls.Add(1)
+		events <- "cleanup"
+	})
+
+	accepted := executeRoomOperation(actor, context.Background(), func(context.Context) error {
+		calls.Add(1)
+		close(started)
+		<-release
+		events <- "operation-complete"
+		return nil
+	})
+	receiveSignal(t, started)
+	waiting := executeRoomOperation(actor, context.Background(), func(context.Context) error {
+		calls.Add(1)
+		return nil
+	})
+	assertNoError(t, waiting)
+	closed := make(chan error, 1)
+	go func() { closed <- actor.Close(context.Background()) }()
+	receiveSignal(t, actor.stopping)
+
+	if err := receiveError(t, waiting); !errors.Is(err, ErrRoomActorClosed) {
+		t.Fatalf("waiting ExecuteInternal() error = %v, want ErrRoomActorClosed", err)
+	}
+	if err := actor.ExecuteInternal(context.Background(), func(context.Context) error { return nil }); !errors.Is(err, ErrRoomActorClosed) {
+		t.Fatalf("ExecuteInternal() after Close() error = %v, want ErrRoomActorClosed", err)
+	}
+	assertNoError(t, closed)
+	close(release)
+	if err := receiveError(t, accepted); err != nil {
+		t.Fatalf("accepted ExecuteInternal() error = %v", err)
+	}
+	if event := receiveString(t, events); event != "operation-complete" {
+		t.Fatalf("first lifecycle event = %q, want operation-complete", event)
+	}
+	if event := receiveString(t, events); event != "cleanup" {
+		t.Fatalf("second lifecycle event = %q, want cleanup", event)
+	}
+	if err := receiveError(t, closed); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("internal operation calls = %d, want 1", got)
+	}
+	if got := cleanupCalls.Load(); got != 1 {
+		t.Fatalf("cleanup calls = %d, want 1", got)
+	}
+}
+
+func TestRoomActorContainsInternalOperationPanicAndClosesFailedRoom(t *testing.T) {
+	t.Parallel()
+
+	var cleanupCalls atomic.Int32
+	actor := mustRoomActor(t, "room-1", &actorImmediateExecutor{}, func(domain.RoomID) {
+		cleanupCalls.Add(1)
+	})
+
+	err := actor.ExecuteInternal(context.Background(), func(context.Context) error {
+		panic("internal operation failed")
+	})
+	if !errors.Is(err, ErrRoomActorPanicked) {
+		t.Fatalf("panicking ExecuteInternal() error = %v, want ErrRoomActorPanicked", err)
+	}
+	if _, err := actor.Execute(context.Background(), actorTestUser, actorCommand("cmd-late", "room-1")); !errors.Is(err, ErrRoomActorClosed) {
+		t.Fatalf("Execute() after internal panic error = %v, want ErrRoomActorClosed", err)
+	}
+	if err := actor.Close(context.Background()); !errors.Is(err, ErrRoomActorPanicked) {
+		t.Fatalf("Close() after internal panic error = %v, want ErrRoomActorPanicked", err)
+	}
+	if got := cleanupCalls.Load(); got != 1 {
+		t.Fatalf("cleanup calls after internal panic = %d, want 1", got)
+	}
+}
+
+func TestRoomActorReturnsInternalOperationErrorWithoutClosing(t *testing.T) {
+	t.Parallel()
+
+	actor := mustRoomActor(t, "room-1", &actorImmediateExecutor{}, func(domain.RoomID) {})
+	defer closeRoomActor(t, actor)
+	want := errors.New("transition rejected")
+
+	if err := actor.ExecuteInternal(context.Background(), func(context.Context) error { return want }); !errors.Is(err, want) {
+		t.Fatalf("ExecuteInternal() error = %v, want %v", err, want)
+	}
+	assertActorExecutionSucceeded(t, receiveActorExecutionResult(t, executeRoomCommand(actor, actorCommand("cmd-after-error", "room-1"))))
+}
+
+func TestRoomActorRejectsCanceledOrInvalidInternalOperation(t *testing.T) {
+	t.Parallel()
+
+	executor := &actorBlockingExecutor{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		events:  make(chan string, 1),
+	}
+	actor := mustRoomActor(t, "room-1", executor, func(domain.RoomID) {})
+	defer closeRoomActor(t, actor)
+
+	command := executeRoomCommand(actor, actorCommand("cmd-first", "room-1"))
+	receiveSignal(t, executor.started)
+	var calls atomic.Int32
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := actor.ExecuteInternal(canceled, func(context.Context) error {
+		calls.Add(1)
+		return nil
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled ExecuteInternal() error = %v, want context.Canceled", err)
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("canceled internal operation calls = %d, want 0", got)
+	}
+	if err := actor.ExecuteInternal(context.Background(), nil); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("nil ExecuteInternal() error = %v, want ErrInvalidConfiguration", err)
+	}
+	if err := actor.ExecuteInternal(nil, func(context.Context) error { return nil }); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("nil-context ExecuteInternal() error = %v, want ErrInvalidConfiguration", err)
+	}
+	var nilActor *RoomActor
+	if err := nilActor.ExecuteInternal(context.Background(), func(context.Context) error { return nil }); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("nil-actor ExecuteInternal() error = %v, want ErrInvalidConfiguration", err)
+	}
+
+	close(executor.release)
+	assertActorExecutionSucceeded(t, <-command)
+}
+
 func TestRoomActorCloseRejectsNewCommandsAndCleansUpAfterAcceptedExecution(t *testing.T) {
 	t.Parallel()
 
@@ -315,6 +517,14 @@ func executeRoomCommand(actor *RoomActor, command protocol.ClientCommand) <-chan
 	go func() {
 		outcome, err := actor.Execute(context.Background(), actorTestUser, command)
 		result <- actorExecutionResult{outcome: outcome, err: err}
+	}()
+	return result
+}
+
+func executeRoomOperation(actor *RoomActor, ctx context.Context, operation RoomActorOperation) <-chan error {
+	result := make(chan error, 1)
+	go func() {
+		result <- actor.ExecuteInternal(ctx, operation)
 	}()
 	return result
 }
