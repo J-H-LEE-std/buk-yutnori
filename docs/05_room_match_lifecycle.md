@@ -4,9 +4,12 @@
 
 - 살아 있는 방마다 application actor 하나가 해당 방의 authoritative command를
   직렬 실행한다.
+- 서버 소유 타이머 만료와 같은 내부 상태 전이도 타이머 goroutine에서 방 상태를
+  직접 변경하지 않고 같은 actor mailbox에 제출한다.
 - actor가 수락한 명령은 transport 연결 취소와 분리하여 결과 확정까지 실행한다.
+- actor가 수락한 내부 상태 전이도 제출자 취소와 분리하여 완료한다.
 - 방 폐쇄는 대기 중인 제출을 포함해 새 command admission을 먼저 중단하고 actor가
-  이미 수락한 현재 실행을 완료한 뒤
+  이미 수락한 현재 command 또는 내부 상태 전이를 완료한 뒤
   room-lifetime 멱등 결과와 sequence 경계를 정리한다.
 - 서로 다른 방의 actor는 독립적으로 실행한다.
 
