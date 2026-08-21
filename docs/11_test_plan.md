@@ -160,7 +160,8 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 예상하지 못한 WebSocket 종료 뒤 250ms, 500ms, 1초, 2초, 5초의 최대 5회 재연결
 - 연결 성공 시 backoff 초기화, 로그아웃 시 예약 취소, 한도 소진 뒤 자동 재연결 중단
 - JavaScript/C ABI의 10진 `uint64` sequence 경계와 invalid·overflow 문자열 거부
-- mock synchronization bundle의 routing·연속성 검증, invalid bundle에서 command gate 잠금
+- 실제 고정 prototype scope의 WebSocket snapshot 왕복과 새로고침 `last_sequence=0` 회귀
+- synchronization bundle의 routing·연속성 검증, invalid bundle에서 command gate 잠금
 - `RESYNC_REQUIRED`에 새 `command_id`, `last_sequence=0` 전체 재동기화 1회 재요청
 - room/match scope 변경 뒤 이전 pending response를 적용하지 않음
 - 결과 토큰 ID와 생성 원인의 재접속 복구

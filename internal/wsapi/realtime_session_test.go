@@ -95,6 +95,70 @@ func TestRealtimeSessionBroadcastsChatAndReplaysOnlyCommandResult(t *testing.T) 
 	assertNoWebSocketFrame(t, observer)
 }
 
+func TestRealtimeSessionResynchronizesPrototypeMatchOverWebSocket(t *testing.T) {
+	applicationRuntime, err := application.NewPrototypeRealtimeApplication(time.Now)
+	if err != nil {
+		t.Fatalf("NewPrototypeRealtimeApplication() error = %v", err)
+	}
+	defer func() {
+		if err := applicationRuntime.Close(context.Background()); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	}()
+	session, err := NewRealtimeSession(applicationRuntime.Processor(), applicationRuntime.ChatEvents())
+	if err != nil {
+		t.Fatalf("NewRealtimeSession() error = %v", err)
+	}
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, session, DefaultConfig(testCookieName))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client, _, err := dial(t, server.URL, server.URL, testRawToken)
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer client.CloseNow()
+
+	ahead := []byte(`{"version":1,"direction":"client_command","type":"RECONNECT","command_id":"sync-ahead","room_id":"prototype-room","match_id":"prototype-match","payload":{"last_sequence":2}}`)
+	var rejected protocol.CommandResult
+	readWebSocketJSON(t, client, ahead, &rejected)
+	if rejected.Payload.Status != protocol.CommandRejected || rejected.Payload.Error == nil ||
+		rejected.Payload.Error.Code != protocol.ErrorCodeResyncRequired || !rejected.Payload.Error.Retriable {
+		t.Fatalf("ahead result = %+v", rejected)
+	}
+
+	full := []byte(`{"version":1,"direction":"client_command","type":"RECONNECT","command_id":"sync-full","room_id":"prototype-room","match_id":"prototype-match","payload":{"last_sequence":0}}`)
+	var accepted protocol.CommandResult
+	readWebSocketJSON(t, client, full, &accepted)
+	if accepted.Payload.Status != protocol.CommandAccepted || accepted.Payload.Synchronization == nil ||
+		accepted.Payload.EventSequenceStart != nil || accepted.Payload.EventSequenceEnd != nil || accepted.Payload.Error != nil {
+		t.Fatalf("full result = %+v", accepted)
+	}
+	if len(accepted.Payload.Synchronization.Events) != 0 {
+		t.Fatalf("full synchronization events = %+v", accepted.Payload.Synchronization.Events)
+	}
+	var snapshot struct {
+		RoomID   string `json:"room_id"`
+		MatchID  string `json:"match_id"`
+		Sequence uint64 `json:"sequence"`
+		Status   string `json:"status"`
+	}
+	if err := json.Unmarshal(accepted.Payload.Synchronization.Snapshot, &snapshot); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if snapshot.RoomID != "prototype-room" || snapshot.MatchID != "prototype-match" || snapshot.Sequence != 1 || snapshot.Status != "starting" {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+
+	writeCommand(t, client, full)
+	var replay protocol.CommandResult
+	readWebSocketJSON(t, client, nil, &replay)
+	acceptedJSON, _ := json.Marshal(accepted)
+	replayJSON, _ := json.Marshal(replay)
+	if string(acceptedJSON) != string(replayJSON) {
+		t.Fatalf("WebSocket replay changed:\naccepted = %s\nreplay = %s", acceptedJSON, replayJSON)
+	}
+}
+
 func TestNewRealtimeSessionRejectsMissingDependencies(t *testing.T) {
 	room, err := application.NewPrototypeChatRoom(application.NewRoomEventSequences(), time.Now)
 	if err != nil {

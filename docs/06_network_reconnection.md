@@ -49,9 +49,10 @@
 - Milestone 2 멱등 application 기반 단계에서는 유효한 command를 인증된
   `(user_id, command_id)` processor로 전달한다. `SEND_CHAT`은 고정
   `prototype-room`의 메모리형 application executor가 처리하고, 로그인한 WebSocket
-  연결은 이 방의 event stream에 자동 구독한다. 그 밖의 방·경기 command는 상태를
-  적용하지 않고 `APPLICATION_UNAVAILABLE` 일시적 거부를 반환한다. 이 응답은
-  `error.retriable=true`이므로 방 생명주기 결과로 보존하지 않는다.
+  연결은 이 방의 event stream에 자동 구독한다. `RECONNECT`는 같은 방의 고정
+  `prototype-match` 최신 snapshot을 actor 경계 안에서 반환한다. 이 둘을 제외한
+  방·경기 command는 상태를 적용하지 않고 `APPLICATION_UNAVAILABLE` 일시적 거부를
+  반환한다. 이 응답은 `error.retriable=true`이므로 방 생명주기 결과로 보존하지 않는다.
 
 라이브러리와 계층 분리 결정은
 `docs/adr/0006_authenticated_websocket_transport.md`를 따른다.
@@ -75,9 +76,11 @@
 - JSON number와 WASM `uint64_t` 경계에서 정밀도를 잃지 않도록 sequence는
   JavaScript와 C ABI 사이에서 10진 문자열로 전달한다.
 
-세부 결정은 `docs/adr/0011_browser_reconnect_runtime.md`를 따른다. 현재 Milestone 2
-서버에는 경기 scope와 snapshot 생성기가 없으므로 고정 채팅 prototype은 transport
-재연결만 실제 사용하고, `RECONNECT` 경계는 mock bundle 브라우저 테스트로 검증한다.
+세부 결정은 `docs/adr/0011_browser_reconnect_runtime.md`와
+`docs/adr/0013_fixed_prototype_reconnect_runtime.md`를 따른다. 현재 Milestone 2
+브라우저는 인증과 WASM 준비 뒤 고정 `prototype-room`/`prototype-match` scope를
+설정하고 실제 WebSocket `RECONNECT`로 schema-valid 최신 snapshot을 적용한다. 정식
+방·경기 상태와 비어 있지 않은 replay event source는 Milestone 3 이후 구현이 대체한다.
 
 ## 메시지 원칙
 

@@ -51,15 +51,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	chatRoom, err := application.NewPrototypeChatRoom(application.NewRoomEventSequences(), time.Now)
+	prototypeRuntime, err := application.NewPrototypeRealtimeApplication(time.Now)
 	if err != nil {
 		return err
 	}
-	commandProcessor, err := application.NewProcessor(chatRoom)
-	if err != nil {
-		return err
-	}
-	realtimeSession, err := wsapi.NewRealtimeSession(commandProcessor, chatRoom)
+	defer func() {
+		closeContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if closeErr := prototypeRuntime.Close(closeContext); closeErr != nil {
+			slog.Error("prototype realtime application shutdown failed", "error", closeErr)
+		}
+	}()
+	realtimeSession, err := wsapi.NewRealtimeSession(prototypeRuntime.Processor(), prototypeRuntime.ChatEvents())
 	if err != nil {
 		return err
 	}
@@ -96,7 +99,11 @@ func run() error {
 	}()
 
 	slog.Warn("using in-memory authentication store; sessions do not survive restart")
-	slog.Warn("using in-memory prototype chat room; messages do not survive restart", "room_id", application.PrototypeRoomID)
+	slog.Warn(
+		"using in-memory prototype room and reconnect snapshot; state does not survive restart",
+		"room_id", application.PrototypeRoomID,
+		"match_id", application.PrototypeMatchID,
+	)
 	slog.Info("serving local prototype", "address", config.listenAddr, "web_root", config.webRoot)
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("serve HTTP: %w", err)

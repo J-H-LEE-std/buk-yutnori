@@ -63,3 +63,5 @@ Milestone 3 방 서버와 Milestone 5 영구 채팅 범위를 선행 구현하�
   sequence를 만들지 않는다.
 - 고정 방, 내부 ID 표시, 메모리 저장은 프로토타입 한계이며 운영 배포 대상이 아니다.
 - 이 ADR은 정식 방 actor/goroutine 모델 미결정 항목을 해소하지 않는다.
+- 후속 ADR-0012는 actor 경계를 정했고, ADR-0013은 이 채팅 방과 별도의 고정 경기
+  snapshot source를 같은 actor에 조합한다. 채팅 기록 비복구 결정은 그대로 유지한다.
