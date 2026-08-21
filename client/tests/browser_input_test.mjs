@@ -365,6 +365,89 @@ try {
     throw new Error(`synchronization bundle validation failed: ${JSON.stringify(synchronizationBundle)}`);
   }
 
+  const prototypeRefreshSynchronization = await evaluate(`(() => {
+    const originalWebSocket = globalThis.WebSocket;
+    const instances = [];
+    class CaptureWebSocket extends EventTarget {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+      constructor(url) {
+        super();
+        this.url = url;
+        this.readyState = CaptureWebSocket.CONNECTING;
+        this.messages = [];
+        instances.push(this);
+      }
+      send(text) { this.messages.push(JSON.parse(text)); }
+      close() { this.readyState = CaptureWebSocket.CLOSED; }
+      open() {
+        this.readyState = CaptureWebSocket.OPEN;
+        this.dispatchEvent(new Event("open"));
+      }
+    }
+    globalThis.WebSocket = CaptureWebSocket;
+    realtimeSocket = null;
+    clearRealtimeReconnectTimer();
+    clearStateReconnectScope();
+    Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    wasmRuntimeReady = true;
+    authenticatedUserId = null;
+    showAuthenticated("usr_EREREREREREREREREREREQ");
+    const capture = instances[0];
+    capture.open();
+    const reconnect = capture.messages[0];
+    const blockedBeforeResponse = sendStateChangingCommand({ type: "SET_READY" });
+    handleRealtimeMessage(capture, { data: JSON.stringify({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: reconnect.command_id,
+      room_id: "prototype-room",
+      match_id: "prototype-match",
+      payload: {
+        status: "accepted",
+        event_sequence_start: null,
+        event_sequence_end: null,
+        error: null,
+        synchronization: {
+          snapshot: { room_id: "prototype-room", match_id: "prototype-match", sequence: 1 },
+          events: [],
+        },
+      },
+    }) });
+    const result = {
+      instanceCount: instances.length,
+      requestType: reconnect?.type,
+      roomId: reconnect?.room_id,
+      matchId: reconnect?.match_id,
+      lastSequence: reconnect?.payload?.last_sequence,
+      blockedBeforeResponse,
+      pendingCount: pendingSynchronizationCommands.size,
+      confirmedSequence: Module.ccall("BukClientLastSequence", "string", [], []),
+      canSend: canSendStateChangingCommand(),
+      status: realtimeStatus.textContent,
+    };
+    disconnectRealtime();
+    authenticatedUserId = null;
+    clearStateReconnectScope();
+    globalThis.WebSocket = originalWebSocket;
+    return result;
+  })()`);
+  if (prototypeRefreshSynchronization.instanceCount !== 1
+      || prototypeRefreshSynchronization.requestType !== "RECONNECT"
+      || prototypeRefreshSynchronization.roomId !== "prototype-room"
+      || prototypeRefreshSynchronization.matchId !== "prototype-match"
+      || prototypeRefreshSynchronization.lastSequence !== 0
+      || prototypeRefreshSynchronization.blockedBeforeResponse
+      || prototypeRefreshSynchronization.pendingCount !== 0
+      || prototypeRefreshSynchronization.confirmedSequence !== "1"
+      || !prototypeRefreshSynchronization.canSend
+      || prototypeRefreshSynchronization.status !== "실시간 서버 상태 동기화 완료") {
+    throw new Error(`prototype refresh synchronization failed: ${JSON.stringify(prototypeRefreshSynchronization)}`);
+  }
+
   const automaticReconnect = await evaluate(`new Promise((resolve, reject) => {
     const originalWebSocket = globalThis.WebSocket;
     const instances = [];
@@ -657,7 +740,7 @@ try {
     throw new Error(`Backspace did not update DOM and C/WASM state: ${JSON.stringify(result)}`);
   }
 
-  console.log("BROWSER_INPUT_OK backspace=DOM->C/WASM->DOM reconnect=JS->C/WASM");
+  console.log("BROWSER_INPUT_OK backspace=DOM->C/WASM->DOM reconnect=prototype-scope->JS->C/WASM");
 } finally {
   socket.close();
 }

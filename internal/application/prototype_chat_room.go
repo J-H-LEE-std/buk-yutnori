@@ -117,7 +117,7 @@ func (room *PrototypeChatRoom) Execute(ctx context.Context, user auth.User, comm
 		return (UnavailableExecutor{}).Execute(ctx, user, command)
 	}
 	if command.RoomID != PrototypeRoomID {
-		return rejectedChat("ROOM_NOT_FOUND", "prototype room not found", true), nil
+		return rejectedPrototypeCommand("ROOM_NOT_FOUND", "prototype room not found", true), nil
 	}
 	payload, ok := command.Payload.(protocol.SendChatPayload)
 	if !ok || payload.Text == "" || utf8.RuneCountInString(payload.Text) > protocol.MaxChatCodePoints {
@@ -140,21 +140,21 @@ func (room *PrototypeChatRoom) Execute(ctx context.Context, user auth.User, comm
 	}
 	state.lastObservedAt = now
 	if now.Before(state.blockedUntil) {
-		return rejectedChat("CHAT_BLOCKED", "chat is temporarily blocked", true), nil
+		return rejectedPrototypeCommand("CHAT_BLOCKED", "chat is temporarily blocked", true), nil
 	}
 
 	state.attempts = timestampsAfter(state.attempts, now.Add(-chatAttemptWindow))
 	state.attempts = append(state.attempts, now)
 	if len(state.attempts) > chatAttemptLimit {
 		state.blockedUntil = now.Add(chatBlockDuration)
-		return rejectedChat("CHAT_BLOCKED", "chat is temporarily blocked", true), nil
+		return rejectedPrototypeCommand("CHAT_BLOCKED", "chat is temporarily blocked", true), nil
 	}
 	if payload.Text == state.lastAcceptedText && !state.lastAcceptedAt.IsZero() && now.Sub(state.lastAcceptedAt) < chatDuplicateWindow {
-		return rejectedChat("CHAT_DUPLICATE", "duplicate chat message", true), nil
+		return rejectedPrototypeCommand("CHAT_DUPLICATE", "duplicate chat message", true), nil
 	}
 	state.accepted = timestampsAfter(state.accepted, now.Add(-chatSecondWindow))
 	if len(state.accepted) >= chatPerSecondLimit {
-		return rejectedChat("CHAT_RATE_LIMITED", "chat rate limit exceeded", true), nil
+		return rejectedPrototypeCommand("CHAT_RATE_LIMITED", "chat rate limit exceeded", true), nil
 	}
 
 	sequence, err := room.sequences.CommitNext(PrototypeRoomID)
@@ -223,13 +223,6 @@ func timestampsAfter(values []time.Time, cutoff time.Time) []time.Time {
 		first++
 	}
 	return append(values[:0], values[first:]...)
-}
-
-func rejectedChat(code, message string, retriable bool) protocol.CommandOutcome {
-	return protocol.CommandOutcome{
-		Status: protocol.CommandRejected,
-		Error:  &protocol.CommandError{Code: code, Message: message, Retriable: retriable},
-	}
 }
 
 func uint64Pointer(value uint64) *uint64 {

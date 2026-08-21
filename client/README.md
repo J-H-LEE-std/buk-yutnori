@@ -62,13 +62,16 @@ processor로 전달한다. 서버가 확정한 `CHAT_MESSAGE`는 같은 방의 �
 전달되고 셸은 내용을 DOM `textContent`로 렌더링한다. 닉네임 경계가 아직 없으므로
 현재 발신자는 내부 `user_id`로 표시한다.
 
-채팅 이외의 방·경기 command에는 상태를 변경하지 않고 retriable
+브라우저는 인증과 WASM 준비가 끝나면 `prototype-room`/`prototype-match`를 실제
+재접속 scope로 설정한다. 새 연결에서는 마지막 확정 sequence로 `RECONNECT`를 보내고,
+새로고침 직후에는 `last_sequence=0`에서 고정 `starting` snapshot을 적용한다. 적용이
+완료되기 전 state-changing command gate는 닫혀 있다. 예상하지 못한 WebSocket 종료는
+최대 5회의 제한된 backoff로 새 연결을 만든다.
+
+`SEND_CHAT`과 `RECONNECT` 이외의 방·경기 command에는 상태를 변경하지 않고 retriable
 `APPLICATION_UNAVAILABLE` `COMMAND_RESULT`를 반환한다. 정식 방 membership, 영구
-채팅 로그와 실제 game snapshot 서버는 후속 단계에서 추가한다. 재동기화 JSON 응답
-계약과 C의 sequence staging 상태는 마련됐지만 현재 프로토타입 서버는 아직 game
-snapshot을 생성하지 않는다. 예상하지 못한 WebSocket 종료는 최대 5회의 제한된
-backoff로 새 연결을 만들며, 현재 고정 채팅 room은 새 연결 이후 메시지만 계속
-수신한다.
+채팅 로그, 참가자·게임 상태 snapshot과 event replay는 후속 단계에서 고정 prototype을
+대체한다. 이전 채팅은 재접속 snapshot에 포함하지 않고 새 연결 뒤 메시지만 표시한다.
 
 현재 서버는 메모리 인증 저장소를 사용하는 기술 프로토타입이다. 쿠키 만료는
 30일이지만 서버를 재시작하면 다시 로그인해야 한다. 운영 전에 SQLite 세션 저장소로

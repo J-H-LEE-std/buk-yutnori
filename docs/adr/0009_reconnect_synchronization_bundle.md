@@ -33,5 +33,6 @@
   추가로 검사한다.
 - C 프로토콜 상태 모듈은 raylib 렌더링과 분리된 네이티브 테스트로 부분 적용과
   롤백을 방지한다.
-- 실제 snapshot 생성, event 저장·조회, 브라우저 backoff와 WebSocket 통합은 Issue
-  #48의 후속 구현이며 정식 room actor와 SQLite 저장 결정은 각각 별도 ADR을 따른다.
+- 브라우저 backoff는 ADR-0011, room actor는 ADR-0012, 고정 scope의 실제 snapshot과
+  WebSocket 통합은 ADR-0013에서 구현한다. 정식 event 저장·조회는 후속 SQLite 저장
+  결정과 room/match application이 이 prototype을 대체할 때 연결한다.

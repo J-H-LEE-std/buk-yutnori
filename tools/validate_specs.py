@@ -68,6 +68,7 @@ def validate_contracts() -> None:
         ("ws_server_response.schema.json", "server_responses.json"),
         ("ws_server_event.schema.json", "server_events.json"),
         ("game_snapshot.schema.json", "game_snapshot.json"),
+        ("game_snapshot.schema.json", "prototype_game_snapshot.json"),
         ("http_auth.schema.json", "http_auth.json"),
     ]
     counts: list[str] = []

@@ -178,6 +178,7 @@
     const chatMessages = document.getElementById("chat-messages");
     const chatStatus = document.getElementById("chat-status");
     const PROTOTYPE_ROOM_ID = "prototype-room";
+    const PROTOTYPE_MATCH_ID = "prototype-match";
     const MAX_CHAT_CODE_POINTS = 200;
     const MAX_RENDERED_CHAT_MESSAGES = 100;
     const REALTIME_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 5000];
@@ -189,6 +190,8 @@
     let realtimeReconnectTimer = null;
     let stateReconnectScope = null;
     let fullResynchronizationAttempted = false;
+    let authenticatedUserId = null;
+    let wasmRuntimeReady = false;
     const pendingChatCommands = new Set();
     const pendingSynchronizationCommands = new Map();
 
@@ -243,8 +246,10 @@
       authStatus.textContent = `로그인됨: ${userId}`;
       googleSignin.hidden = true;
       logout.hidden = false;
+      authenticatedUserId = userId;
       realtimeReconnectEnabled = true;
       realtimeReconnectAttempt = 0;
+      activatePrototypeReconnectScope();
       connectRealtime();
     }
 
@@ -317,6 +322,13 @@
       stateReconnectScope = null;
       pendingSynchronizationCommands.clear();
       fullResynchronizationAttempted = false;
+    }
+
+    function activatePrototypeReconnectScope() {
+      if (!wasmRuntimeReady || authenticatedUserId === null) return false;
+      if (stateReconnectScope?.roomId === PROTOTYPE_ROOM_ID
+          && stateReconnectScope?.matchId === PROTOTYPE_MATCH_ID) return true;
+      return setStateReconnectScope(PROTOTYPE_ROOM_ID, PROTOTYPE_MATCH_ID);
     }
 
     function canSendStateChangingCommand() {
@@ -561,6 +573,8 @@
         });
         if (!response.ok) throw new Error("Logout rejected");
         disconnectRealtime();
+        authenticatedUserId = null;
+        clearStateReconnectScope();
         logout.hidden = true;
         googleSignin.hidden = false;
         googleSignin.replaceChildren();
@@ -634,6 +648,8 @@
       print: (...args) => console.log(...args),
       printErr: (...args) => console.error(...args),
       onRuntimeInitialized: () => {
+        wasmRuntimeReady = true;
+        activatePrototypeReconnectScope();
         input.disabled = false;
         status.textContent = "WASM 준비 완료";
         input.focus();

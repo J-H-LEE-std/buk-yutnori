@@ -29,13 +29,15 @@ Milestone 2 서버는 아직 authoritative 경기 상태나 snapshot 생성기�
   `RESYNC_REQUIRED`는 새 `command_id`와 `last_sequence=0`으로 한 번만 재요청한다.
 - scope 변경은 이전 pending command를 폐기하며, response는 command 전송 시 기록한
   room/match와 일치할 때만 적용한다.
-- 현재 prototype에는 경기 scope가 없으므로 실제 서버에는 `RECONNECT`를 보내지 않는다.
-  C/JS bundle 경계는 mock response를 사용하는 Chrome headless 회귀로 검증한다.
+- ADR-0013의 고정 `prototype-room`/`prototype-match`가 활성화된 뒤에는 인증과 WASM
+  준비가 모두 끝난 브라우저가 실제 서버에 `RECONNECT`를 보낸다. C/JS bundle 경계의
+  malformed·연속성 검사는 mock response로, 실제 scope 활성화와 새로고침 요청은
+  Chrome headless 회귀와 WebSocket 통합 테스트로 검증한다.
 
 ## 결과
 
 - 채팅 WebSocket은 일시적 연결 종료 뒤 자동으로 다시 연결될 수 있다.
-- 향후 room/match UI는 동일한 bridge와 command gate를 사용해 server snapshot runtime에
-  연결할 수 있다.
-- 실제 snapshot 생성과 replay가 추가되기 전까지 이 ADR은 Issue #48 전체 완료를
-  의미하지 않는다.
+- 향후 정식 room/match UI는 동일한 bridge와 command gate를 사용해 registry가 제공하는
+  server snapshot runtime에 연결할 수 있다.
+- 현재 고정 scope의 실제 snapshot 배선은 ADR-0013이 완성하며, 정식 참가자·경기 상태와
+  비어 있지 않은 replay source는 Milestone 3 이후 이 prototype을 대체한다.
