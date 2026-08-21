@@ -142,6 +142,15 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
   프로세스에 전파하지 않음
 - 내부 상태 전이 panic은 해당 방 terminal failure로 격리하되 보통 error는 방을
   자동 폐쇄하지 않고 제출자에게 반환
+- 서버 절대 deadline과 현재 단조 시각의 차이를 정확한 timer duration으로 사용하고
+  아직 timer가 발화하지 않았으면 내부 상태 전이를 실행하지 않음
+- 이미 지난 deadline을 0 duration으로 제한해 즉시 만료 대상으로 처리
+- deadline 또는 actor admission 대기 중 취소는 operation 실행을 막지만 actor가 이미
+  수락한 operation은 취소하거나 롤백하지 않음
+- deadline `Wait` context 취소는 예약 자체를 취소하지 않고, 다중 `Wait`가 같은 terminal
+  결과를 관찰
+- 방 폐쇄와 내부 operation의 보통 error·panic 결과가 deadline owner에게 전달되고 모든
+  terminal 경로에서 timer 자원이 정리되며, deadline 전 방 폐쇄는 timer를 즉시 종료
 - 새 플레이어의 준비 상태가 `false`로 시작
 - 방 설정 변경 뒤 기존 플레이어의 준비 상태 유지
 - 플레이어 입·퇴장과 미준비 플레이어의 팀 변경 뒤 남은 플레이어의 준비 상태 유지
