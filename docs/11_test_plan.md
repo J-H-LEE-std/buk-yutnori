@@ -128,6 +128,15 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 
 ## 방·네트워크
 
+- 같은 방 actor가 수락한 command를 동시에 실행하지 않고 admission 순서로 실행
+- 한 방의 실행이 막혀 있어도 다른 방 actor의 command는 독립적으로 완료
+- caller context가 admission 전에 취소되면 command를 실행하지 않음
+- actor가 수락한 command는 caller context 취소나 방 폐쇄로 중간 취소하지 않음
+- actor가 수락한 command context가 caller value를 보존하면서 취소와 deadline은 분리
+- 방 폐쇄 시작 뒤 새 command를 거부하고 현재 실행 완료 뒤 cleanup을 정확히 한 번 수행
+- `Close` 대기 context 만료가 actor 종료를 취소하지 않고 후속 `Close`가 같은 완료를 관찰
+- executor 또는 cleanup panic을 해당 방 terminal failure로 격리하고 다른 방과 서버
+  프로세스에 전파하지 않음
 - 준비 완료 후 설정 잠금
 - 시작 확인 10초 안에 전원 응답 시 시작
 - 시작 확인 10초 만료 시 미응답자 퇴장, 시작 취소, 남은 전원 준비 해제의 단일 상태 전이

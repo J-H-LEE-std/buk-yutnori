@@ -36,8 +36,10 @@
 - `adr/0009_reconnect_synchronization_bundle.md`: 재접속 snapshot/event 번들과 클라이언트 staging
 - `adr/0010_chat_history_not_restored_on_reconnect.md`: 재접속 시 이전 채팅 기록 비복구 결정
 - `adr/0011_browser_reconnect_runtime.md`: 브라우저 backoff와 JavaScript/C sequence bridge
+- `adr/0012_room_actor_execution_boundary.md`: 방별 command 직렬 실행과 종료·cleanup 경계
 - `development/git-workflow.md`: 브랜치·커밋·PR·리뷰·병합·릴리스 정본
 - `development/github-settings.md`: bootstrap과 GitHub 저장소 설정 초안
+- `development/issue-51-independent-review.md`: AGY·Claude용 room actor 독립 테스트·리뷰 인계
 
 ## GitHub
 
@@ -83,6 +85,7 @@
 - `internal/protocol/server_event.go`: v1 `CHAT_MESSAGE` 서버 이벤트 계약
 - `internal/application/processor.go`: 인증 사용자 명령의 멱등 실행과 결과 보존 경계
 - `internal/application/prototype_chat_room.go`: 고정 방 채팅 제한·sequence·구독자 경계
+- `internal/application/room_actor.go`: 방별 authoritative command 직렬 실행과 종료 경계
 - `internal/application/room_event_sequences.go`: 방별 확정 이벤트 sequence 메모리 경계
 - `internal/application/unavailable_executor.go`: 방·경기 연결 전 일시적 명령 거부 어댑터
 - `internal/wsapi/handler.go`: 인증된 same-host WebSocket 전송 어댑터

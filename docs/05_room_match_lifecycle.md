@@ -1,5 +1,18 @@
 # 방과 경기 생명주기
 
+## 서버 실행 소유권
+
+- 살아 있는 방마다 application actor 하나가 해당 방의 authoritative command를
+  직렬 실행한다.
+- actor가 수락한 명령은 transport 연결 취소와 분리하여 결과 확정까지 실행한다.
+- 방 폐쇄는 대기 중인 제출을 포함해 새 command admission을 먼저 중단하고 actor가
+  이미 수락한 현재 실행을 완료한 뒤
+  room-lifetime 멱등 결과와 sequence 경계를 정리한다.
+- 서로 다른 방의 actor는 독립적으로 실행한다.
+
+구체적인 admission, context와 cleanup 순서는
+`docs/adr/0012_room_actor_execution_boundary.md`를 따른다.
+
 ## 방 생성
 
 - 로그인 사용자만 생성

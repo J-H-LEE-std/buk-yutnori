@@ -19,7 +19,8 @@
 ## 구현 전 ADR 필요
 
 - 이벤트 저장 방식과 인덱스
-- 방 actor/goroutine 모델
+
+방 actor/goroutine 모델은 ADR-0012로 확정되었다.
 
 ## 제품 세부 정책 미결정
 
