@@ -73,6 +73,15 @@ func (lobby *Lobby) Player(id domain.PlayerID) (Player, bool) {
 	return player, ok
 }
 
+// Players returns a copy of every player's current state keyed by ID.
+func (lobby *Lobby) Players() map[domain.PlayerID]Player {
+	players := make(map[domain.PlayerID]Player, len(lobby.players))
+	for id, player := range lobby.players {
+		players[id] = player
+	}
+	return players
+}
+
 // AddPlayer admits a new, initially not-ready player to one team.
 func (lobby *Lobby) AddPlayer(id domain.PlayerID, team domain.TeamID) error {
 	if err := id.Validate(); err != nil {

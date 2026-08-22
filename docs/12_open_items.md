@@ -10,6 +10,8 @@
 
 - `ERROR` 이벤트의 표준 오류 코드 목록
 - WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
+- 방 퇴장·강퇴의 전송 계약. v1 WebSocket command에 leave/kick 타입이 없고 마지막
+  사용자 퇴장 시 빈 방 즉시 삭제(docs/05)와 강퇴(docs/05)가 이를 필요로 한다.
 - 채팅 저장이 영구 실패해 소비된 room sequence에 이벤트 행이 남지 않을 때 재접속
   누락 이벤트 조회의 연속성 판정과 `RESYNC_REQUIRED` 기준. ADR-0014 저장 구조에서
   채팅 비복구(ADR-0010)와 sequence 공백이 만나는 지점이다.

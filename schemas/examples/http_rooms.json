@@ -1,0 +1,59 @@
+[
+  {
+    "title": "첫 방",
+    "team": "A"
+  },
+  {
+    "title": "비밀방",
+    "password": "pass1234",
+    "settings": {
+      "max_players": 4,
+      "piece_count": 4,
+      "stacking_enabled": true,
+      "capture_extra_throw": "always",
+      "yut_mo_extra_throw": true,
+      "shortcut_policy": "selectable",
+      "backdo_enabled": true,
+      "buk_mode_enabled": false,
+      "random_buk_destination": false,
+      "movement_order": "free",
+      "throw_timeout_seconds": 20,
+      "move_timeout_seconds": 90
+    }
+  },
+  {
+    "role": "player",
+    "team": "B",
+    "password": "pass1234"
+  },
+  {
+    "room_id": "9f1c0a5d3b2e4f60817a6c5d9e0f1a2b",
+    "title": "비밀방",
+    "has_password": true,
+    "player_count": 1,
+    "max_players": 4
+  },
+  {
+    "rooms": [
+      {
+        "room_id": "9f1c0a5d3b2e4f60817a6c5d9e0f1a2b",
+        "title": "비밀방",
+        "has_password": true,
+        "player_count": 2,
+        "max_players": 4
+      }
+    ]
+  },
+  {
+    "room_id": "9f1c0a5d3b2e4f60817a6c5d9e0f1a2b",
+    "title": "비밀방",
+    "has_password": true,
+    "player_count": 2,
+    "max_players": 4,
+    "role": "player",
+    "team": "B"
+  },
+  {
+    "error": "invalid_password"
+  }
+]
