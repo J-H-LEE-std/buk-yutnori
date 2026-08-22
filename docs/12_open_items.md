@@ -10,6 +10,9 @@
 
 - `ERROR` 이벤트의 표준 오류 코드 목록
 - WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
+- 채팅 저장이 영구 실패해 소비된 room sequence에 이벤트 행이 남지 않을 때 재접속
+  누락 이벤트 조회의 연속성 판정과 `RESYNC_REQUIRED` 기준. ADR-0014 저장 구조에서
+  채팅 비복구(ADR-0010)와 sequence 공백이 만나는 지점이다.
 
 ## 방·운영 흐름 미결정
 
