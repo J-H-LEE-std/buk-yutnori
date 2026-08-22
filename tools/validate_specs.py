@@ -177,6 +177,15 @@ def validate_contracts() -> None:
         if allowed_values != schema_props[key]["enum"]:
             raise AssertionError(f"room_settings allowed values differ for {key}")
 
+    expected_creation = {
+        "title": {"required": True, "min_graphemes": 1, "max_graphemes": 25},
+        "password": {"required": False, "pattern": "^[0-9a-zA-Z]{4,16}$"},
+    }
+    if room_settings.get("creation") != expected_creation:
+        raise AssertionError(
+            f"room_settings creation block drifted: {room_settings.get('creation')}"
+        )
+
     turn_state_machine = load_yaml(ROOT / "spec" / "turn_state_machine.yaml")
     ordinary_movement_spaces = turn_state_machine["queue"]["token"].get(
         "ordinary_movement_spaces"

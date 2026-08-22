@@ -35,3 +35,12 @@ constraints:
   - minimum total player count is 2
   - all players must be ready
   - player plus spectator count must not exceed 20
+
+creation:
+  title:
+    required: true
+    min_graphemes: 1
+    max_graphemes: 25
+  password:
+    required: false
+    pattern: "^[0-9a-zA-Z]{4,16}$"
