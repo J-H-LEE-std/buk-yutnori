@@ -18,10 +18,13 @@ func TestNewHandlerRoutesAPIBeforeStaticClientAndSetsSecurityHeaders(t *testing.
 	authHandler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.WriteHeader(http.StatusTeapot)
 	})
+	roomsHandler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.WriteHeader(http.StatusAccepted)
+	})
 	websocketHandler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.WriteHeader(http.StatusSwitchingProtocols)
 	})
-	handler, err := NewHandler(authHandler, websocketHandler, webRoot)
+	handler, err := NewHandler(authHandler, roomsHandler, websocketHandler, webRoot)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
@@ -30,6 +33,11 @@ func TestNewHandlerRoutesAPIBeforeStaticClientAndSetsSecurityHeaders(t *testing.
 	handler.ServeHTTP(apiResponse, httptest.NewRequest(http.MethodGet, "http://localhost/api/v1/auth/session", nil))
 	if apiResponse.Code != http.StatusTeapot {
 		t.Fatalf("API status = %d", apiResponse.Code)
+	}
+	roomsResponse := httptest.NewRecorder()
+	handler.ServeHTTP(roomsResponse, httptest.NewRequest(http.MethodGet, "http://localhost/api/v1/rooms", nil))
+	if roomsResponse.Code != http.StatusAccepted {
+		t.Fatalf("rooms status = %d", roomsResponse.Code)
 	}
 	websocketResponse := httptest.NewRecorder()
 	handler.ServeHTTP(websocketResponse, httptest.NewRequest(http.MethodGet, "http://localhost/api/v1/ws", nil))
@@ -53,19 +61,23 @@ func TestNewHandlerRoutesAPIBeforeStaticClientAndSetsSecurityHeaders(t *testing.
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	t.Parallel()
 
-	if _, err := NewHandler(nil, http.NotFoundHandler(), t.TempDir()); err == nil {
+	notFound := http.NotFoundHandler()
+	if _, err := NewHandler(nil, notFound, notFound, t.TempDir()); err == nil {
 		t.Fatal("NewHandler(nil auth) error = nil")
 	}
-	if _, err := NewHandler(http.NotFoundHandler(), nil, t.TempDir()); err == nil {
+	if _, err := NewHandler(notFound, nil, notFound, t.TempDir()); err == nil {
+		t.Fatal("NewHandler(nil rooms) error = nil")
+	}
+	if _, err := NewHandler(notFound, notFound, nil, t.TempDir()); err == nil {
 		t.Fatal("NewHandler(nil WebSocket) error = nil")
 	}
-	if _, err := NewHandler(http.NotFoundHandler(), http.NotFoundHandler(), ""); err == nil {
+	if _, err := NewHandler(notFound, notFound, notFound, ""); err == nil {
 		t.Fatal("NewHandler(empty web root) error = nil")
 	}
-	if _, err := NewHandler(http.NotFoundHandler(), http.NotFoundHandler(), filepath.Join(t.TempDir(), "missing")); err == nil {
+	if _, err := NewHandler(notFound, notFound, notFound, filepath.Join(t.TempDir(), "missing")); err == nil {
 		t.Fatal("NewHandler(missing web root) error = nil")
 	}
-	if _, err := NewHandler(http.NotFoundHandler(), http.NotFoundHandler(), t.TempDir()); err == nil {
+	if _, err := NewHandler(notFound, notFound, notFound, t.TempDir()); err == nil {
 		t.Fatal("NewHandler(web root without index.html) error = nil")
 	}
 }

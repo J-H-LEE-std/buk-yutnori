@@ -51,6 +51,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	roomsRegistry, err := application.NewRoomRegistry()
+	if err != nil {
+		return err
+	}
+	roomsHandler, err := httpapi.NewRoomsHandler(authService, roomsRegistry)
+	if err != nil {
+		return err
+	}
 	prototypeRuntime, err := application.NewPrototypeRealtimeApplication(time.Now)
 	if err != nil {
 		return err
@@ -74,7 +82,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	handler, err := server.NewHandler(authHandler, websocketHandler, config.webRoot)
+	handler, err := server.NewHandler(authHandler, roomsHandler, websocketHandler, config.webRoot)
 	if err != nil {
 		return err
 	}
