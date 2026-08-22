@@ -40,6 +40,34 @@ func TestCanonicalRoomSettingsSpecMatchesDomain(t *testing.T) {
 	if !contains(document.Constraints, bukDependency) {
 		t.Fatalf("spec constraints do not contain %q: %v", bukDependency, document.Constraints)
 	}
+
+	if !document.Creation.Title.Required {
+		t.Fatal("spec creation title must be required")
+	}
+	if document.Creation.Title.MinGraphemes != MinTitleGraphemes {
+		t.Fatalf(
+			"spec creation title min_graphemes = %d, domain = %d",
+			document.Creation.Title.MinGraphemes,
+			MinTitleGraphemes,
+		)
+	}
+	if document.Creation.Title.MaxGraphemes != MaxTitleGraphemes {
+		t.Fatalf(
+			"spec creation title max_graphemes = %d, domain = %d",
+			document.Creation.Title.MaxGraphemes,
+			MaxTitleGraphemes,
+		)
+	}
+	if document.Creation.Password.Required {
+		t.Fatal("spec creation password must be optional")
+	}
+	if document.Creation.Password.Pattern != RoomPasswordPattern {
+		t.Fatalf(
+			"spec creation password pattern = %q, domain = %q",
+			document.Creation.Password.Pattern,
+			RoomPasswordPattern,
+		)
+	}
 }
 
 type roomSettingsDocument struct {
@@ -55,6 +83,17 @@ type roomSettingsDocument struct {
 		MovementTimeoutSeconds []int                     `yaml:"move_timeout_seconds"`
 	} `yaml:"allowed"`
 	Constraints []string `yaml:"constraints"`
+	Creation    struct {
+		Title struct {
+			Required     bool `yaml:"required"`
+			MinGraphemes int  `yaml:"min_graphemes"`
+			MaxGraphemes int  `yaml:"max_graphemes"`
+		} `yaml:"title"`
+		Password struct {
+			Required bool   `yaml:"required"`
+			Pattern  string `yaml:"pattern"`
+		} `yaml:"password"`
+	} `yaml:"creation"`
 }
 
 func assertEqualSlice[T any](t *testing.T, field string, got, want []T) {

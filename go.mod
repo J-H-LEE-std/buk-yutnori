@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	cloud.google.com/go/auth v0.20.0
 	github.com/coder/websocket v1.8.15
+	github.com/rivo/uniseg v0.4.7
 	gopkg.in/yaml.v3 v3.0.1
 )
 
