@@ -10,6 +10,9 @@
 
 - `ERROR` 이벤트의 표준 오류 코드 목록
 - WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
+- 대기실 상태 변경(`SELECT_TEAM`, `SET_READY`)의 구독자 알림 계약. `ROOM_UPDATED`
+  이벤트의 발행 시점, `revision`과 방 sequence의 관계, 팀·준비 상태를 클라이언트가
+  알 수 있는 조회 수단(상세 이벤트 또는 snapshot)을 함께 정해야 한다.
 - 방 퇴장·강퇴의 전송 계약. v1 WebSocket command에 leave/kick 타입이 없고 마지막
   사용자 퇴장 시 빈 방 즉시 삭제(docs/05)와 강퇴(docs/05)가 이를 필요로 한다.
 - 채팅 저장이 영구 실패해 소비된 room sequence에 이벤트 행이 남지 않을 때 재접속

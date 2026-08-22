@@ -69,9 +69,15 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   `(user_id, command_id)` processor로 전달한다. `SEND_CHAT`은 고정
   `prototype-room`의 메모리형 application executor가 처리하고, 로그인한 WebSocket
   연결은 이 방의 event stream에 자동 구독한다. `RECONNECT`는 같은 방의 고정
-  `prototype-match` 최신 snapshot을 actor 경계 안에서 반환한다. 이 둘을 제외한
-  방·경기 command는 상태를 적용하지 않고 `APPLICATION_UNAVAILABLE` 일시적 거부를
-  반환한다. 이 응답은 `error.retriable=true`이므로 방 생명주기 결과로 보존하지 않는다.
+  `prototype-match` 최신 snapshot을 actor 경계 안에서 반환한다. `SELECT_TEAM`과
+  `SET_READY`는 HTTP 입장 이후의 방 레지스트리 대기실 상태를 변경하며, 플레이어가
+  아닌 발신자와 준비 완료 플레이어의 팀 변경(`READY_TEAM_CHANGE_BLOCKED`)은
+  재시도 불가능한 결정적 거부로 보존한다. 이들을 제외한 방·경기 command는 상태를
+  적용하지 않고 `APPLICATION_UNAVAILABLE` 일시적 거부를 반환한다. 일시적 거부는
+  `error.retriable=true`이므로 방 생명주기 결과로 보존하지 않는다.
+- 대기실 상태 변경은 아직 같은 방 구독자에게 서버 이벤트로 방송되지 않는다.
+  `ROOM_UPDATED` 발행 시점과 revision 정의, 로비 상태 조회 수단은
+  `docs/12_open_items.md`의 미결 항목이다.
 
 라이브러리와 계층 분리 결정은
 `docs/adr/0006_authenticated_websocket_transport.md`를 따른다.
