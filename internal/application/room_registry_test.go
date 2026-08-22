@@ -310,8 +310,98 @@ func TestJoinSpectatorHonorsCombinedCapacity(t *testing.T) {
 		User:   auth.UserID("over-capacity"),
 		RoomID: summary.RoomID,
 		Role:   RoleSpectator,
-	}); !errors.Is(err, ErrSpectatorCapacityFull) {
-		t.Fatalf("Join(beyond capacity) error = %v, want ErrSpectatorCapacityFull", err)
+	}); !errors.Is(err, ErrCombinedCapacityFull) {
+		t.Fatalf("Join(beyond capacity) error = %v, want ErrCombinedCapacityFull", err)
+	}
+}
+
+func TestJoinPlayerHonorsCombinedCapacityBeforeLobbyLimit(t *testing.T) {
+	registry := newTestRegistry(t)
+	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
+
+	for i := 0; i < combinedMemberCapacity-1; i++ {
+		user := auth.UserID("spectator-" + string(rune('a'+i%26)) + string(rune('0'+i/26)))
+		if _, err := registry.Join(JoinRoomInput{
+			User:   user,
+			RoomID: summary.RoomID,
+			Role:   RoleSpectator,
+		}); err != nil {
+			t.Fatalf("Join(spectator %d) error = %v", i, err)
+		}
+	}
+
+	for i := 0; i < 7; i++ {
+		user := auth.UserID("player-" + string(rune('a'+i%26)) + string(rune('0'+i/26)))
+		summary, err := registry.Join(JoinRoomInput{
+			User:   user,
+			RoomID: summary.RoomID,
+			Role:   RolePlayer,
+			Team:   domain.TeamB,
+		})
+		if !errors.Is(err, ErrCombinedCapacityFull) {
+			t.Fatalf("Join(player %d) error = %v, want ErrCombinedCapacityFull", i, err)
+		}
+		if summary.PlayerCount != 0 {
+			t.Fatalf("rejected player join returned PlayerCount = %d, want zero value", summary.PlayerCount)
+		}
+	}
+
+	summaries := registry.List()
+	if summaries[0].PlayerCount != 1 {
+		t.Fatalf("PlayerCount after rejected joins = %d, want unchanged 1", summaries[0].PlayerCount)
+	}
+}
+
+func TestSpectatorsMayFillCombinedCapacityUnderFullLobby(t *testing.T) {
+	registry := newTestRegistry(t)
+
+	summary, err := registry.Create(CreateRoomInput{
+		Creator:  auth.UserID("creator"),
+		Creation: room.Creation{Title: "꽉 찬 방"},
+		Settings: func() room.Settings {
+			settings := room.DefaultSettings()
+			settings.MaxPlayers = 2
+			return settings
+		}(),
+		Team: domain.TeamA,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := registry.Join(JoinRoomInput{
+		User:   auth.UserID("second-player"),
+		RoomID: summary.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamB,
+	}); err != nil {
+		t.Fatalf("Join(second player into MaxPlayers=2) error = %v", err)
+	}
+	if _, err := registry.Join(JoinRoomInput{
+		User:   auth.UserID("third-player"),
+		RoomID: summary.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamA,
+	}); !errors.Is(err, room.ErrLobbyFull) {
+		t.Fatalf("Join(third player into MaxPlayers=2) error = %v, want ErrLobbyFull", err)
+	}
+
+	for i := 0; i < combinedMemberCapacity-2; i++ {
+		user := auth.UserID("spectator-" + string(rune('a'+i%26)) + string(rune('0'+i/26)))
+		if _, err := registry.Join(JoinRoomInput{
+			User:   user,
+			RoomID: summary.RoomID,
+			Role:   RoleSpectator,
+		}); err != nil {
+			t.Fatalf("Join(spectator %d) error = %v", i, err)
+		}
+	}
+
+	if _, err := registry.Join(JoinRoomInput{
+		User:   auth.UserID("final-spectator"),
+		RoomID: summary.RoomID,
+		Role:   RoleSpectator,
+	}); !errors.Is(err, ErrCombinedCapacityFull) {
+		t.Fatalf("Join(final spectator beyond combined cap) error = %v, want ErrCombinedCapacityFull", err)
 	}
 }
 

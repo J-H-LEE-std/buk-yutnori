@@ -231,8 +231,8 @@ func TestJoinRoomMapsRegistryErrors(t *testing.T) {
 			wantCode:   "room_full",
 		},
 		{
-			name:       "spectator capacity",
-			joinErr:    application.ErrSpectatorCapacityFull,
+			name:       "combined capacity",
+			joinErr:    application.ErrCombinedCapacityFull,
 			wantStatus: http.StatusConflict,
 			wantCode:   "room_full",
 		},

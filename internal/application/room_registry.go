@@ -26,8 +26,9 @@ var (
 	ErrPasswordRequired = errors.New("room password is required")
 	// ErrInvalidRoomPassword identifies a wrong entry password.
 	ErrInvalidRoomPassword = errors.New("invalid room password")
-	// ErrSpectatorCapacityFull identifies a join beyond the combined capacity.
-	ErrSpectatorCapacityFull = errors.New("player plus spectator count exceeds the room capacity")
+	// ErrCombinedCapacityFull identifies a join beyond the combined
+	// player-plus-spectator limit.
+	ErrCombinedCapacityFull = errors.New("player plus spectator count exceeds the room capacity")
 )
 
 const (
@@ -211,15 +212,17 @@ func (registry *RoomRegistry) Join(input JoinRoomInput) (RoomSummary, error) {
 	}
 
 	playerCount := len(entry.lobby.Players())
+	// Both entry paths share the canonical combined member limit; the lobby
+	// additionally enforces MaxPlayers for players.
+	if playerCount+len(entry.spectators) >= combinedMemberCapacity {
+		return RoomSummary{}, ErrCombinedCapacityFull
+	}
 	if input.Role == RolePlayer {
 		if err := entry.lobby.AddPlayer(playerID, input.Team); err != nil {
 			return RoomSummary{}, err
 		}
 		playerCount++
 	} else {
-		if playerCount+len(entry.spectators) >= combinedMemberCapacity {
-			return RoomSummary{}, ErrSpectatorCapacityFull
-		}
 		entry.spectators[input.User] = struct{}{}
 	}
 	entry.summary.PlayerCount = playerCount
