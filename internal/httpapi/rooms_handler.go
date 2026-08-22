@@ -194,7 +194,7 @@ func writeRegistryError(response http.ResponseWriter, err error) {
 		writeError(response, http.StatusNotFound, "room_not_found")
 	case errors.Is(err, application.ErrAlreadyMember):
 		writeError(response, http.StatusConflict, "already_member")
-	case errors.Is(err, application.ErrSpectatorCapacityFull), errors.Is(err, room.ErrLobbyFull):
+	case errors.Is(err, application.ErrCombinedCapacityFull), errors.Is(err, room.ErrLobbyFull):
 		writeError(response, http.StatusConflict, "room_full")
 	case errors.Is(err, application.ErrPasswordRequired):
 		writeError(response, http.StatusForbidden, "password_required")
