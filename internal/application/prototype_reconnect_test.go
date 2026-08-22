@@ -11,6 +11,7 @@ import (
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
+	"buk-yutnori/internal/domain/room"
 	"buk-yutnori/internal/protocol"
 )
 
@@ -182,14 +183,81 @@ func TestPrototypeRealtimeApplicationPreservesUnsupportedCommandRejection(t *tes
 	defer closePrototypeRealtimeApplication(t, application)
 	command := protocol.ClientCommand{
 		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
-		Type: protocol.CommandSetReady, CommandID: "cmd-unsupported-room", RoomID: "other-room",
-		Payload: protocol.SetReadyPayload{Ready: true},
+		Type: protocol.CommandStartGame, CommandID: "cmd-unsupported-room", RoomID: "other-room",
+		Payload: protocol.EmptyPayload{},
 	}
 	result, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, command)
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
 	assertReconnectRejection(t, result, applicationUnavailableCode, true)
+}
+
+func TestPrototypeRealtimeApplicationRoutesLobbyCommandsToRegistry(t *testing.T) {
+	lobbies, err := NewRoomRegistry()
+	if err != nil {
+		t.Fatalf("NewRoomRegistry() error = %v", err)
+	}
+	summary, err := lobbies.Create(CreateRoomInput{
+		Creator:  chatTestUserID,
+		Creation: room.Creation{Title: "로비 방"},
+		Settings: room.DefaultSettings(),
+		Team:     domain.TeamA,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	application := mustPrototypeRealtimeApplicationWithLobbies(t, time.Now, lobbies)
+	defer closePrototypeRealtimeApplication(t, application)
+
+	selectTeam := protocol.ClientCommand{
+		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
+		Type: protocol.CommandSelectTeam, CommandID: "cmd-team-1",
+		RoomID: summary.RoomID, Payload: protocol.SelectTeamPayload{TeamID: domain.TeamB},
+	}
+	result, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, selectTeam)
+	if err != nil || result.Payload.Status != protocol.CommandAccepted {
+		t.Fatalf("SELECT_TEAM result = %+v error = %v, want accepted", result, err)
+	}
+
+	replay, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, selectTeam)
+	if err != nil || replay.Payload.Status != protocol.CommandAccepted || replay.CommandID != selectTeam.CommandID {
+		t.Fatalf("SELECT_TEAM replay = %+v error = %v, want deterministic accepted replay", replay, err)
+	}
+
+	setReady := protocol.ClientCommand{
+		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
+		Type: protocol.CommandSetReady, CommandID: "cmd-ready-1",
+		RoomID: summary.RoomID, Payload: protocol.SetReadyPayload{Ready: true},
+	}
+	if _, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, setReady); err != nil {
+		t.Fatalf("SET_READY Process() error = %v", err)
+	}
+	blockedTeam := selectTeam
+	blockedTeam.CommandID = "cmd-team-2"
+	blockedTeam.Payload = protocol.SelectTeamPayload{TeamID: domain.TeamA}
+	result, err = application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, blockedTeam)
+	if err != nil {
+		t.Fatalf("blocked SELECT_TEAM Process() error = %v", err)
+	}
+	assertReconnectRejection(t, result, readyTeamChangeBlockedCode, false)
+
+	membership, err := lobbies.Membership(chatTestUserID, summary.RoomID)
+	if err != nil {
+		t.Fatalf("Membership() error = %v", err)
+	}
+	if !membership.Ready || membership.Team != domain.TeamB {
+		t.Fatalf("membership = %+v, want team B and ready", membership)
+	}
+
+	unknownRoom := setReady
+	unknownRoom.RoomID = domain.RoomID("00000000000000000000000000000000")
+	unknownRoom.CommandID = "cmd-ready-unknown"
+	result, err = application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, unknownRoom)
+	if err != nil {
+		t.Fatalf("unknown room Process() error = %v", err)
+	}
+	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
 }
 
 func TestPrototypeRealtimeApplicationSerializesChatBeforeReconnectSnapshot(t *testing.T) {
@@ -286,7 +354,16 @@ func reconnectCommand(commandID string, lastSequence uint64) protocol.ClientComm
 
 func mustPrototypeRealtimeApplication(t *testing.T, now func() time.Time) *PrototypeRealtimeApplication {
 	t.Helper()
-	application, err := NewPrototypeRealtimeApplication(now)
+	lobbies, err := NewRoomRegistry()
+	if err != nil {
+		t.Fatalf("NewRoomRegistry() error = %v", err)
+	}
+	return mustPrototypeRealtimeApplicationWithLobbies(t, now, lobbies)
+}
+
+func mustPrototypeRealtimeApplicationWithLobbies(t *testing.T, now func() time.Time, lobbies *RoomRegistry) *PrototypeRealtimeApplication {
+	t.Helper()
+	application, err := NewPrototypeRealtimeApplication(now, lobbies)
 	if err != nil {
 		t.Fatalf("NewPrototypeRealtimeApplication() error = %v", err)
 	}

@@ -59,7 +59,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	prototypeRuntime, err := application.NewPrototypeRealtimeApplication(time.Now)
+	prototypeRuntime, err := application.NewPrototypeRealtimeApplication(time.Now, roomsRegistry)
 	if err != nil {
 		return err
 	}

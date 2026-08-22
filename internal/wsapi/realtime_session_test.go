@@ -96,7 +96,11 @@ func TestRealtimeSessionBroadcastsChatAndReplaysOnlyCommandResult(t *testing.T) 
 }
 
 func TestRealtimeSessionResynchronizesPrototypeMatchOverWebSocket(t *testing.T) {
-	applicationRuntime, err := application.NewPrototypeRealtimeApplication(time.Now)
+	lobbies, err := application.NewRoomRegistry()
+	if err != nil {
+		t.Fatalf("NewRoomRegistry() error = %v", err)
+	}
+	applicationRuntime, err := application.NewPrototypeRealtimeApplication(time.Now, lobbies)
 	if err != nil {
 		t.Fatalf("NewPrototypeRealtimeApplication() error = %v", err)
 	}
