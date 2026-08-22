@@ -229,6 +229,77 @@ func (registry *RoomRegistry) Join(input JoinRoomInput) (RoomSummary, error) {
 	return entry.summary, nil
 }
 
+// Membership describes one user's authoritative position in a room.
+type Membership struct {
+	Role  string
+	Team  domain.TeamID
+	Ready bool
+}
+
+// Membership returns the authenticated user's current role, team, and ready
+// state inside the room.
+func (registry *RoomRegistry) Membership(user auth.UserID, roomID domain.RoomID) (Membership, error) {
+	playerID, err := playerIDFromUser(user)
+	if err != nil {
+		return Membership{}, err
+	}
+
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		return Membership{}, ErrRoomNotFound
+	}
+	if _, spectator := entry.spectators[user]; spectator {
+		return Membership{Role: RoleSpectator}, nil
+	}
+	player, ok := entry.lobby.Player(playerID)
+	if !ok {
+		return Membership{}, ErrRoomNotFound
+	}
+	return Membership{Role: RolePlayer, Team: player.Team, Ready: player.Ready}, nil
+}
+
+// ChangeTeam moves the authenticated player to the requested team through the
+// canonical Lobby rules. Spectators and non-members are rejected.
+func (registry *RoomRegistry) ChangeTeam(user auth.UserID, roomID domain.RoomID, team domain.TeamID) error {
+	playerID, err := playerIDFromUser(user)
+	if err != nil {
+		return err
+	}
+	if err := team.Validate(); err != nil {
+		return err
+	}
+
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		return ErrRoomNotFound
+	}
+	return entry.lobby.ChangeTeam(playerID, team)
+}
+
+// SetReady changes only the authenticated player's ready state through the
+// canonical Lobby rules. Spectators and non-members are rejected.
+func (registry *RoomRegistry) SetReady(user auth.UserID, roomID domain.RoomID, ready bool) error {
+	playerID, err := playerIDFromUser(user)
+	if err != nil {
+		return err
+	}
+
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		return ErrRoomNotFound
+	}
+	return entry.lobby.SetReady(playerID, ready)
+}
+
 func playerIDFromUser(user auth.UserID) (domain.PlayerID, error) {
 	playerID := domain.PlayerID(user)
 	if err := playerID.Validate(); err != nil {

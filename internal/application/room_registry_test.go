@@ -431,3 +431,117 @@ func TestJoinRejectsInvalidRole(t *testing.T) {
 		t.Fatalf("Join(invalid role) error = %v, want role validation error", err)
 	}
 }
+
+func TestChangeTeamAppliesCanonicalRules(t *testing.T) {
+	registry := newTestRegistry(t)
+	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
+	joiner := auth.UserID("joiner")
+
+	if _, err := registry.Join(JoinRoomInput{
+		User:   joiner,
+		RoomID: summary.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamB,
+	}); err != nil {
+		t.Fatalf("Join(joiner) error = %v", err)
+	}
+
+	if err := registry.ChangeTeam(joiner, summary.RoomID, domain.TeamA); err != nil {
+		t.Fatalf("ChangeTeam(B to A) error = %v", err)
+	}
+	membership, err := registry.Membership(joiner, summary.RoomID)
+	if err != nil {
+		t.Fatalf("Membership() error = %v", err)
+	}
+	if membership.Team != domain.TeamA || membership.Ready {
+		t.Fatalf("membership = %+v, want team A not ready", membership)
+	}
+
+	if err := registry.ChangeTeam(joiner, summary.RoomID, domain.TeamA); err != nil {
+		t.Fatalf("ChangeTeam(same team idempotent) error = %v", err)
+	}
+
+	if err := registry.ChangeTeam(joiner, summary.RoomID, domain.TeamID("C")); err == nil {
+		t.Fatal("ChangeTeam(invalid team) error = nil, want validation error")
+	}
+	if _, err := registry.Membership(joiner, domain.RoomID("00000000000000000000000000000000")); !errors.Is(err, ErrRoomNotFound) {
+		t.Fatalf("Membership(unknown room) error = %v, want ErrRoomNotFound", err)
+	}
+}
+
+func TestChangeTeamBlocksReadyPlayersAndNonMembers(t *testing.T) {
+	registry := newTestRegistry(t)
+	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
+
+	spectator := auth.UserID("spectator")
+	if _, err := registry.Join(JoinRoomInput{
+		User:   spectator,
+		RoomID: summary.RoomID,
+		Role:   RoleSpectator,
+	}); err != nil {
+		t.Fatalf("Join(spectator) error = %v", err)
+	}
+	if err := registry.SetReady(spectator, summary.RoomID, true); !errors.Is(err, room.ErrPlayerNotFound) {
+		t.Fatalf("SetReady(spectator) error = %v, want ErrPlayerNotFound", err)
+	}
+
+	player := auth.UserID("player")
+	if _, err := registry.Join(JoinRoomInput{
+		User:   player,
+		RoomID: summary.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamB,
+	}); err != nil {
+		t.Fatalf("Join(player) error = %v", err)
+	}
+	if err := registry.SetReady(player, summary.RoomID, true); err != nil {
+		t.Fatalf("SetReady(true) error = %v", err)
+	}
+	if err := registry.ChangeTeam(player, summary.RoomID, domain.TeamA); !errors.Is(err, room.ErrReadyPlayerTeamChange) {
+		t.Fatalf("ChangeTeam(ready player) error = %v, want ErrReadyPlayerTeamChange", err)
+	}
+
+	if err := registry.SetReady(player, summary.RoomID, false); err != nil {
+		t.Fatalf("SetReady(false) error = %v", err)
+	}
+	if err := registry.ChangeTeam(player, summary.RoomID, domain.TeamA); err != nil {
+		t.Fatalf("ChangeTeam(after unready) error = %v", err)
+	}
+
+	if err := registry.ChangeTeam(auth.UserID("outsider"), summary.RoomID, domain.TeamA); !errors.Is(err, room.ErrPlayerNotFound) {
+		t.Fatalf("ChangeTeam(outsider) error = %v, want ErrPlayerNotFound", err)
+	}
+	if err := registry.SetReady(auth.UserID("creator"), domain.RoomID("00000000000000000000000000000000"), true); !errors.Is(err, ErrRoomNotFound) {
+		t.Fatalf("SetReady(unknown room) error = %v, want ErrRoomNotFound", err)
+	}
+}
+
+func TestSetReadyTogglesOnlyOwnState(t *testing.T) {
+	registry := newTestRegistry(t)
+	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
+	other := auth.UserID("other")
+	if _, err := registry.Join(JoinRoomInput{
+		User:   other,
+		RoomID: summary.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamB,
+	}); err != nil {
+		t.Fatalf("Join(other) error = %v", err)
+	}
+
+	if err := registry.SetReady(auth.UserID("creator"), summary.RoomID, true); err != nil {
+		t.Fatalf("SetReady(creator) error = %v", err)
+	}
+
+	creatorMembership, err := registry.Membership(auth.UserID("creator"), summary.RoomID)
+	if err != nil {
+		t.Fatalf("Membership(creator) error = %v", err)
+	}
+	otherMembership, err := registry.Membership(other, summary.RoomID)
+	if err != nil {
+		t.Fatalf("Membership(other) error = %v", err)
+	}
+	if !creatorMembership.Ready || otherMembership.Ready {
+		t.Fatalf("ready states = creator %v other %v, want only creator ready", creatorMembership.Ready, otherMembership.Ready)
+	}
+}

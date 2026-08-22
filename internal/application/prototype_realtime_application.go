@@ -20,13 +20,15 @@ const (
 )
 
 // PrototypeRealtimeApplication composes the fixed chat room, reconnect
-// snapshot source, room actor, idempotency registry, and room-lifetime cleanup.
-// It is a vertical prototype, not the authoritative room registry.
+// snapshot source, room actor, idempotency registry, and room-lifetime cleanup,
+// and routes Milestone 3 lobby commands to the authoritative room registry.
+// The fixed prototype scope itself is still not the room registry.
 type PrototypeRealtimeApplication struct {
 	room      *PrototypeChatRoom
 	sequences *RoomEventSequences
 	actor     *RoomActor
 	processor *Processor
+	lobby     *LobbyCommandExecutor
 }
 
 type prototypeRoomExecutor struct {
@@ -36,6 +38,7 @@ type prototypeRoomExecutor struct {
 
 type prototypeRoomRouter struct {
 	actor *RoomActor
+	lobby *LobbyCommandExecutor
 }
 
 type prototypeGameSnapshot struct {
@@ -84,12 +87,17 @@ type prototypeSnapshotPause struct {
 	EndsAt *string `json:"ends_at"`
 }
 
-// NewPrototypeRealtimeApplication constructs the fixed Milestone 2 runtime.
-// Sequence one records that the fixed room entered its prototype match scope
-// before any WebSocket can subscribe; its state is represented by snapshots.
-func NewPrototypeRealtimeApplication(now func() time.Time) (*PrototypeRealtimeApplication, error) {
+// NewPrototypeRealtimeApplication constructs the fixed Milestone 2 runtime
+// plus the Milestone 3 lobby command routing. Sequence one records that the
+// fixed room entered its prototype match scope before any WebSocket can
+// subscribe; its state is represented by snapshots.
+func NewPrototypeRealtimeApplication(now func() time.Time, lobbies *RoomRegistry) (*PrototypeRealtimeApplication, error) {
 	if now == nil {
 		return nil, fmt.Errorf("%w: prototype clock is required", ErrInvalidConfiguration)
+	}
+	lobbyExecutor, err := NewLobbyCommandExecutor(lobbies)
+	if err != nil {
+		return nil, err
 	}
 	sequences := NewRoomEventSequences()
 	room, err := NewPrototypeChatRoom(sequences, now)
@@ -104,7 +112,7 @@ func NewPrototypeRealtimeApplication(now func() time.Time) (*PrototypeRealtimeAp
 		return nil, fmt.Errorf("%w: prototype room initialization sequence is %d", ErrInvalidConfiguration, sequence)
 	}
 
-	application := &PrototypeRealtimeApplication{room: room, sequences: sequences}
+	application := &PrototypeRealtimeApplication{room: room, sequences: sequences, lobby: lobbyExecutor}
 	executor := &prototypeRoomExecutor{room: room, sequences: sequences}
 	actor, err := NewRoomActor(PrototypeRoomID, executor, func(roomID domain.RoomID) {
 		if application.processor != nil {
@@ -117,7 +125,7 @@ func NewPrototypeRealtimeApplication(now func() time.Time) (*PrototypeRealtimeAp
 		return nil, err
 	}
 	application.actor = actor
-	processor, err := NewProcessor(&prototypeRoomRouter{actor: actor})
+	processor, err := NewProcessor(&prototypeRoomRouter{actor: actor, lobby: lobbyExecutor})
 	if err != nil {
 		_ = actor.Close(context.Background())
 		return nil, err
@@ -155,13 +163,17 @@ func (router *prototypeRoomRouter) Execute(ctx context.Context, user auth.User, 
 	if router == nil || router.actor == nil {
 		return protocol.CommandOutcome{}, fmt.Errorf("%w: prototype room actor is required", ErrInvalidConfiguration)
 	}
-	if command.RoomID != PrototypeRoomID {
-		if command.Type != protocol.CommandSendChat && command.Type != protocol.CommandReconnect {
-			return (UnavailableExecutor{}).Execute(ctx, user, command)
+	switch command.Type {
+	case protocol.CommandSelectTeam, protocol.CommandSetReady:
+		return router.lobby.Execute(ctx, user, command)
+	case protocol.CommandSendChat, protocol.CommandReconnect:
+		if command.RoomID != PrototypeRoomID {
+			return rejectedPrototypeCommand("ROOM_NOT_FOUND", "prototype room not found", true), nil
 		}
-		return rejectedPrototypeCommand("ROOM_NOT_FOUND", "prototype room not found", true), nil
+		return router.actor.Execute(ctx, user, command)
+	default:
+		return (UnavailableExecutor{}).Execute(ctx, user, command)
 	}
-	return router.actor.Execute(ctx, user, command)
 }
 
 func (executor *prototypeRoomExecutor) Execute(ctx context.Context, user auth.User, command protocol.ClientCommand) (protocol.CommandOutcome, error) {
