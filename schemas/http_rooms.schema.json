@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "http_rooms.schema.json",
+  "title": "HTTP lobby lifecycle request and response payloads",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/createRoomRequest"
+    },
+    {
+      "$ref": "#/$defs/joinRoomRequest"
+    },
+    {
+      "$ref": "#/$defs/roomSummary"
+    },
+    {
+      "$ref": "#/$defs/joinedRoomResponse"
+    },
+    {
+      "$ref": "#/$defs/roomListResponse"
+    },
+    {
+      "$ref": "#/$defs/errorResponse"
+    }
+  ],
+  "$defs": {
+    "teamID": {
+      "enum": [
+        "A",
+        "B"
+      ]
+    },
+    "memberRole": {
+      "enum": [
+        "player",
+        "spectator"
+      ]
+    },
+    "roomPassword": {
+      "type": "string",
+      "pattern": "^[0-9a-zA-Z]{4,16}$",
+      "description": "Optional entry password. Unset rooms never require one."
+    },
+    "roomSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Complete canonical match settings; omit to use spec defaults.",
+      "required": [
+        "max_players",
+        "piece_count",
+        "stacking_enabled",
+        "capture_extra_throw",
+        "yut_mo_extra_throw",
+        "shortcut_policy",
+        "backdo_enabled",
+        "buk_mode_enabled",
+        "random_buk_destination",
+        "movement_order",
+        "throw_timeout_seconds",
+        "move_timeout_seconds"
+      ],
+      "properties": {
+        "max_players": {
+          "enum": [
+            2,
+            4,
+            6,
+            8
+          ]
+        },
+        "piece_count": {
+          "enum": [
+            2,
+            3,
+            4
+          ]
+        },
+        "stacking_enabled": {
+          "type": "boolean"
+        },
+        "capture_extra_throw": {
+          "enum": [
+            "always",
+            "do_to_geol_plus_special",
+            "none"
+          ]
+        },
+        "yut_mo_extra_throw": {
+          "type": "boolean"
+        },
+        "shortcut_policy": {
+          "enum": [
+            "forced",
+            "selectable"
+          ]
+        },
+        "backdo_enabled": {
+          "type": "boolean"
+        },
+        "buk_mode_enabled": {
+          "type": "boolean"
+        },
+        "random_buk_destination": {
+          "type": "boolean"
+        },
+        "movement_order": {
+          "enum": [
+            "fifo",
+            "free"
+          ]
+        },
+        "throw_timeout_seconds": {
+          "enum": [
+            10,
+            20,
+            30
+          ]
+        },
+        "move_timeout_seconds": {
+          "enum": [
+            30,
+            60,
+            90,
+            120,
+            150
+          ]
+        }
+      }
+    },
+    "createRoomRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 25,
+          "description": "Required. Length limits are Unicode extended grapheme clusters enforced by the server."
+        },
+        "password": {
+          "$ref": "#/$defs/roomPassword"
+        },
+        "team": {
+          "$ref": "#/$defs/teamID",
+          "description": "Creator's starting team; defaults to A."
+        },
+        "settings": {
+          "$ref": "#/$defs/roomSettings"
+        }
+      }
+    },
+    "joinRoomRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role"
+      ],
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/memberRole"
+        },
+        "team": {
+          "$ref": "#/$defs/teamID",
+          "description": "Required when role is player."
+        },
+        "password": {
+          "$ref": "#/$defs/roomPassword"
+        }
+      }
+    },
+    "roomID": {
+      "type": "string",
+      "minLength": 1
+    },
+    "roomSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room_id",
+        "title",
+        "has_password",
+        "player_count",
+        "max_players"
+      ],
+      "properties": {
+        "room_id": {
+          "$ref": "#/$defs/roomID"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "has_password": {
+          "type": "boolean"
+        },
+        "player_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_players": {
+          "enum": [
+            2,
+            4,
+            6,
+            8
+          ]
+        }
+      }
+    },
+    "joinedRoomResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "room_id",
+        "title",
+        "has_password",
+        "player_count",
+        "max_players",
+        "role"
+      ],
+      "properties": {
+        "room_id": {
+          "$ref": "#/$defs/roomID"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "has_password": {
+          "type": "boolean"
+        },
+        "player_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_players": {
+          "enum": [
+            2,
+            4,
+            6,
+            8
+          ]
+        },
+        "role": {
+          "$ref": "#/$defs/memberRole"
+        },
+        "team": {
+          "$ref": "#/$defs/teamID"
+        }
+      }
+    },
+    "roomListResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rooms"
+      ],
+      "properties": {
+        "rooms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/roomSummary"
+          }
+        }
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

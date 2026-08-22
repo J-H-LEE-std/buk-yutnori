@@ -21,6 +21,25 @@
 로그아웃은 같은 origin JavaScript가 보내는 JSON 요청만 사용하며
 `X-Buk-Request: 1` 헤더를 요구한다. 인증 응답은 캐시하지 않는다.
 
+### 방 목록·생성·입장 HTTP 경로
+
+v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구하고 join 타입이
+없으므로, 방 입장은 방 상태 변경이 아니라 요청/응답 경계로 HTTP에서 수행한다.
+
+- `GET /api/v1/rooms`: 로그인 세션으로 현재 개설된 방 목록을 조회한다.
+- `POST /api/v1/rooms`: 방을 생성하고 생성자를 첫 플레이어(준비 `false`)로
+  입장시킨다. 제목과 비밀번호는 `Creation` 계약을 따른다.
+- `POST /api/v1/rooms/{room_id}/join`: 플레이어 또는 관전자로 입장한다.
+  플레이어는 A/B 팀을 지정하고 새 준비 상태는 `false`다. 비밀번호가 설정된 방은
+  검증에 성공해야 입장할 수 있으며 미제출(`password_required`)과 불일치
+  (`invalid_password`)를 구분해 응답한다. 두 코드는 방 목록의 `has_password`로도
+  알 수 있는 정보만 노출한다. 플레이어+관전자 합계는 20명을 넘을 수 없다.
+
+방 API payload는 `schemas/http_rooms.schema.json`을 따른다. 생성과 입장은
+`X-Buk-Request: 1` 헤더를 요구하고 응답은 캐시하지 않는다. 방 비밀번호 원문은
+보관하지 않고 digest만 유지한다. v1 WebSocket command에는 아직 퇴장·강퇴 타입이
+없으며 이 전송 계약은 `docs/12_open_items.md`에 미결로 남는다.
+
 ### WebSocket
 - 방 상태
 - 팀 선택과 준비

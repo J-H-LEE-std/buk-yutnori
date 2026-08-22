@@ -70,6 +70,7 @@ def validate_contracts() -> None:
         ("game_snapshot.schema.json", "game_snapshot.json"),
         ("game_snapshot.schema.json", "prototype_game_snapshot.json"),
         ("http_auth.schema.json", "http_auth.json"),
+        ("http_rooms.schema.json", "http_rooms.json"),
     ]
     counts: list[str] = []
 

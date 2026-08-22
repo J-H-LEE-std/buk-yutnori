@@ -81,11 +81,13 @@
 - `internal/auth/`: Google 외부 식별자와 해시된 자체 세션 도메인
 - `internal/auth/googleid/`: Google 공식 ID 토큰 검증 어댑터
 - `internal/httpapi/auth_handler.go`: 인증 JSON HTTP API와 hardened cookie
+- `internal/httpapi/rooms_handler.go`: 방 목록·생성·입장 JSON HTTP API와 세션·guard 경계
 - `internal/protocol/client_command.go`: v1 WebSocket client command 엄격한 decode 계약
 - `internal/protocol/reconnect_sync.go`: snapshot과 누락 event 재동기화 번들 검증
 - `internal/protocol/server_response.go`: v1 `COMMAND_RESULT` 응답과 결과 불변조건
 - `internal/protocol/server_event.go`: v1 `CHAT_MESSAGE` 서버 이벤트 계약
 - `internal/application/processor.go`: 인증 사용자 명령의 멱등 실행과 결과 보존 경계
+- `internal/application/room_registry.go`: 방 목록·생성·입장의 직렬화된 인메모리 레지스트리
 - `internal/application/prototype_chat_room.go`: 고정 방 채팅 제한·sequence·구독자 경계
 - `internal/application/prototype_realtime_application.go`: 고정 경기 snapshot·actor·멱등 cleanup 조합
 - `internal/application/room_actor.go`: 방별 authoritative command 직렬 실행과 종료 경계
@@ -115,12 +117,14 @@
 - `ws_server_event.schema.json`
 - `game_snapshot.schema.json`
 - `http_auth.schema.json`
+- `http_rooms.schema.json`
 - `examples/client_commands.json`
 - `examples/server_responses.json`
 - `examples/server_events.json`
 - `examples/game_snapshot.json`
 - `examples/prototype_game_snapshot.json`
 - `examples/http_auth.json`
+- `examples/http_rooms.json`
 
 ## reference
 - `requirements_qa_finished.md`: 사용자가 작성한 완성 Q&A 원본
