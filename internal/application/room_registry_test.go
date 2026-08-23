@@ -1,6 +1,7 @@
 package application
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -606,7 +607,18 @@ func TestDetailVisibilityContract(t *testing.T) {
 		t.Fatalf("Detail(member) error = %v", err)
 	}
 	if detail.ActiveStart != nil {
-		t.Fatalf("closed window must serialize omitted: %+v", detail.ActiveStart)
+		t.Fatalf("closed window must be nil in Go: %+v", detail.ActiveStart)
+	}
+	encoded, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatalf("Marshal(detail) error = %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("Unmarshal(detail) error = %v", err)
+	}
+	if _, present := decoded["active_start"]; present {
+		t.Fatalf("windowless response serialized active_start: %s", encoded)
 	}
 	if len(detail.Members) != 2 || detail.Members[0].Role != RoleSpectator ||
 		detail.Members[1].Team != domain.TeamA {

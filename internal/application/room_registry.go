@@ -308,7 +308,7 @@ func (registry *RoomRegistry) Membership(user auth.UserID, roomID domain.RoomID)
 type RoomDetailSnapshot struct {
 	Summary     RoomSummary          `json:"summary"`
 	Members     []RoomMemberView     `json:"members"`
-	ActiveStart *ActiveStartSnapshot `json:"active_start"`
+	ActiveStart *ActiveStartSnapshot `json:"active_start,omitempty"`
 }
 
 // RoomMemberView is one member's visible lobby state.

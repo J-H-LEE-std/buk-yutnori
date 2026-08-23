@@ -81,5 +81,22 @@
       "match_id": "4c1b2a3d4e5f60718293a4b5c6d7e8f9",
       "confirmation_deadline_at": "2026-08-23T12:00:10Z"
     }
+  },
+  {
+    "summary": {
+      "room_id": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+      "title": "열린 방",
+      "has_password": false,
+      "player_count": 1,
+      "max_players": 2
+    },
+    "members": [
+      {
+        "user_id": "usr_RERERERERERERERERERERA",
+        "role": "player",
+        "team": "A",
+        "ready": false
+      }
+    ]
   }
 ]
