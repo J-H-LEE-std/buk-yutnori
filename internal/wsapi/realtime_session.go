@@ -86,12 +86,22 @@ func (session *RealtimeSession) serve(ctx context.Context, user auth.User, conne
 
 	sessionContext, cancelSession := context.WithCancel(ctx)
 	commandContext, cancelCommands := context.WithCancel(ctx)
+	var lobbyDone <-chan struct{}
+	if lobbySubscription != nil {
+		lobbyDone = lobbySubscription.Done()
+	}
 	backpressureResult := make(chan error, 1)
 	watcherDone := make(chan struct{})
 	go func() {
 		defer close(watcherDone)
 		select {
 		case <-subscriptionDone:
+			if sessionContext.Err() != nil {
+				return
+			}
+			cancelCommands()
+			backpressureResult <- connection.CloseEventBackpressure()
+		case <-lobbyDone:
 			if sessionContext.Err() != nil {
 				return
 			}

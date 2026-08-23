@@ -184,6 +184,11 @@ func (registry *RoomRegistry) Create(input CreateRoomInput) (RoomSummary, error)
 	}
 	registry.rooms[roomID] = entry
 	registry.ordering = append(registry.ordering, roomID)
+	if err := registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusLobby)
+	}); err != nil {
+		return RoomSummary{}, err
+	}
 	return entry.summary, nil
 }
 

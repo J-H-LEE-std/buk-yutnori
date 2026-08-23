@@ -90,6 +90,11 @@ func (entry *registeredRoom) hasMember(user auth.UserID) bool {
 	return player_
 }
 
+// emitLocked runs strictly AFTER the caller commits authoritative state, so a
+// returned error must never be read as transactional rollback. Today it cannot
+// fail (sequence exhaustion is unreachable and builder inputs are
+// pre-validated); any future change that makes it fallible must introduce
+// explicit compensation instead of propagating the error as command failure.
 // emitLocked consumes one room sequence, publishes the built message to every
 // member subscriber, and refreshes caches — all inside the caller's critical
 // section so ordering matches sequence order exactly (ADR-0015).

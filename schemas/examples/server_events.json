@@ -1,20 +1,278 @@
 [
-  {"version":1,"direction":"server_event","type":"ROOM_UPDATED","sequence":1,"room_id":"room-1","payload":{"revision":3,"status":"lobby"}},
-  {"version":1,"direction":"server_event","type":"GAME_STARTING","request_id":"req-start","sequence":2,"room_id":"room-1","match_id":"match-1","payload":{"confirmation_deadline_at":"2026-07-22T08:00:00Z"}},
-  {"version":1,"direction":"server_event","type":"GAME_STARTED","sequence":3,"room_id":"room-1","match_id":"match-1","payload":{"first_player_id":"user-a","buk_destination_space_id":"sok_yut"}},
-  {"version":1,"direction":"server_event","type":"TURN_STARTED","sequence":4,"room_id":"room-1","match_id":"match-1","payload":{"player_id":"user-a","phase":"wait_throw","required_input":"throw","remaining_ms":20000}},
-  {"version":1,"direction":"server_event","type":"YUT_RESULT","sequence":5,"room_id":"room-1","match_id":"match-1","payload":{"player_id":"user-a","token":{"token_id":"token-1","result":"yut","origin":"initial_throw"}}},
-  {"version":1,"direction":"server_event","type":"RESULT_QUEUE_UPDATED","sequence":6,"room_id":"room-1","match_id":"match-1","payload":{"result_queue":[{"token_id":"token-1","result":"yut","origin":"initial_throw"}]}},
-  {"version":1,"direction":"server_event","type":"MOVE_REQUIRED","sequence":7,"room_id":"room-1","match_id":"match-1","payload":{"required_input":"select_piece","token_ids":["token-1"],"piece_ids":["A-1","A-2"]}},
-  {"version":1,"direction":"server_event","type":"PIECE_MOVED","sequence":8,"room_id":"room-1","match_id":"match-1","payload":{"piece_ids":["A-1"],"from_space_id":"mo","to_space_id":"bang","movement_kind":"forward"}},
-  {"version":1,"direction":"server_event","type":"PIECES_STACKED","sequence":9,"room_id":"room-1","match_id":"match-1","payload":{"stack_id":"stack-A-1","piece_ids":["A-1","A-2"],"space_id":"bang","actual_previous_space":"mo_gae"}},
-  {"version":1,"direction":"server_event","type":"PIECES_CAPTURED","sequence":10,"room_id":"room-1","match_id":"match-1","payload":{"captured_piece_ids":["B-1"],"space_id":"bang"}},
-  {"version":1,"direction":"server_event","type":"BUK_RESOLVED","sequence":11,"room_id":"room-1","match_id":"match-1","payload":{"token_id":"token-2","destination_space_id":"sok_yut","moved_piece_ids":["A-1","A-2"],"source_space_id":"bang","no_candidate":false}},
-  {"version":1,"direction":"server_event","type":"CPU_CONTROL_STARTED","sequence":12,"room_id":"room-1","match_id":"match-1","payload":{"player_id":"user-b","reason":"disconnected"}},
-  {"version":1,"direction":"server_event","type":"PLAYER_RECONNECTED","sequence":13,"room_id":"room-1","match_id":"match-1","payload":{"player_id":"user-b","control_restored":true}},
-  {"version":1,"direction":"server_event","type":"GAME_PAUSED","sequence":14,"room_id":"room-1","match_id":"match-1","payload":{"reason":"host_request","paused_by_player_id":"user-a","ends_at":"2026-07-22T08:10:00Z","preserved_timer_remaining_ms":17350}},
-  {"version":1,"direction":"server_event","type":"GAME_RESUMED","sequence":15,"room_id":"room-1","match_id":"match-1","payload":{"reason":"host_request"}},
-  {"version":1,"direction":"server_event","type":"GAME_ENDED","sequence":16,"room_id":"room-1","match_id":"match-1","payload":{"status":"finished","winner_team_id":"A","reason":"all_pieces_finished"}},
-  {"version":1,"direction":"server_event","type":"CHAT_MESSAGE","sequence":17,"room_id":"room-1","payload":{"message_id":"chat-17","sender_user_id":"usr_EREREREREREREREREREREQ","text":"안녕하세요","sent_at":"2026-07-22T08:02:00Z"}},
-  {"version":1,"direction":"server_event","type":"ERROR","request_id":"req-reconnect","sequence":18,"room_id":"room-1","match_id":"match-1","payload":{"code":"STALE_SEQUENCE","message":"재동기화가 필요합니다.","retriable":true}}
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "ROOM_UPDATED",
+    "sequence": 1,
+    "room_id": "room-1",
+    "payload": {
+      "revision": 3,
+      "status": "lobby"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "ROOM_UPDATED",
+    "sequence": 7,
+    "room_id": "9f1c0a5d3b2e4f60817a6c5d9e0f1a2b",
+    "payload": {
+      "revision": 7,
+      "status": "starting"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "GAME_STARTING",
+    "sequence": 6,
+    "room_id": "9f1c0a5d3b2e4f60817a6c5d9e0f1a2b",
+    "match_id": "4c1b2a3d4e5f60718293a4b5c6d7e8f9",
+    "payload": {
+      "confirmation_deadline_at": "2026-08-23T12:00:10Z"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "GAME_STARTING",
+    "request_id": "req-start",
+    "sequence": 2,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "confirmation_deadline_at": "2026-07-22T08:00:00Z"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "GAME_STARTED",
+    "sequence": 3,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "first_player_id": "user-a",
+      "buk_destination_space_id": "sok_yut"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "TURN_STARTED",
+    "sequence": 4,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "player_id": "user-a",
+      "phase": "wait_throw",
+      "required_input": "throw",
+      "remaining_ms": 20000
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "YUT_RESULT",
+    "sequence": 5,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "player_id": "user-a",
+      "token": {
+        "token_id": "token-1",
+        "result": "yut",
+        "origin": "initial_throw"
+      }
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "RESULT_QUEUE_UPDATED",
+    "sequence": 6,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "result_queue": [
+        {
+          "token_id": "token-1",
+          "result": "yut",
+          "origin": "initial_throw"
+        }
+      ]
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "MOVE_REQUIRED",
+    "sequence": 7,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "required_input": "select_piece",
+      "token_ids": [
+        "token-1"
+      ],
+      "piece_ids": [
+        "A-1",
+        "A-2"
+      ]
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "PIECE_MOVED",
+    "sequence": 8,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "piece_ids": [
+        "A-1"
+      ],
+      "from_space_id": "mo",
+      "to_space_id": "bang",
+      "movement_kind": "forward"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "PIECES_STACKED",
+    "sequence": 9,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "stack_id": "stack-A-1",
+      "piece_ids": [
+        "A-1",
+        "A-2"
+      ],
+      "space_id": "bang",
+      "actual_previous_space": "mo_gae"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "PIECES_CAPTURED",
+    "sequence": 10,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "captured_piece_ids": [
+        "B-1"
+      ],
+      "space_id": "bang"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "BUK_RESOLVED",
+    "sequence": 11,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "token_id": "token-2",
+      "destination_space_id": "sok_yut",
+      "moved_piece_ids": [
+        "A-1",
+        "A-2"
+      ],
+      "source_space_id": "bang",
+      "no_candidate": false
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "CPU_CONTROL_STARTED",
+    "sequence": 12,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "player_id": "user-b",
+      "reason": "disconnected"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "PLAYER_RECONNECTED",
+    "sequence": 13,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "player_id": "user-b",
+      "control_restored": true
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "GAME_PAUSED",
+    "sequence": 14,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "reason": "host_request",
+      "paused_by_player_id": "user-a",
+      "ends_at": "2026-07-22T08:10:00Z",
+      "preserved_timer_remaining_ms": 17350
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "GAME_RESUMED",
+    "sequence": 15,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "reason": "host_request"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "GAME_ENDED",
+    "sequence": 16,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "status": "finished",
+      "winner_team_id": "A",
+      "reason": "all_pieces_finished"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "CHAT_MESSAGE",
+    "sequence": 17,
+    "room_id": "room-1",
+    "payload": {
+      "message_id": "chat-17",
+      "sender_user_id": "usr_EREREREREREREREREREREQ",
+      "text": "안녕하세요",
+      "sent_at": "2026-07-22T08:02:00Z"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "ERROR",
+    "request_id": "req-reconnect",
+    "sequence": 18,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "code": "STALE_SEQUENCE",
+      "message": "재동기화가 필요합니다.",
+      "retriable": true
+    }
+  }
 ]
