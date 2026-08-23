@@ -41,6 +41,7 @@
 - `adr/0014_match_event_storage_and_indexes.md`: 방 sequence별 typed event 정본 저장과 인덱스 최소 원칙
 - `adr/0015_registry_room_event_broadcast.md`: 레지스트리 방 이벤트 방송과 시작 확인 알림 계약
 - `adr/0016_canonical_match_runtime.md`: 정식 경기 런타임과 실데이터 재접속, ADR-0013 은퇴
+- `adr/0017_event_store_commit_order_and_failure_fencing.md`: 이벤트 정본 저장의 확정 순서와 저장 장애 차단
 - `development/git-workflow.md`: 브랜치·커밋·PR·리뷰·병합·릴리스 정본
 - `development/github-settings.md`: bootstrap과 GitHub 저장소 설정 초안
 - `development/issue-51-independent-review.md`: AGY·Claude용 room actor 독립 테스트·리뷰 인계

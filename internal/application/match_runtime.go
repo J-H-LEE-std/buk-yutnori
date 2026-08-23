@@ -246,10 +246,10 @@ func (registry *RoomRegistry) newMatchRuntime(entry *registeredRoom, roomID doma
 	}, nil
 }
 
-// startLocked attaches the assembled runtime and emits GAME_STARTED followed
-// by the first TURN_STARTED broadcast. The caller already flipped the room
-// into its in-match status.
-func (registry *RoomRegistry) startLocked(entry *registeredRoom, rt *matchRuntime) error {
+// startMatchBroadcastsLocked stages GAME_STARTED and the first TURN_STARTED
+// on the caller's transaction after the runtime was attached. The caller
+// already flipped the room into its in-match status.
+func (registry *RoomRegistry) startMatchBroadcastsLocked(tx *eventTx, entry *registeredRoom, rt *matchRuntime) error {
 	entry.runtime = rt
 	bukDestination := rt.game.Snapshot().BukDestinationSpaceID
 	var destinationPointer *domain.SpaceID
@@ -257,18 +257,16 @@ func (registry *RoomRegistry) startLocked(entry *registeredRoom, rt *matchRuntim
 		value := bukDestination
 		destinationPointer = &value
 	}
-	if err := registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewGameStartedEvent(rt.roomID, rt.matchID, sequence, protocol.GameStartedPayload{
 			FirstPlayerID:       rt.order[0],
 			BukDestinationSpace: destinationPointer,
 		})
-	}); err != nil {
-		return err
-	}
-	return registry.beginTurnLocked(entry, rt)
+	})
+	return registry.beginTurnLocked(entry, rt, tx)
 }
 
-func (registry *RoomRegistry) beginTurnLocked(entry *registeredRoom, rt *matchRuntime) error {
+func (registry *RoomRegistry) beginTurnLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) error {
 	machine, err := turn.NewMachine(rt.currentPlayer(), rt.settings)
 	if err != nil {
 		return fmt.Errorf("%w: assemble turn machine: %v", ErrInvalidConfiguration, err)
@@ -280,28 +278,27 @@ func (registry *RoomRegistry) beginTurnLocked(entry *registeredRoom, rt *matchRu
 		return fmt.Errorf("%w: start turn: %v", ErrInvalidConfiguration, err)
 	}
 	registry.scheduleThrowTimerLocked(rt)
-	return registry.emitTurnStartedLocked(entry, rt)
+	registry.stageTurnStarted(tx, rt)
+	return nil
 }
 
 // endTurnLocked closes the finished turn and opens the next player's turn.
 // CPU substitution never leaks across turns: control resets before the next
 // window opens (docs/03 시간 초과).
-func (registry *RoomRegistry) endTurnLocked(entry *registeredRoom, rt *matchRuntime) error {
+func (registry *RoomRegistry) endTurnLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) error {
 	registry.cancelTimerLocked(rt)
 	rt.turnIndex = (rt.turnIndex + 1) % len(rt.order)
-	return registry.beginTurnLocked(entry, rt)
+	return registry.beginTurnLocked(entry, rt, tx)
 }
 
-func (registry *RoomRegistry) finishMatchLocked(entry *registeredRoom, rt *matchRuntime) error {
+func (registry *RoomRegistry) finishMatchLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) error {
 	winner := rt.game.Snapshot().WinnerTeamID
 	registry.cancelTimerLocked(rt)
-	if err := registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewFinishedGameEndedEvent(
 			rt.roomID, rt.matchID, sequence, winner, gameEndedReasonAllFinished,
 		)
-	}); err != nil {
-		return err
-	}
+	})
 
 	// Canonical end-of-match return to the same waiting room (docs/05):
 	// release started, close the consumed confirmation, keep teams and
@@ -310,10 +307,10 @@ func (registry *RoomRegistry) finishMatchLocked(entry *registeredRoom, rt *match
 	entry.confirmation = nil
 	entry.runtime = nil
 	entry.roomStatus = protocol.RoomStatusPostMatch
-	if err := resetReadyStatesLocked(entry); err != nil {
-		return err
-	}
-	return registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
-		return protocol.NewRoomUpdatedEvent(rt.roomID, sequence, entry.roomStatus)
+	resetReadyStatesLocked(entry)
+	status := entry.roomStatus
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(rt.roomID, sequence, status)
 	})
+	return nil
 }

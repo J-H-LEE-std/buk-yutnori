@@ -10,6 +10,7 @@ import (
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/board"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/storage"
 )
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,7 @@ func (c *manualMatchClock) Advance(d time.Duration) {
 }
 
 type matchEventEnvelope struct {
+	Raw      json.RawMessage  `json:"-"`
 	Type     string           `json:"type"`
 	Sequence uint64           `json:"sequence"`
 	RoomID   domain.RoomID    `json:"room_id"`
@@ -161,6 +163,7 @@ func (recorder *eventRecorder) flush() {
 			if json.Unmarshal(raw, &envelope) != nil {
 				continue
 			}
+			envelope.Raw = json.RawMessage(append([]byte(nil), raw...))
 			recorder.events = append(recorder.events, envelope)
 		default:
 			return
@@ -200,6 +203,7 @@ type matchFixture struct {
 	clock     *manualMatchClock
 	recorder  *eventRecorder
 	processor *Processor
+	store     *fakeEventStore
 }
 
 const reconnectSpectatorID = "usr_VVVVVVVVVVVVVVVVVVVVVQ"
@@ -219,6 +223,12 @@ func newMatchFixture(t *testing.T, mutate func(*room.Settings), hooks ...func(*m
 	wallClock := &manualClock{current: time.Date(2026, 8, 23, 9, 0, 0, 0, time.UTC)}
 	registry := newTestRegistryWithClock(t, wallClock.Now)
 	matchClock := &manualMatchClock{now: wallClock.current}
+	// The durable store attaches before any room exists, mirroring
+	// production wiring, so every committed event is persisted.
+	store := &fakeEventStore{}
+	if err := registry.AttachEventStore(store); err != nil {
+		t.Fatalf("AttachEventStore() error = %v", err)
+	}
 	registry.setMatchClock(matchClock)
 	registry.setMatchRandomSeed(func() (uint64, uint64, error) { return 0xA11CE, 0xB0B, nil })
 
@@ -281,7 +291,15 @@ func newMatchFixture(t *testing.T, mutate func(*room.Settings), hooks ...func(*m
 		t.Fatalf("NewProcessor() error = %v", err)
 	}
 	fixture.processor = processor
+	fixture.store = store
 	return fixture
+}
+
+// setEventStoreForTest swaps the durable store mid-test for failure injection.
+func (registry *RoomRegistry) setEventStoreForTest(store storage.EventStore) {
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	registry.store = store
 }
 
 func readActiveStart(t *testing.T, registry *RoomRegistry, roomID domain.RoomID) ActiveStartSnapshot {

@@ -97,14 +97,20 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   `SELECT_ROUTE`)는 레지스트리 소유 경기 런타임에서 실행된다(ADR-0016). 현재 턴
   플레이어가 아니면 `NOT_YOUR_TURN`, 단계가 맞지 않으면 `INVALID_TURN_ACTION`,
   스코프가 다르면 `MATCH_SCOPE_MISMATCH`, 진행 중 경기가 없으면 retriable
-  `MATCH_NOT_ACTIVE`로 거부된다. 던지기·선택 제한 시간이 만료되면 서버가 해당 턴에
+  `MATCH_NOT_ACTIVE`, 이벤트 정본 저장 장애 또는 차단된 방이면 retriable
+  `EVENT_STORE_UNAVAILABLE`(ADR-0017)로 거부된다. 모든 상태 변경 이벤트는
+  메모리·sequence 확정과 방송 전에 정본 저장소에 영속된다. 던지기·선택 제한 시간이 만료되면 서버가 해당 턴에
   한해 CPU로 대체하고 `CPU_CONTROL_STARTED(reason=timeout)`를 방송한다(docs/03).
   경기 이벤트는 ROOM_UPDATED·GAME_STARTING과 같은 방 sequence 공간과 허브로
   live 방송되며, 저장·replay는 ADR-0014 구현 이후 과제다.
 - `RECONNECT`는 고정 프로토타입 scope 없이 모든 방에 대해 처리된다. 멤버가 시작된
   방의 활성 `match_id`로 요청하면 현재 방 sequence 경계의 실제 game_snapshot을
   조립해 synchronization으로 반환하고 sequence를 소비하지 않는다(ADR-0009).
-  snapshot 이후 event 배열은 저장 구현 전까지 항상 빈 배열이다. 멤버가 아니면
+  snapshot 이후 event 배열은 스냅샷 경계 뒤의 저장된 연속 이벤트로 채워진다.
+  모든 커밋된 방 이벤트는 방송 전에 정본 SQLite 저장소(ADR-0014)에 영속되며
+  (확정 순서는 ADR-0017), 스냅샷이 항상 최신 경계에서 조립되는 동안에는 배열이
+  빈 값으로 유지된다. 체크포인트 기반 과거 스냅샷이 도입되면 같은 경로가 비어
+  있지 않은 replay를 서비스한다. 멤버가 아니면
   `ROOM_NOT_MEMBER`(재시도 불가), 존재하지 않는 방은 `ROOM_NOT_FOUND`(재시도 가능),
   스코프 불일치·진행 중 경기 없음·`last_sequence`가 경계보다 큰 경우는 retriable
   `RESYNC_REQUIRED`로 거부한다. 승인 결과만 `(user_id, command_id)` 멱등 경계에

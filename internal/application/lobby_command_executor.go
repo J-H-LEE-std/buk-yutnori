@@ -100,6 +100,8 @@ func (executor *LobbyCommandExecutor) Execute(ctx context.Context, user auth.Use
 
 func (executor *LobbyCommandExecutor) rejectLobbyError(err error) protocol.CommandOutcome {
 	switch {
+	case errors.Is(err, ErrEventStoreUnavailable):
+		return rejectedLobbyOutcome("EVENT_STORE_UNAVAILABLE", "일시적 저장 장애입니다. 잠시 후 다시 시도하세요.", true)
 	case errors.Is(err, ErrRoomNotFound):
 		return rejectedLobbyOutcome("ROOM_NOT_FOUND", "lobby room not found", true)
 	case errors.Is(err, room.ErrPlayerNotFound):
@@ -117,6 +119,8 @@ func (executor *LobbyCommandExecutor) rejectLobbyError(err error) protocol.Comma
 
 func (executor *LobbyCommandExecutor) rejectStartError(err error) protocol.CommandOutcome {
 	switch {
+	case errors.Is(err, ErrEventStoreUnavailable):
+		return rejectedLobbyOutcome("EVENT_STORE_UNAVAILABLE", "일시적 저장 장애입니다. 잠시 후 다시 시도하세요.", true)
 	case errors.Is(err, ErrRoomNotFound):
 		return rejectedLobbyOutcome("ROOM_NOT_FOUND", "lobby room not found", true)
 	case errors.Is(err, ErrNotRoomHost):
@@ -136,6 +140,8 @@ func (executor *LobbyCommandExecutor) rejectStartError(err error) protocol.Comma
 
 func (executor *LobbyCommandExecutor) rejectConfirmError(err error) protocol.CommandOutcome {
 	switch {
+	case errors.Is(err, ErrEventStoreUnavailable):
+		return rejectedLobbyOutcome("EVENT_STORE_UNAVAILABLE", "일시적 저장 장애입니다. 잠시 후 다시 시도하세요.", true)
 	case errors.Is(err, ErrRoomNotFound):
 		return rejectedLobbyOutcome("ROOM_NOT_FOUND", "lobby room not found", true)
 	case errors.Is(err, ErrNoActiveStartConfirmation):

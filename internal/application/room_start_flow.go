@@ -28,6 +28,9 @@ func (registry *RoomRegistry) RequestStart(user auth.UserID, roomID domain.RoomI
 	if !exists {
 		return ErrRoomNotFound
 	}
+	if entry.poisoned {
+		return ErrEventStoreUnavailable
+	}
 	if entry.host != user {
 		return ErrNotRoomHost
 	}
@@ -54,14 +57,15 @@ func (registry *RoomRegistry) RequestStart(user auth.UserID, roomID domain.RoomI
 	entry.expiryTimer = time.AfterFunc(room.StartConfirmationWindow, func() {
 		registry.awaitDeadlineAndExpire(roomID)
 	})
-	if err := registry.emitLocked(roomID, func(sequence uint64) (any, error) {
-		return protocol.NewGameStartingEvent(roomID, matchID, sequence, confirmation.Snapshot().DeadlineAt)
-	}); err != nil {
-		return err
-	}
-	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
-		return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusStarting)
+	tx := registry.newEventTx(roomID)
+	deadlineAt := confirmation.Snapshot().DeadlineAt
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewGameStartingEvent(roomID, matchID, sequence, deadlineAt)
 	})
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
+	})
+	return tx.flush()
 }
 
 // ConfirmStart records one roster player's confirmation. The last pending
@@ -97,6 +101,8 @@ func (registry *RoomRegistry) ConfirmStart(user auth.UserID, roomID domain.RoomI
 		return nil
 	}
 
+	tx := registry.newEventTx(roomID)
+
 	// The runtime is assembled before the started flip so a construction
 	// failure cannot leave a started room without its canonical runtime.
 	runtime, err := registry.newMatchRuntime(entry, roomID, matchID)
@@ -105,35 +111,34 @@ func (registry *RoomRegistry) ConfirmStart(user auth.UserID, roomID domain.RoomI
 		// Confirmed state, and every cleanup guard requires Pending, so an
 		// unhandled failure here would wedge the room forever: no restart,
 		// no mutations, and the expiry timer becomes a permanent no-op.
-		// Compensate with the canonical failed-start transition instead.
-		if compensateErr := registry.compensateFailedStartLocked(entry, roomID); compensateErr != nil {
-			return errors.Join(err, compensateErr)
-		}
-		return err
+		// Compensate with the canonical failed-start transition instead;
+		// the compensation broadcast rides the same transaction.
+		registry.compensateFailedStartLocked(entry, roomID, tx)
+		return errors.Join(err, tx.flush())
 	}
 	registry.stopExpiryTimer(entry)
 	entry.started = true
 	entry.roomStatus = protocol.RoomStatusInMatch
-	if err := registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
-	}); err != nil {
+	})
+	if err := registry.startMatchBroadcastsLocked(tx, entry, runtime); err != nil {
 		return err
 	}
-	return registry.startLocked(entry, runtime)
+	return tx.flush()
 }
 
 // compensateFailedStartLocked unwinds an open start window after the roster
 // confirmed but the match runtime could not be assembled. It mirrors the
 // observable effects of ExpireStartConfirmation minus responder removal (the
-// full roster responded) and returns the room to a retryable lobby state.
-func (registry *RoomRegistry) compensateFailedStartLocked(entry *registeredRoom, roomID domain.RoomID) error {
+// full roster responded), stages the lobby transition on the caller's
+// transaction, and returns the room to a retryable lobby state.
+func (registry *RoomRegistry) compensateFailedStartLocked(entry *registeredRoom, roomID domain.RoomID, tx *eventTx) {
 	registry.stopExpiryTimer(entry)
 	entry.confirmation = nil
 	entry.roomStatus = protocol.RoomStatusLobby
-	if err := resetReadyStatesLocked(entry); err != nil {
-		return err
-	}
-	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+	resetReadyStatesLocked(entry)
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
 	})
 }
@@ -188,20 +193,28 @@ func (registry *RoomRegistry) ExpireStartConfirmation(roomID domain.RoomID) erro
 	if !exists || entry.confirmation == nil || entry.confirmation.Snapshot().Status != room.StartConfirmationPending {
 		return nil
 	}
+	if entry.poisoned {
+		return ErrEventStoreUnavailable
+	}
 	if _, err := entry.confirmation.Expire(entry.lobby, registry.clock()); err != nil {
 		return err
 	}
 	registry.stopExpiryTimer(entry)
 	entry.confirmation = nil
 	entry.roomStatus = protocol.RoomStatusLobby
-	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
 	})
+	return tx.flush()
 }
 
 // guardLobbyMutation rejects membership mutations while a start window is open
 // or after the match has started.
 func (registry *RoomRegistry) guardLobbyMutation(entry *registeredRoom) error {
+	if entry.poisoned {
+		return ErrEventStoreUnavailable
+	}
 	if entry.started {
 		return ErrRoomAlreadyStarted
 	}
