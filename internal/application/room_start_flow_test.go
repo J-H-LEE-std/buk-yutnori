@@ -222,8 +222,8 @@ func TestExpireAppliesCanonicalSanctionsAndAllowsRestart(t *testing.T) {
 		t.Fatalf("ExpireStartConfirmation() error = %v", err)
 	}
 
-	if _, err := fixture.registry.Membership(auth.UserID(startRosterIDs[0]), fixture.roomID); !errors.Is(err, ErrRoomNotFound) {
-		t.Fatalf("Membership(nonresponder 1) error = %v, want removed", err)
+	if _, err := fixture.registry.Membership(auth.UserID(startRosterIDs[0]), fixture.roomID); !errors.Is(err, ErrNotMember) {
+		t.Fatalf("Membership(nonresponder 1) error = %v, want removed as ErrNotMember", err)
 	}
 	if _, err := fixture.registry.Membership(third, fixture.roomID); err != nil {
 		t.Fatalf("Membership(responder) error = %v, want retained", err)
@@ -360,7 +360,7 @@ func TestStartConfirmationRealTimerExpiresAutomatically(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	if _, err := registry.Membership(lobbyCreatorID, summary.RoomID); !errors.Is(err, ErrRoomNotFound) {
+	if _, err := registry.Membership(lobbyCreatorID, summary.RoomID); !errors.Is(err, ErrNotMember) {
 		t.Fatalf("Membership(nonresponder host) error = %v, want removed by sanctions", err)
 	}
 	retained, err := registry.Membership(responder, summary.RoomID)

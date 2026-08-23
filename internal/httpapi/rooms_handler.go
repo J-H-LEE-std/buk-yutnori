@@ -25,6 +25,7 @@ type roomsService interface {
 	List() []application.RoomSummary
 	Create(input application.CreateRoomInput) (application.RoomSummary, error)
 	Join(input application.JoinRoomInput) (application.RoomSummary, error)
+	Detail(user auth.UserID, roomID domain.RoomID) (application.RoomDetailSnapshot, error)
 }
 
 type roomsHandler struct {
@@ -67,6 +68,7 @@ func NewRoomsHandler(authenticate roomAuthenticator, rooms roomsService) (http.H
 	mux.HandleFunc("GET /api/v1/rooms", handler.list)
 	mux.HandleFunc("POST /api/v1/rooms", handler.create)
 	mux.HandleFunc("POST /api/v1/rooms/{room_id}/join", handler.join)
+	mux.HandleFunc("GET /api/v1/rooms/{room_id}", handler.detail)
 	return mux, nil
 }
 
@@ -149,6 +151,20 @@ func (h *roomsHandler) join(response http.ResponseWriter, request *http.Request)
 	})
 }
 
+func (h *roomsHandler) detail(response http.ResponseWriter, request *http.Request) {
+	setPrivateJSONHeaders(response)
+	user, ok := h.requireUser(response, request)
+	if !ok {
+		return
+	}
+	detail, err := h.rooms.Detail(user.ID, domain.RoomID(request.PathValue("room_id")))
+	if err != nil {
+		writeRegistryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
+}
+
 func (h *roomsHandler) requireUser(response http.ResponseWriter, request *http.Request) (auth.User, bool) {
 	cookie, err := request.Cookie(SessionCookieName)
 	if err != nil {
@@ -194,6 +210,8 @@ func writeRegistryError(response http.ResponseWriter, err error) {
 		writeError(response, http.StatusNotFound, "room_not_found")
 	case errors.Is(err, application.ErrAlreadyMember):
 		writeError(response, http.StatusConflict, "already_member")
+	case errors.Is(err, application.ErrNotMember):
+		writeError(response, http.StatusForbidden, "not_member")
 	case errors.Is(err, application.ErrCombinedCapacityFull), errors.Is(err, room.ErrLobbyFull):
 		writeError(response, http.StatusConflict, "room_full")
 	case errors.Is(err, application.ErrPasswordRequired):

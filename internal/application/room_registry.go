@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
@@ -22,6 +23,8 @@ import (
 var (
 	// ErrRoomNotFound identifies registry operations on an absent room.
 	ErrRoomNotFound = errors.New("room not found")
+	// ErrNotMember identifies a valid room the caller does not belong to.
+	ErrNotMember = errors.New("user is not a member of the room")
 	// ErrAlreadyMember identifies a join request from an existing member.
 	ErrAlreadyMember = errors.New("user is already a member of the room")
 	// ErrPasswordRequired identifies a missing entry password.
@@ -296,9 +299,85 @@ func (registry *RoomRegistry) Membership(user auth.UserID, roomID domain.RoomID)
 	}
 	player, ok := entry.lobby.Player(playerID)
 	if !ok {
-		return Membership{}, ErrRoomNotFound
+		return Membership{}, ErrNotMember
 	}
 	return Membership{Role: RolePlayer, Team: player.Team, Ready: player.Ready}, nil
+}
+
+// RoomDetailSnapshot is the authoritative member view of one room.
+type RoomDetailSnapshot struct {
+	Summary     RoomSummary          `json:"summary"`
+	Members     []RoomMemberView     `json:"members"`
+	ActiveStart *ActiveStartSnapshot `json:"active_start,omitempty"`
+}
+
+// RoomMemberView is one member's visible lobby state.
+type RoomMemberView struct {
+	UserID auth.UserID   `json:"user_id"`
+	Role   string        `json:"role"`
+	Team   domain.TeamID `json:"team,omitempty"`
+	Ready  bool          `json:"ready"`
+}
+
+// ActiveStartSnapshot describes the open confirmation window.
+type ActiveStartSnapshot struct {
+	MatchID                domain.MatchID `json:"match_id"`
+	ConfirmationDeadlineAt string         `json:"confirmation_deadline_at"`
+}
+
+// Detail returns the member-only view of a room's current lobby state and,
+// while a start window is open, its active confirmation contract (ADR-0015).
+func (registry *RoomRegistry) Detail(user auth.UserID, roomID domain.RoomID) (RoomDetailSnapshot, error) {
+	playerID, err := playerIDFromUser(user)
+	if err != nil {
+		return RoomDetailSnapshot{}, err
+	}
+
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		return RoomDetailSnapshot{}, ErrRoomNotFound
+	}
+	if _, spectator := entry.spectators[user]; !spectator {
+		if _, player := entry.lobby.Player(playerID); !player {
+			return RoomDetailSnapshot{}, ErrNotMember
+		}
+	}
+
+	detail := RoomDetailSnapshot{Summary: entry.summary}
+	spectatorIDs := make([]auth.UserID, 0, len(entry.spectators))
+	for id := range entry.spectators {
+		spectatorIDs = append(spectatorIDs, id)
+	}
+	sort.Slice(spectatorIDs, func(left, right int) bool { return spectatorIDs[left] < spectatorIDs[right] })
+	for _, id := range spectatorIDs {
+		detail.Members = append(detail.Members, RoomMemberView{UserID: id, Role: RoleSpectator})
+	}
+	players := entry.lobby.Players()
+	ids := make([]domain.PlayerID, 0, len(players))
+	for id := range players {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
+	for _, id := range ids {
+		player := players[id]
+		detail.Members = append(detail.Members, RoomMemberView{
+			UserID: auth.UserID(id), Role: RolePlayer,
+			Team: player.Team, Ready: player.Ready,
+		})
+	}
+	if entry.confirmation != nil && !entry.started {
+		snapshot := entry.confirmation.Snapshot()
+		if snapshot.Status == room.StartConfirmationPending {
+			detail.ActiveStart = &ActiveStartSnapshot{
+				MatchID:                snapshot.MatchID,
+				ConfirmationDeadlineAt: snapshot.DeadlineAt.UTC().Format(time.RFC3339),
+			}
+		}
+	}
+	return detail, nil
 }
 
 // ChangeTeam moves the authenticated player to the requested team through the

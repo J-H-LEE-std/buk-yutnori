@@ -1,6 +1,7 @@
 package application
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -572,5 +573,92 @@ func TestSetReadyTogglesOnlyOwnState(t *testing.T) {
 	}
 	if !creatorMembership.Ready || otherMembership.Ready {
 		t.Fatalf("ready states = creator %v other %v, want only creator ready", creatorMembership.Ready, otherMembership.Ready)
+	}
+}
+
+func TestDetailVisibilityContract(t *testing.T) {
+	registry := newTestRegistryWithClock(t, time.Now)
+	summary, err := registry.Create(CreateRoomInput{
+		Creator:  lobbyCreatorID,
+		Creation: room.Creation{Title: "상세 방"},
+		Settings: room.DefaultSettings(),
+		Team:     domain.TeamA,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := registry.Join(JoinRoomInput{
+		User:   auth.UserID(startRosterIDs[1]),
+		RoomID: summary.RoomID,
+		Role:   RoleSpectator,
+	}); err != nil {
+		t.Fatalf("Join(spectator) error = %v", err)
+	}
+
+	if _, err := registry.Detail(auth.UserID(startRosterIDs[2]), summary.RoomID); !errors.Is(err, ErrNotMember) {
+		t.Fatalf("Detail(non-member) error = %v, want ErrNotMember", err)
+	}
+	if _, err := registry.Detail(lobbyCreatorID, domain.RoomID("00000000000000000000000000000000")); !errors.Is(err, ErrRoomNotFound) {
+		t.Fatalf("Detail(unknown room) error = %v, want ErrRoomNotFound", err)
+	}
+
+	detail, err := registry.Detail(lobbyCreatorID, summary.RoomID)
+	if err != nil {
+		t.Fatalf("Detail(member) error = %v", err)
+	}
+	if detail.ActiveStart != nil {
+		t.Fatalf("closed window must be nil in Go: %+v", detail.ActiveStart)
+	}
+	encoded, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatalf("Marshal(detail) error = %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("Unmarshal(detail) error = %v", err)
+	}
+	if _, present := decoded["active_start"]; present {
+		t.Fatalf("windowless response serialized active_start: %s", encoded)
+	}
+	if len(detail.Members) != 2 || detail.Members[0].Role != RoleSpectator ||
+		detail.Members[1].Team != domain.TeamA {
+		t.Fatalf("members = %+v, want deterministic spectator-first roster", detail.Members)
+	}
+
+	playerTeams := []domain.TeamID{domain.TeamB, domain.TeamA, domain.TeamB}
+	for index, user := range []auth.UserID{auth.UserID(startRosterIDs[2]), auth.UserID(startRosterIDs[3]), auth.UserID(startRosterIDs[4])} {
+		if _, err := registry.Join(JoinRoomInput{
+			User: user, RoomID: summary.RoomID, Role: RolePlayer, Team: playerTeams[index],
+		}); err != nil {
+			t.Fatalf("Join(player %d) error = %v", index, err)
+		}
+		if err := registry.SetReady(user, summary.RoomID, true); err != nil {
+			t.Fatalf("SetReady(%s) error = %v", user, err)
+		}
+	}
+	if err := registry.SetReady(lobbyCreatorID, summary.RoomID, true); err != nil {
+		t.Fatalf("SetReady(host) error = %v", err)
+	}
+	fixture := startFixture{registry: registry, roomID: summary.RoomID}
+	if err := fixture.registry.RequestStart(lobbyCreatorID, summary.RoomID); err != nil {
+		t.Fatalf("RequestStart() error = %v", err)
+	}
+	_, _, activeMatchID := readStartState(registry, summary.RoomID)
+
+	detail, err = registry.Detail(lobbyCreatorID, summary.RoomID)
+	if err != nil || detail.ActiveStart == nil || detail.ActiveStart.MatchID != activeMatchID {
+		t.Fatalf("open-window detail = %+v error = %v, want active start contract", detail, err)
+	}
+
+	for _, user := range []auth.UserID{
+		lobbyCreatorID, auth.UserID(startRosterIDs[2]), auth.UserID(startRosterIDs[3]), auth.UserID(startRosterIDs[4]),
+	} {
+		if err := registry.ConfirmStart(user, summary.RoomID, activeMatchID); err != nil {
+			t.Fatalf("ConfirmStart(%s) error = %v", user, err)
+		}
+	}
+	detail, err = registry.Detail(lobbyCreatorID, summary.RoomID)
+	if err != nil || detail.ActiveStart != nil {
+		t.Fatalf("post-start detail active_start = %+v error = %v, want omitted", detail.ActiveStart, err)
 	}
 }

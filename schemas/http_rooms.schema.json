@@ -20,6 +20,9 @@
     },
     {
       "$ref": "#/$defs/errorResponse"
+    },
+    {
+      "$ref": "#/$defs/roomDetailResponse"
     }
   ],
   "$defs": {
@@ -276,6 +279,67 @@
         "error": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "roomMemberView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "role",
+        "ready"
+      ],
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "$ref": "#/$defs/memberRole"
+        },
+        "team": {
+          "$ref": "#/$defs/teamID"
+        },
+        "ready": {
+          "type": "boolean"
+        }
+      }
+    },
+    "roomDetailResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "members"
+      ],
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/roomSummary"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/roomMemberView"
+          }
+        },
+        "active_start": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "match_id",
+            "confirmation_deadline_at"
+          ],
+          "properties": {
+            "match_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "confirmation_deadline_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
         }
       }
     }
