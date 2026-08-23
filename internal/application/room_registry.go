@@ -347,7 +347,12 @@ func (registry *RoomRegistry) Detail(user auth.UserID, roomID domain.RoomID) (Ro
 	}
 
 	detail := RoomDetailSnapshot{Summary: entry.summary}
+	spectatorIDs := make([]auth.UserID, 0, len(entry.spectators))
 	for id := range entry.spectators {
+		spectatorIDs = append(spectatorIDs, id)
+	}
+	sort.Slice(spectatorIDs, func(left, right int) bool { return spectatorIDs[left] < spectatorIDs[right] })
+	for _, id := range spectatorIDs {
 		detail.Members = append(detail.Members, RoomMemberView{UserID: id, Role: RoleSpectator})
 	}
 	players := entry.lobby.Players()
@@ -363,11 +368,13 @@ func (registry *RoomRegistry) Detail(user auth.UserID, roomID domain.RoomID) (Ro
 			Team: player.Team, Ready: player.Ready,
 		})
 	}
-	if entry.confirmation != nil {
+	if entry.confirmation != nil && !entry.started {
 		snapshot := entry.confirmation.Snapshot()
-		detail.ActiveStart = &ActiveStartSnapshot{
-			MatchID:                snapshot.MatchID,
-			ConfirmationDeadlineAt: snapshot.DeadlineAt.UTC().Format(time.RFC3339),
+		if snapshot.Status == room.StartConfirmationPending {
+			detail.ActiveStart = &ActiveStartSnapshot{
+				MatchID:                snapshot.MatchID,
+				ConfirmationDeadlineAt: snapshot.DeadlineAt.UTC().Format(time.RFC3339),
+			}
 		}
 	}
 	return detail, nil
