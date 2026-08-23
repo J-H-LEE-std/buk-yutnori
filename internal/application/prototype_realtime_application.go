@@ -164,7 +164,8 @@ func (router *prototypeRoomRouter) Execute(ctx context.Context, user auth.User, 
 		return protocol.CommandOutcome{}, fmt.Errorf("%w: prototype room actor is required", ErrInvalidConfiguration)
 	}
 	switch command.Type {
-	case protocol.CommandSelectTeam, protocol.CommandSetReady:
+	case protocol.CommandSelectTeam, protocol.CommandSetReady,
+		protocol.CommandStartGame, protocol.CommandConfirmGameStart:
 		return router.lobby.Execute(ctx, user, command)
 	case protocol.CommandSendChat, protocol.CommandReconnect:
 		if command.RoomID != PrototypeRoomID {

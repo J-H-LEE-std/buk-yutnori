@@ -51,7 +51,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	roomsRegistry, err := application.NewRoomRegistry()
+	roomsRegistry, err := application.NewRoomRegistry(time.Now)
 	if err != nil {
 		return err
 	}

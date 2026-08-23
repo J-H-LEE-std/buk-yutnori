@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
@@ -31,9 +32,9 @@ func lobbyTestCommand(commandType protocol.CommandType, commandID string, roomID
 func newLobbyExecutorFixture(t *testing.T) (*RoomRegistry, *LobbyCommandExecutor, domain.RoomID) {
 	t.Helper()
 
-	registry, err := NewRoomRegistry()
+	registry, err := NewRoomRegistry(time.Now)
 	if err != nil {
-		t.Fatalf("NewRoomRegistry() error = %v", err)
+		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
 	}
 	executor, err := NewLobbyCommandExecutor(registry)
 	if err != nil {
@@ -216,9 +217,9 @@ func TestLobbyExecutorRejectsInvalidUsageWithoutOutcome(t *testing.T) {
 }
 
 func TestLobbyExecutorConstructorAndContextGuards(t *testing.T) {
-	registry, err := NewRoomRegistry()
+	registry, err := NewRoomRegistry(time.Now)
 	if err != nil {
-		t.Fatalf("NewRoomRegistry() error = %v", err)
+		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
 	}
 
 	if _, err := NewLobbyCommandExecutor(nil); !errors.Is(err, ErrInvalidConfiguration) {
@@ -233,4 +234,203 @@ func TestLobbyExecutorConstructorAndContextGuards(t *testing.T) {
 		t.Fatalf("Execute(canceled) error = %v, want context.Canceled", err)
 	}
 	_ = registry
+}
+
+func TestLobbyExecutorMapsStartFlowRejections(t *testing.T) {
+	clock := &manualClock{current: time.Date(2026, 8, 23, 11, 0, 0, 0, time.UTC)}
+	registry := newTestRegistryWithClock(t, clock.Now)
+	executor, err := NewLobbyCommandExecutor(registry)
+	if err != nil {
+		t.Fatalf("NewLobbyCommandExecutor() error = %v", err)
+	}
+
+	summary, err := registry.Create(CreateRoomInput{
+		Creator:  lobbyCreatorID,
+		Creation: room.Creation{Title: "매핑 방"},
+		Settings: room.DefaultSettings(),
+		Team:     domain.TeamA,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := registry.Join(JoinRoomInput{
+		User:   lobbyOutsiderID,
+		RoomID: summary.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamB,
+	}); err != nil {
+		t.Fatalf("Join(second player) error = %v", err)
+	}
+
+	startCommand := func(id string) protocol.ClientCommand {
+		return lobbyTestCommand(protocol.CommandStartGame, id, summary.RoomID, protocol.EmptyPayload{})
+	}
+	assertOutcome := func(t *testing.T, outcome protocol.CommandOutcome, err error, wantCode string, wantRetriable bool) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		if outcome.Status != protocol.CommandRejected || outcome.Error == nil {
+			t.Fatalf("outcome = %+v, want rejected", outcome)
+		}
+		if outcome.Error.Code != wantCode || outcome.Error.Retriable != wantRetriable {
+			t.Fatalf("error = %+v, want code %q retriable %v", outcome.Error, wantCode, wantRetriable)
+		}
+	}
+
+	outcome, err := executor.Execute(context.Background(), auth.User{ID: lobbyOutsiderID}, startCommand("s1"))
+	assertOutcome(t, outcome, err, roomHostRequiredCode, false)
+
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbySpectatorID}, startCommand("s2"))
+	assertOutcome(t, outcome, err, roomHostRequiredCode, false)
+
+	if err := registry.SetReady(lobbyOutsiderID, summary.RoomID, true); err != nil {
+		t.Fatalf("SetReady(eligibility precondition) error = %v", err)
+	}
+	if err := registry.SetReady(lobbyCreatorID, summary.RoomID, true); err != nil {
+		t.Fatalf("SetReady(host ready precondition) error = %v", err)
+	}
+	if err := registry.RequestStart(lobbyCreatorID, summary.RoomID); err != nil {
+		t.Fatalf("RequestStart() error = %v", err)
+	}
+	_, _, activeMatchID := readStartState(registry, summary.RoomID)
+
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbyCreatorID}, startCommand("s3"))
+	assertOutcome(t, outcome, err, startInProgressCode, false)
+
+	mutation := lobbyTestCommand(protocol.CommandSetReady, "s4", summary.RoomID, protocol.SetReadyPayload{Ready: false})
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbyCreatorID}, mutation)
+	assertOutcome(t, outcome, err, startInProgressCode, false)
+
+	wrongScope := lobbyTestCommand(protocol.CommandConfirmGameStart, "s5", summary.RoomID, protocol.EmptyPayload{})
+	wrongScope.MatchID = &activeMatchID
+	wrongScope.Payload = protocol.SelectTeamPayload{TeamID: domain.TeamA}
+	if _, err := executor.Execute(context.Background(), auth.User{ID: lobbyCreatorID}, wrongScope); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("CONFIRM with wrong payload type error = %v, want ErrInvalidCommand", err)
+	}
+	wrongScope.Payload = protocol.EmptyPayload{}
+	scopeMismatch := activeMatchID + "zz"
+	wrongScope.MatchID = &scopeMismatch
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbyOutsiderID}, wrongScope)
+	assertOutcome(t, outcome, err, matchScopeMismatchCode, false)
+
+	noWindowRoom := lobbyTestCommand(protocol.CommandConfirmGameStart, "s6",
+		domain.RoomID("00000000000000000000000000000000"), protocol.EmptyPayload{})
+	unknown := domain.MatchID("unknown")
+	noWindowRoom.MatchID = &unknown
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbyCreatorID}, noWindowRoom)
+	assertOutcome(t, outcome, err, "ROOM_NOT_FOUND", true)
+
+	clock.Advance(room.StartConfirmationWindow + time.Second)
+	if err := registry.ExpireStartConfirmation(summary.RoomID); err != nil {
+		t.Fatalf("deterministic expiry cleanup error = %v", err)
+	}
+
+	lateConfirm := lobbyTestCommand(protocol.CommandConfirmGameStart, "s8", summary.RoomID, protocol.EmptyPayload{})
+	lateConfirm.MatchID = &activeMatchID
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbyOutsiderID}, lateConfirm)
+	assertOutcome(t, outcome, err, noActiveConfirmationCode, false)
+
+	unreadyRoom, err := registry.Create(CreateRoomInput{
+		Creator:  lobbyCreatorID,
+		Creation: room.Creation{Title: "미준비 방"},
+		Settings: room.DefaultSettings(),
+		Team:     domain.TeamA,
+	})
+	if err != nil {
+		t.Fatalf("Create(unready room) error = %v", err)
+	}
+	if _, err := registry.Join(JoinRoomInput{
+		User:   lobbySpectatorID,
+		RoomID: unreadyRoom.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamB,
+	}); err != nil {
+		t.Fatalf("Join(unready room player) error = %v", err)
+	}
+	blocked := lobbyTestCommand(protocol.CommandStartGame, "s9", unreadyRoom.RoomID, protocol.EmptyPayload{})
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbyCreatorID}, blocked)
+	assertOutcome(t, outcome, err, startConditionsNotMetCode, false)
+
+	if err := registry.SetReady(lobbyCreatorID, unreadyRoom.RoomID, true); err != nil {
+		t.Fatalf("SetReady(host) error = %v", err)
+	}
+	if _, err := registry.Join(JoinRoomInput{
+		User:   auth.UserID(startRosterIDs[3]),
+		RoomID: unreadyRoom.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamA,
+	}); err != nil {
+		t.Fatalf("Join(second player) error = %v", err)
+	}
+	if err := registry.SetReady(auth.UserID(startRosterIDs[3]), unreadyRoom.RoomID, true); err != nil {
+		t.Fatalf("SetReady(second) error = %v", err)
+	}
+	if _, err := registry.Join(JoinRoomInput{
+		User:   auth.UserID(startRosterIDs[4]),
+		RoomID: unreadyRoom.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamB,
+	}); err != nil {
+		t.Fatalf("Join(third player) error = %v", err)
+	}
+	if err := registry.SetReady(auth.UserID(startRosterIDs[4]), unreadyRoom.RoomID, true); err != nil {
+		t.Fatalf("SetReady(third) error = %v", err)
+	}
+	if err := registry.SetReady(lobbySpectatorID, unreadyRoom.RoomID, true); err != nil {
+		t.Fatalf("SetReady(remaining player) error = %v", err)
+	}
+	if err := registry.RequestStart(lobbyCreatorID, unreadyRoom.RoomID); err != nil {
+		t.Fatalf("RequestStart(eligible) error = %v", err)
+	}
+	_, _, windowMatch := readStartState(registry, unreadyRoom.RoomID)
+	nonRoster := lobbyTestCommand(protocol.CommandConfirmGameStart, "s10", unreadyRoom.RoomID, protocol.EmptyPayload{})
+	nonRoster.MatchID = &windowMatch
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbyOutsiderID}, nonRoster)
+	assertOutcome(t, outcome, err, roomPlayerRequiredCode, false)
+
+	clock.Advance(room.StartConfirmationWindow + time.Second)
+	expired := lobbyTestCommand(protocol.CommandConfirmGameStart, "s11", unreadyRoom.RoomID, protocol.EmptyPayload{})
+	expired.MatchID = &windowMatch
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbySpectatorID}, expired)
+	assertOutcome(t, outcome, err, confirmationExpiredCode, false)
+
+	if err := registry.ExpireStartConfirmation(unreadyRoom.RoomID); err != nil {
+		t.Fatalf("deterministic expiry cleanup error = %v", err)
+	}
+
+	fullRoom, err := registry.Create(CreateRoomInput{
+		Creator:  lobbyCreatorID,
+		Creation: room.Creation{Title: "전원 확인 방"},
+		Settings: room.DefaultSettings(),
+		Team:     domain.TeamA,
+	})
+	if err != nil {
+		t.Fatalf("Create(full room) error = %v", err)
+	}
+	if _, err := registry.Join(JoinRoomInput{
+		User:   lobbyOutsiderID,
+		RoomID: fullRoom.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamB,
+	}); err != nil {
+		t.Fatalf("Join(full room player) error = %v", err)
+	}
+	for _, user := range []auth.UserID{lobbyCreatorID, lobbyOutsiderID} {
+		if err := registry.SetReady(user, fullRoom.RoomID, true); err != nil {
+			t.Fatalf("SetReady(%s) error = %v", user, err)
+		}
+	}
+	if err := registry.RequestStart(lobbyCreatorID, fullRoom.RoomID); err != nil {
+		t.Fatalf("RequestStart(full room) error = %v", err)
+	}
+	_, _, fullMatch := readStartState(registry, fullRoom.RoomID)
+	for _, user := range []auth.UserID{lobbyCreatorID, lobbyOutsiderID} {
+		if err := registry.ConfirmStart(user, fullRoom.RoomID, fullMatch); err != nil {
+			t.Fatalf("ConfirmStart(%s) error = %v", user, err)
+		}
+	}
+	afterStarted := lobbyTestCommand(protocol.CommandSetReady, "s12", fullRoom.RoomID, protocol.SetReadyPayload{Ready: true})
+	outcome, err = executor.Execute(context.Background(), auth.User{ID: lobbyOutsiderID}, afterStarted)
+	assertOutcome(t, outcome, err, matchAlreadyStartedCode, false)
 }

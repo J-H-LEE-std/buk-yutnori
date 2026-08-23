@@ -15,6 +15,13 @@ import (
 const (
 	roomPlayerRequiredCode     = "ROOM_PLAYER_REQUIRED"
 	readyTeamChangeBlockedCode = "READY_TEAM_CHANGE_BLOCKED"
+	startConditionsNotMetCode  = "START_CONDITIONS_NOT_MET"
+	startInProgressCode        = "START_CONFIRMATION_IN_PROGRESS"
+	matchAlreadyStartedCode    = "MATCH_ALREADY_STARTED"
+	noActiveConfirmationCode   = "NO_ACTIVE_START_CONFIRMATION"
+	confirmationExpiredCode    = "START_CONFIRMATION_EXPIRED"
+	matchScopeMismatchCode     = "MATCH_SCOPE_MISMATCH"
+	roomHostRequiredCode       = "ROOM_HOST_REQUIRED"
 )
 
 // LobbyCommandExecutor applies SELECT_TEAM and SET_READY to the room
@@ -64,6 +71,28 @@ func (executor *LobbyCommandExecutor) Execute(ctx context.Context, user auth.Use
 		}
 		return acceptedLobbyOutcome(), nil
 
+	case protocol.CommandStartGame:
+		if _, ok := command.Payload.(protocol.EmptyPayload); !ok {
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid START_GAME payload", ErrInvalidCommand)
+		}
+		if err := executor.lobbies.RequestStart(user.ID, command.RoomID); err != nil {
+			return executor.rejectStartError(err), nil
+		}
+		return acceptedLobbyOutcome(), nil
+
+	case protocol.CommandConfirmGameStart:
+		if _, ok := command.Payload.(protocol.EmptyPayload); !ok {
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid CONFIRM_GAME_START payload", ErrInvalidCommand)
+		}
+		if command.MatchID == nil {
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: CONFIRM_GAME_START requires match_id", ErrInvalidCommand)
+		}
+		err := executor.lobbies.ConfirmStart(user.ID, command.RoomID, *command.MatchID)
+		if err != nil {
+			return executor.rejectConfirmError(err), nil
+		}
+		return acceptedLobbyOutcome(), nil
+
 	default:
 		return protocol.CommandOutcome{}, fmt.Errorf("%w: unsupported lobby command %s", ErrInvalidCommand, command.Type)
 	}
@@ -77,6 +106,47 @@ func (executor *LobbyCommandExecutor) rejectLobbyError(err error) protocol.Comma
 		return rejectedLobbyOutcome(roomPlayerRequiredCode, "방 플레이어만 팀과 준비 상태를 변경할 수 있습니다.", false)
 	case errors.Is(err, room.ErrReadyPlayerTeamChange):
 		return rejectedLobbyOutcome(readyTeamChangeBlockedCode, "준비 완료 상태에서는 팀을 변경할 수 없습니다.", false)
+	case errors.Is(err, ErrStartAlreadyRequested):
+		return rejectedLobbyOutcome(startInProgressCode, "시작 확인이 진행 중입니다.", false)
+	case errors.Is(err, ErrRoomAlreadyStarted):
+		return rejectedLobbyOutcome(matchAlreadyStartedCode, "경기가 이미 시작되었습니다.", false)
+	default:
+		return rejectedLobbyOutcome("INVALID_REQUEST", "요청을 처리할 수 없습니다.", false)
+	}
+}
+
+func (executor *LobbyCommandExecutor) rejectStartError(err error) protocol.CommandOutcome {
+	switch {
+	case errors.Is(err, ErrRoomNotFound):
+		return rejectedLobbyOutcome("ROOM_NOT_FOUND", "lobby room not found", true)
+	case errors.Is(err, ErrNotRoomHost):
+		return rejectedLobbyOutcome(roomHostRequiredCode, "방장만 경기 시작을 요청할 수 있습니다.", false)
+	case errors.Is(err, ErrStartAlreadyRequested):
+		return rejectedLobbyOutcome(startInProgressCode, "시작 확인이 진행 중입니다.", false)
+	case errors.Is(err, ErrRoomAlreadyStarted):
+		return rejectedLobbyOutcome(matchAlreadyStartedCode, "경기가 이미 시작되었습니다.", false)
+	case errors.Is(err, room.ErrStartNotEnoughPlayers),
+		errors.Is(err, room.ErrStartTeamsUnbalanced),
+		errors.Is(err, room.ErrStartPlayersNotReady):
+		return rejectedLobbyOutcome(startConditionsNotMetCode, "아직 경기를 시작할 수 없습니다. 인원과 준비 상태를 확인하세요.", false)
+	default:
+		return rejectedLobbyOutcome("INVALID_REQUEST", "요청을 처리할 수 없습니다.", false)
+	}
+}
+
+func (executor *LobbyCommandExecutor) rejectConfirmError(err error) protocol.CommandOutcome {
+	switch {
+	case errors.Is(err, ErrRoomNotFound):
+		return rejectedLobbyOutcome("ROOM_NOT_FOUND", "lobby room not found", true)
+	case errors.Is(err, ErrNoActiveStartConfirmation):
+		return rejectedLobbyOutcome(noActiveConfirmationCode, "진행 중인 시작 확인이 없습니다.", false)
+	case errors.Is(err, ErrMatchScopeMismatch):
+		return rejectedLobbyOutcome(matchScopeMismatchCode, "시작 확인 스코프가 일치하지 않습니다.", false)
+	case errors.Is(err, room.ErrStartConfirmationExpired):
+		return rejectedLobbyOutcome(confirmationExpiredCode, "시작 확인 마감이 지났습니다.", false)
+	case errors.Is(err, room.ErrStartConfirmationPlayerNotFound),
+		errors.Is(err, room.ErrPlayerNotFound):
+		return rejectedLobbyOutcome(roomPlayerRequiredCode, "확인 대상 플레이어가 아닙니다.", false)
 	default:
 		return rejectedLobbyOutcome("INVALID_REQUEST", "요청을 처리할 수 없습니다.", false)
 	}
