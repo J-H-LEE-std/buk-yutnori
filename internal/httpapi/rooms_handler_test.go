@@ -27,6 +27,8 @@ func (s *stubRoomAuthenticator) Authenticate(_ context.Context, _ string) (auth.
 
 type stubRoomsService struct {
 	listResult   []application.RoomSummary
+	detail       application.RoomDetailSnapshot
+	detailErr    error
 	createInput  application.CreateRoomInput
 	createResult application.RoomSummary
 	createErr    error
@@ -42,6 +44,10 @@ func (s *stubRoomsService) List() []application.RoomSummary {
 func (s *stubRoomsService) Create(input application.CreateRoomInput) (application.RoomSummary, error) {
 	s.createInput = input
 	return s.createResult, s.createErr
+}
+
+func (s *stubRoomsService) Detail(_ auth.UserID, _ domain.RoomID) (application.RoomDetailSnapshot, error) {
+	return s.detail, s.detailErr
 }
 
 func (s *stubRoomsService) Join(input application.JoinRoomInput) (application.RoomSummary, error) {
@@ -345,5 +351,33 @@ func TestNewRoomsHandlerRejectsMissingDependencies(t *testing.T) {
 	}
 	if _, err := NewRoomsHandler(stubAuth, nil); !errors.Is(err, auth.ErrInvalidConfiguration) {
 		t.Fatalf("NewRoomsHandler(nil rooms) error = %v", err)
+	}
+}
+
+func TestRoomDetailMapsMembershipVisibility(t *testing.T) {
+	authenticator := &stubRoomAuthenticator{user: auth.User{ID: "user-1"}}
+	validDetail := application.RoomDetailSnapshot{
+		Summary: application.RoomSummary{RoomID: domain.RoomID("r1"), Title: "방", PlayerCount: 1, MaxPlayers: 8},
+	}
+
+	service := &stubRoomsService{detailErr: application.ErrNotMember}
+	handler := newRoomsTestHandler(authenticator, service)
+	response := roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms/r1", nil)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("non-member status = %d, want 403", response.Code)
+	}
+
+	service = &stubRoomsService{detailErr: application.ErrRoomNotFound}
+	handler = newRoomsTestHandler(authenticator, service)
+	response = roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms/missing", nil)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unknown room status = %d, want 404", response.Code)
+	}
+
+	service = &stubRoomsService{detail: validDetail}
+	handler = newRoomsTestHandler(authenticator, service)
+	response = roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms/r1", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("member status = %d, want 200", response.Code)
 	}
 }
