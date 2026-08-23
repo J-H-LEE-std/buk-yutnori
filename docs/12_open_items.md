@@ -10,13 +10,15 @@
 
 - `ERROR` 이벤트의 표준 오류 코드 목록
 - WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
-- 대기실 상태 변경(`SELECT_TEAM`, `SET_READY`)의 구독자 알림 계약. `ROOM_UPDATED`
-  이벤트의 발행 시점, `revision`과 방 sequence의 관계, 팀·준비 상태를 클라이언트가
-  알 수 있는 조회 수단(상세 이벤트 또는 snapshot)을 함께 정해야 한다. 조회 수단이
-  `RoomRegistry.Membership`을 소비하기 전에 "방 없음"과 "방은 있으나 비회원"이 같은
-  `ErrRoomNotFound`로 반환되는 현재 의미를 구분된 센티널 또는 명시적 계약으로 정비하고
-  회귀 테스트를 선행한다. 그대로 HTTP 상태 매핑에 연결하면 권한 오류를 404로 흘려보내는
-  결함이 된다.
+- 대기실·시작 확인 구독자 알림 계약은 ADR-0015로 확정되었다. GAME_STARTING 방송으로
+  시작 확인 도달성이 회복되고, ROOM_UPDATED 신호 + HTTP 방 상세 조회(pull-on-notify)
+  조합이 준비 화면 동기화를 담당한다.
+- 레지스트리 방 이벤트의 저장과 RECONNECT replay는 여전히 미결이다. ADR-0015 방송은
+  live 전달 only며 누락 구간 복구는 ADR-0009/0013/0014 연계 후속 과제다.
+- 방 상세 조회(`GET /api/v1/rooms/{room_id}`)가 `RoomRegistry.Membership`을 소비하기
+  전에 "방 없음"과 "방은 있으나 비회원"이 같은 `ErrRoomNotFound`로 반환되는 현재
+  의미를 구분된 센티널 또는 명시적 계약으로 정비하고 회귀 테스트를 선행한다. 그대로
+  HTTP 상태 매핑에 연결하면 권한 오류를 404로 흘려보내는 결함이 된다.
 - 방 퇴장·강퇴의 전송 계약. v1 WebSocket command에 leave/kick 타입이 없고 마지막
   사용자 퇴장 시 빈 방 즉시 삭제(docs/05)와 강퇴(docs/05)가 이를 필요로 한다.
 - 채팅 저장이 영구 실패해 소비된 room sequence에 이벤트 행이 남지 않을 때 재접속

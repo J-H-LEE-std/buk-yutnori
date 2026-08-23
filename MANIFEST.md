@@ -39,6 +39,7 @@
 - `adr/0012_room_actor_execution_boundary.md`: 방별 command 직렬 실행과 종료·cleanup 경계
 - `adr/0013_fixed_prototype_reconnect_runtime.md`: 고정 경기의 actor 기반 실제 재접속 수직 경로
 - `adr/0014_match_event_storage_and_indexes.md`: 방 sequence별 typed event 정본 저장과 인덱스 최소 원칙
+- `adr/0015_registry_room_event_broadcast.md`: 레지스트리 방 이벤트 방송과 시작 확인 알림 계약
 - `development/git-workflow.md`: 브랜치·커밋·PR·리뷰·병합·릴리스 정본
 - `development/github-settings.md`: bootstrap과 GitHub 저장소 설정 초안
 - `development/issue-51-independent-review.md`: AGY·Claude용 room actor 독립 테스트·리뷰 인계

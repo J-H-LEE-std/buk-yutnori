@@ -81,15 +81,20 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   로스터 플레이어 응답만 기록하고 전원 확인 시 경기가 started 상태로 확정된다.
   마감 만료는 미응답자 제외와 잔여 전원 준비 해제를 하나의 방 상태 전이로
   적용하며 늦은 응답은 취소된 시작을 되살리지 않는다.
-- 시작 확인 요청과 마감 시각을 알리는 `GAME_STARTING` 이벤트 방송은 아직
-  없으므로 클라이언트는 활성 `match_id`와 마감을 학습할 수 없다. 확인 명령의
-  실제 도달성은 미결인 구독자 알림 계약 확정에 달려 있다.
+- 시작 확인 요청과 마감 시각을 알리는 `GAME_STARTING` 이벤트 방송 계약은
+  ADR-0015로 확정되었다. RequestStart 수락 시 기존 스키마 그대로(match_id,
+  confirmation_deadline_at)를 방 sequence로 방송하며 confirmation_deadline_at은
+  표시용 벽시계 문자열이고 마감 판정은 서버 단조 시계다(ADR-0003). 구현 전까지는
+  클라이언트가 활성 match_id와 마감을 학습할 수 없어 CONFIRM_GAME_START가 외부에
+  도달하지 않는 현황이 유지된다.
+- 대기실 상태 변경 알림도 ADR-0015로 확정되었다. 멤버십·팀·준비 변화와 상태 전이마다
+  ROOM_UPDATED(revision=해당 이벤트의 방 sequence, status 생명주기 매핑)를 방송하고,
+  클라이언트는 신호를 받으면 HTTP 방 상세 조회로 상세를 당겨온다(pull-on-notify).
+  구독은 방 멤버십 보유자에게 허용되며 구독 성공 시 최신 ROOM_UPDATED 한 건이 즉시
+  전달된다. 버퍼가 찬 느린 구독자는 채팅 선례와 같이 드롭(fail-closed)된다.
 - 이들을 제외한 방·경기 command는 상태를 적용하지 않고 `APPLICATION_UNAVAILABLE`
   일시적 거부를 반환한다. 일시적 거부는 `error.retriable=true`이므로 방 생명주기
   결과로 보존하지 않는다.
-- 대기실 상태 변경은 아직 같은 방 구독자에게 서버 이벤트로 방송되지 않는다.
-  `ROOM_UPDATED` 발행 시점과 revision 정의, 로비 상태 조회 수단은
-  `docs/12_open_items.md`의 미결 항목이다.
 
 라이브러리와 계층 분리 결정은
 `docs/adr/0006_authenticated_websocket_transport.md`를 따른다.
