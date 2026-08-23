@@ -74,6 +74,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := realtimeSession.SetLobbyEvents(prototypeRuntime.Lobbies()); err != nil {
+		return err
+	}
 	websocketHandler, err := wsapi.NewHandler(
 		authService,
 		realtimeSession,

@@ -142,6 +142,14 @@ func (application *PrototypeRealtimeApplication) Processor() *Processor {
 	return application.processor
 }
 
+// Lobbies returns the authoritative room registry for event subscription.
+func (application *PrototypeRealtimeApplication) Lobbies() *RoomRegistry {
+	if application == nil {
+		return nil
+	}
+	return application.lobby.lobbies
+}
+
 // ChatEvents returns the fixed room's authenticated chat event source.
 func (application *PrototypeRealtimeApplication) ChatEvents() ChatEventSource {
 	if application == nil {

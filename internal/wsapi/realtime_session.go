@@ -12,9 +12,24 @@ import (
 
 // RealtimeSession multiplexes authoritative command results and prototype
 // room chat events through one serialized WebSocket writer.
+// RoomEventSource subscribes authenticated users to registry room events.
+type RoomEventSource interface {
+	SubscribeEvents(user auth.UserID) (*application.RoomEventSubscription, error)
+}
+
 type RealtimeSession struct {
 	processor CommandProcessor
 	events    application.ChatEventSource
+	lobbies   RoomEventSource
+}
+
+// SetLobbyEvents attaches the registry event hub. Call before Serve.
+func (session *RealtimeSession) SetLobbyEvents(source RoomEventSource) error {
+	if isNilSessionDependency(source) {
+		return fmt.Errorf("%w: lobby event source is required", ErrInvalidConfiguration)
+	}
+	session.lobbies = source
+	return nil
 }
 
 type processedCommand struct {
@@ -59,14 +74,34 @@ func (session *RealtimeSession) serve(ctx context.Context, user auth.User, conne
 		return fmt.Errorf("%w: chat subscription channels are required", ErrInvalidConfiguration)
 	}
 
+	var lobbyEvents <-chan application.RoomEvent
+	var lobbySubscription *application.RoomEventSubscription
+	if session.lobbies != nil {
+		lobbySubscription, err = session.lobbies.SubscribeEvents(user.ID)
+		if err != nil {
+			return fmt.Errorf("subscribe room events: %w", err)
+		}
+		lobbyEvents = lobbySubscription.Events()
+	}
+
 	sessionContext, cancelSession := context.WithCancel(ctx)
 	commandContext, cancelCommands := context.WithCancel(ctx)
+	var lobbyDone <-chan struct{}
+	if lobbySubscription != nil {
+		lobbyDone = lobbySubscription.Done()
+	}
 	backpressureResult := make(chan error, 1)
 	watcherDone := make(chan struct{})
 	go func() {
 		defer close(watcherDone)
 		select {
 		case <-subscriptionDone:
+			if sessionContext.Err() != nil {
+				return
+			}
+			cancelCommands()
+			backpressureResult <- connection.CloseEventBackpressure()
+		case <-lobbyDone:
 			if sessionContext.Err() != nil {
 				return
 			}
@@ -80,6 +115,9 @@ func (session *RealtimeSession) serve(ctx context.Context, user auth.User, conne
 		cancelSession()
 		<-watcherDone
 		subscription.Close()
+		if lobbySubscription != nil {
+			lobbySubscription.Close()
+		}
 	}()
 	processed := make(chan processedCommand)
 	go session.readCommands(sessionContext, commandContext, user, connection, processed)
@@ -101,6 +139,14 @@ func (session *RealtimeSession) serve(ctx context.Context, user auth.User, conne
 				if subscriptionDropped(subscriptionDone) {
 					return waitForBackpressureClose(sessionContext, backpressureResult)
 				}
+				return err
+			}
+		case lobbyEvent, ok := <-lobbyEvents:
+			if !ok {
+				lobbyEvents = nil
+				continue
+			}
+			if err := connection.WriteJSON(sessionContext, lobbyEvent.Message); err != nil {
 				return err
 			}
 		case command := <-processed:
