@@ -16,6 +16,7 @@ import (
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/protocol"
 )
 
 var (
@@ -84,22 +85,26 @@ type JoinRoomInput struct {
 // serializes every mutation; per-match execution keeps the ADR-0012 actor
 // boundary and is out of scope here.
 type RoomRegistry struct {
-	mutex    sync.Mutex
-	clock    func() time.Time
-	randomID func() (string, error)
-	rooms    map[domain.RoomID]*registeredRoom
-	ordering []domain.RoomID
+	mutex            sync.Mutex
+	clock            func() time.Time
+	randomID         func() (string, error)
+	sequences        *RoomEventSequences
+	rooms            map[domain.RoomID]*registeredRoom
+	ordering         []domain.RoomID
+	eventSubscribers map[*RoomEventSubscription]auth.UserID
 }
 
 type registeredRoom struct {
-	lobby        *room.Lobby
-	password     []byte
-	spectators   map[auth.UserID]struct{}
-	summary      RoomSummary
-	host         auth.UserID
-	confirmation *room.StartConfirmation
-	started      bool
-	expiryTimer  *time.Timer
+	lobby              *room.Lobby
+	password           []byte
+	spectators         map[auth.UserID]struct{}
+	summary            RoomSummary
+	host               auth.UserID
+	confirmation       *room.StartConfirmation
+	started            bool
+	expiryTimer        *time.Timer
+	lastRoomUpdated    any
+	activeGameStarting any
 }
 
 // NewRoomRegistry constructs an empty registry keyed by crypto-random room IDs.
@@ -110,9 +115,11 @@ func NewRoomRegistry(clock func() time.Time) (*RoomRegistry, error) {
 		return nil, errors.New("invalid room registry configuration")
 	}
 	return &RoomRegistry{
-		clock:    clock,
-		randomID: newRandomIDGenerator(rand.Reader),
-		rooms:    make(map[domain.RoomID]*registeredRoom),
+		clock:            clock,
+		randomID:         newRandomIDGenerator(rand.Reader),
+		sequences:        NewRoomEventSequences(),
+		rooms:            make(map[domain.RoomID]*registeredRoom),
+		eventSubscribers: make(map[*RoomEventSubscription]auth.UserID),
 	}, nil
 }
 
@@ -249,6 +256,11 @@ func (registry *RoomRegistry) Join(input JoinRoomInput) (RoomSummary, error) {
 		entry.spectators[input.User] = struct{}{}
 	}
 	entry.summary.PlayerCount = playerCount
+	if err := registry.emitLocked(input.RoomID, func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(input.RoomID, sequence, protocol.RoomStatusLobby)
+	}); err != nil {
+		return RoomSummary{}, err
+	}
 	return entry.summary, nil
 }
 
@@ -305,7 +317,12 @@ func (registry *RoomRegistry) ChangeTeam(user auth.UserID, roomID domain.RoomID,
 	if err := registry.guardLobbyMutation(entry); err != nil {
 		return err
 	}
-	return entry.lobby.ChangeTeam(playerID, team)
+	if err := entry.lobby.ChangeTeam(playerID, team); err != nil {
+		return err
+	}
+	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusLobby)
+	})
 }
 
 // SetReady changes only the authenticated player's ready state through the
@@ -326,7 +343,12 @@ func (registry *RoomRegistry) SetReady(user auth.UserID, roomID domain.RoomID, r
 	if err := registry.guardLobbyMutation(entry); err != nil {
 		return err
 	}
-	return entry.lobby.SetReady(playerID, ready)
+	if err := entry.lobby.SetReady(playerID, ready); err != nil {
+		return err
+	}
+	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusLobby)
+	})
 }
 
 func playerIDFromUser(user auth.UserID) (domain.PlayerID, error) {

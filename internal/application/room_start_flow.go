@@ -8,6 +8,7 @@ import (
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/protocol"
 )
 
 // RequestStart opens the canonical 10-second start confirmation window for
@@ -50,7 +51,14 @@ func (registry *RoomRegistry) RequestStart(user auth.UserID, roomID domain.RoomI
 	entry.expiryTimer = time.AfterFunc(room.StartConfirmationWindow, func() {
 		registry.awaitDeadlineAndExpire(roomID)
 	})
-	return nil
+	if err := registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+		return protocol.NewGameStartingEvent(roomID, matchID, sequence, confirmation.Snapshot().DeadlineAt)
+	}); err != nil {
+		return err
+	}
+	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusStarting)
+	})
 }
 
 // ConfirmStart records one roster player's confirmation. The last pending
@@ -84,6 +92,9 @@ func (registry *RoomRegistry) ConfirmStart(user auth.UserID, roomID domain.RoomI
 	if allConfirmed {
 		registry.stopExpiryTimer(entry)
 		entry.started = true
+		return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+			return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusInMatch)
+		})
 	}
 	return nil
 }
@@ -126,7 +137,9 @@ func (registry *RoomRegistry) ExpireStartConfirmation(roomID domain.RoomID) erro
 	}
 	registry.stopExpiryTimer(entry)
 	entry.confirmation = nil
-	return nil
+	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusLobby)
+	})
 }
 
 // guardLobbyMutation rejects membership mutations while a start window is open
