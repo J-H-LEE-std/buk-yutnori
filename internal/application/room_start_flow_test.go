@@ -8,6 +8,7 @@ import (
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/protocol"
 )
 
 func newTestRegistryWithClock(t *testing.T, clock func() time.Time) *RoomRegistry {
@@ -17,8 +18,26 @@ func newTestRegistryWithClock(t *testing.T, clock func() time.Time) *RoomRegistr
 	if err != nil {
 		t.Fatalf("NewRoomRegistry(clock) error = %v", err)
 	}
+	mustAttachCanonicalBoardGraph(t, registry)
+	// Legacy lobby-flow tests never exercise deadline expiry: arm nothing and
+	// draw deterministic seeds so a completed confirmation stays hermetic.
+	registry.setMatchRandomSeed(func() (uint64, uint64, error) { return 1, 2, nil })
+	inert := &inertMatchClock{}
+	registry.setMatchClock(inert)
 	return registry
 }
+
+// inertMatchClock satisfies matchClock while never firing its callbacks, so
+// tests that complete a start confirmation do not spawn live turn timers.
+type inertMatchClock struct {
+	now time.Time
+}
+
+type inertMatchTimer struct{}
+
+func (c *inertMatchClock) Now() time.Time                             { return c.now }
+func (c *inertMatchClock) AfterFunc(time.Duration, func()) matchTimer { return inertMatchTimer{} }
+func (inertMatchTimer) Stop() bool                                    { return false }
 
 type startFixture struct {
 	registry *RoomRegistry
@@ -199,6 +218,61 @@ func TestConfirmStartLifecycleReachesStartedState(t *testing.T) {
 	}
 	if err := fixture.registry.RequestStart(lobbyCreatorID, fixture.roomID); !errors.Is(err, ErrRoomAlreadyStarted) {
 		t.Fatalf("RequestStart(after started) error = %v, want ErrRoomAlreadyStarted", err)
+	}
+}
+
+// A runtime assembly failure after the irreversible domain confirmation must
+// compensate back to a retryable lobby state instead of wedging the room
+// (Claude review blocker, issue #82).
+func TestConfirmStartAssemblyFailureCompensatesToLobby(t *testing.T) {
+	t.Parallel()
+
+	fixture := newStartFixture(t, 2)
+	second := startRosterIDs[1]
+	if err := fixture.registry.RequestStart(lobbyCreatorID, fixture.roomID); err != nil {
+		t.Fatalf("RequestStart() error = %v", err)
+	}
+	activeMatchID := fixture.matchID()
+	if err := fixture.registry.ConfirmStart(auth.UserID(second), fixture.roomID, activeMatchID); err != nil {
+		t.Fatalf("ConfirmStart(second) error = %v", err)
+	}
+
+	fixture.registry.setMatchRandomSeed(func() (uint64, uint64, error) {
+		return 0, 0, errors.New("injected assembly failure")
+	})
+	if err := fixture.registry.ConfirmStart(lobbyCreatorID, fixture.roomID, activeMatchID); err == nil {
+		t.Fatal("ConfirmStart(host completes) unexpectedly succeeded despite injected failure")
+	}
+
+	entry := fixture.registry.rooms[fixture.roomID]
+	if entry.started || entry.runtime != nil {
+		t.Fatalf("room entered started state without a runtime: started=%v runtime=%v", entry.started, entry.runtime)
+	}
+	if entry.confirmation != nil {
+		t.Fatalf("confirmation survived the compensation: %+v", entry.confirmation.Snapshot())
+	}
+	if entry.roomStatus != protocol.RoomStatusLobby {
+		t.Fatalf("roomStatus = %q, want lobby", entry.roomStatus)
+	}
+	for _, id := range startRosterIDs[:2] {
+		membership, err := fixture.registry.Membership(auth.UserID(id), fixture.roomID)
+		if err != nil {
+			t.Fatalf("Membership(%s) error = %v", id, err)
+		}
+		if membership.Ready {
+			t.Fatalf("%s stayed ready after compensation", id)
+		}
+	}
+
+	// The room is retryable: mutations and a fresh start window both work.
+	if err := fixture.registry.SetReady(lobbyCreatorID, fixture.roomID, true); err != nil {
+		t.Fatalf("SetReady(after compensation) error = %v", err)
+	}
+	if err := fixture.registry.SetReady(auth.UserID(second), fixture.roomID, true); err != nil {
+		t.Fatalf("SetReady(second, after compensation) error = %v", err)
+	}
+	if err := fixture.registry.RequestStart(lobbyCreatorID, fixture.roomID); err != nil {
+		t.Fatalf("RequestStart(retry) error = %v, want a fresh window", err)
 	}
 }
 

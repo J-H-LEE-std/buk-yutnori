@@ -8,11 +8,12 @@ import (
 )
 
 const (
-	EventRoomUpdated   = "ROOM_UPDATED"
-	EventGameStarting  = "GAME_STARTING"
-	RoomStatusLobby    = "lobby"
-	RoomStatusStarting = "starting"
-	RoomStatusInMatch  = "in_match"
+	EventRoomUpdated    = "ROOM_UPDATED"
+	EventGameStarting   = "GAME_STARTING"
+	RoomStatusLobby     = "lobby"
+	RoomStatusStarting  = "starting"
+	RoomStatusInMatch   = "in_match"
+	RoomStatusPostMatch = "post_match"
 )
 
 // RoomUpdatedPayload is the v1 public payload of a room lifecycle signal.
@@ -41,7 +42,7 @@ func NewRoomUpdatedEvent(roomID domain.RoomID, sequence uint64, status string) (
 		return RoomUpdatedEvent{}, fmt.Errorf("%w: sequence must start at one", ErrInvalidServerEvent)
 	}
 	switch status {
-	case RoomStatusLobby, RoomStatusStarting, RoomStatusInMatch, "post_match", "closed":
+	case RoomStatusLobby, RoomStatusStarting, RoomStatusInMatch, RoomStatusPostMatch, "closed":
 	default:
 		return RoomUpdatedEvent{}, fmt.Errorf("%w: unknown room status %q", ErrInvalidServerEvent, status)
 	}

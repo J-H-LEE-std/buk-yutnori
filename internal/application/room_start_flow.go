@@ -3,6 +3,8 @@
 package application
 
 import (
+	"errors"
+	"sort"
 	"time"
 
 	"buk-yutnori/internal/auth"
@@ -48,6 +50,7 @@ func (registry *RoomRegistry) RequestStart(user auth.UserID, roomID domain.RoomI
 	}
 
 	entry.confirmation = confirmation
+	entry.roomStatus = protocol.RoomStatusStarting
 	entry.expiryTimer = time.AfterFunc(room.StartConfirmationWindow, func() {
 		registry.awaitDeadlineAndExpire(roomID)
 	})
@@ -62,7 +65,8 @@ func (registry *RoomRegistry) RequestStart(user auth.UserID, roomID domain.RoomI
 }
 
 // ConfirmStart records one roster player's confirmation. The last pending
-// confirmation closes the window and marks the match as started.
+// confirmation closes the window, assembles the canonical match runtime from
+// the confirmed roster, and emits the in-match transition broadcasts.
 func (registry *RoomRegistry) ConfirmStart(user auth.UserID, roomID domain.RoomID, matchID domain.MatchID) error {
 	playerID, err := playerIDFromUser(user)
 	if err != nil {
@@ -89,12 +93,64 @@ func (registry *RoomRegistry) ConfirmStart(user auth.UserID, roomID domain.RoomI
 	if err != nil {
 		return err
 	}
-	if allConfirmed {
-		registry.stopExpiryTimer(entry)
-		entry.started = true
-		return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
-			return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusInMatch)
-		})
+	if !allConfirmed {
+		return nil
+	}
+
+	// The runtime is assembled before the started flip so a construction
+	// failure cannot leave a started room without its canonical runtime.
+	runtime, err := registry.newMatchRuntime(entry, roomID, matchID)
+	if err != nil {
+		// The domain confirmation already flipped to its irreversible
+		// Confirmed state, and every cleanup guard requires Pending, so an
+		// unhandled failure here would wedge the room forever: no restart,
+		// no mutations, and the expiry timer becomes a permanent no-op.
+		// Compensate with the canonical failed-start transition instead.
+		if compensateErr := registry.compensateFailedStartLocked(entry, roomID); compensateErr != nil {
+			return errors.Join(err, compensateErr)
+		}
+		return err
+	}
+	registry.stopExpiryTimer(entry)
+	entry.started = true
+	entry.roomStatus = protocol.RoomStatusInMatch
+	if err := registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
+	}); err != nil {
+		return err
+	}
+	return registry.startLocked(entry, runtime)
+}
+
+// compensateFailedStartLocked unwinds an open start window after the roster
+// confirmed but the match runtime could not be assembled. It mirrors the
+// observable effects of ExpireStartConfirmation minus responder removal (the
+// full roster responded) and returns the room to a retryable lobby state.
+func (registry *RoomRegistry) compensateFailedStartLocked(entry *registeredRoom, roomID domain.RoomID) error {
+	registry.stopExpiryTimer(entry)
+	entry.confirmation = nil
+	entry.roomStatus = protocol.RoomStatusLobby
+	if err := resetReadyStatesLocked(entry); err != nil {
+		return err
+	}
+	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
+	})
+}
+
+// resetReadyStatesLocked clears every player's ready flag so the next start
+// requires explicit re-confirmation of readiness.
+func resetReadyStatesLocked(entry *registeredRoom) error {
+	players := entry.lobby.Players()
+	ids := make([]domain.PlayerID, 0, len(players))
+	for id := range players {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
+	for _, id := range ids {
+		if err := entry.lobby.SetReady(id, false); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -137,8 +193,9 @@ func (registry *RoomRegistry) ExpireStartConfirmation(roomID domain.RoomID) erro
 	}
 	registry.stopExpiryTimer(entry)
 	entry.confirmation = nil
+	entry.roomStatus = protocol.RoomStatusLobby
 	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
-		return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusLobby)
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
 	})
 }
 
