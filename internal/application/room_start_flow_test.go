@@ -92,6 +92,8 @@ var startRosterIDs = []string{
 const startLobbyOutsiderID = "usr_7u7u7u7u7u7u7u7u7u7u7g"
 
 func TestRequestStartRequiresHostAndEligibility(t *testing.T) {
+	t.Parallel()
+
 	fixture := newStartFixture(t, 2)
 
 	if err := fixture.registry.RequestStart(auth.UserID(startRosterIDs[1]), fixture.roomID); !errors.Is(err, ErrNotRoomHost) {
@@ -123,6 +125,8 @@ func TestRequestStartRequiresHostAndEligibility(t *testing.T) {
 }
 
 func TestStartWindowBlocksLobbyMutationsAndRepeatStarts(t *testing.T) {
+	t.Parallel()
+
 	fixture := newStartFixture(t, 2)
 	if err := fixture.registry.RequestStart(lobbyCreatorID, fixture.roomID); err != nil {
 		t.Fatalf("RequestStart() error = %v", err)
@@ -153,6 +157,8 @@ func TestStartWindowBlocksLobbyMutationsAndRepeatStarts(t *testing.T) {
 }
 
 func TestConfirmStartLifecycleReachesStartedState(t *testing.T) {
+	t.Parallel()
+
 	fixture := newStartFixture(t, 2)
 	second := startRosterIDs[1]
 
@@ -197,6 +203,8 @@ func TestConfirmStartLifecycleReachesStartedState(t *testing.T) {
 }
 
 func TestExpireAppliesCanonicalSanctionsAndAllowsRestart(t *testing.T) {
+	t.Parallel()
+
 	fixture := newStartFixture(t, 4)
 	third := auth.UserID(startRosterIDs[2])
 
@@ -234,6 +242,8 @@ func TestExpireAppliesCanonicalSanctionsAndAllowsRestart(t *testing.T) {
 }
 
 func TestExpireBeforeDeadlineIsRejectedWithoutMutation(t *testing.T) {
+	t.Parallel()
+
 	fixture := newStartFixture(t, 2)
 	if err := fixture.registry.RequestStart(lobbyCreatorID, fixture.roomID); err != nil {
 		t.Fatalf("RequestStart() error = %v", err)
@@ -251,6 +261,8 @@ func TestExpireBeforeDeadlineIsRejectedWithoutMutation(t *testing.T) {
 }
 
 func TestLateConfirmationDoesNotResurrectCancelledStart(t *testing.T) {
+	t.Parallel()
+
 	fixture := newStartFixture(t, 2)
 
 	if err := fixture.registry.RequestStart(lobbyCreatorID, fixture.roomID); err != nil {
@@ -297,6 +309,12 @@ func resolveWindow(t *testing.T, fixture startFixture) {
 // mutex-serialized transition. It uses the real clock and therefore takes
 // slightly more than the canonical 10-second window.
 func TestStartConfirmationRealTimerExpiresAutomatically(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("seals the real 10s expiry path; skipped under -short")
+	}
+
 	registry := newTestRegistryWithClock(t, time.Now)
 
 	summary, err := registry.Create(CreateRoomInput{

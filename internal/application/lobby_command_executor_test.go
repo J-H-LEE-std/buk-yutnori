@@ -54,6 +54,8 @@ func newLobbyExecutorFixture(t *testing.T) (*RoomRegistry, *LobbyCommandExecutor
 }
 
 func TestLobbyExecutorAcceptsMemberCommands(t *testing.T) {
+	t.Parallel()
+
 	_, executor, roomID := newLobbyExecutorFixture(t)
 	user := auth.User{ID: lobbyCreatorID}
 
@@ -94,6 +96,8 @@ func TestLobbyExecutorAcceptsMemberCommands(t *testing.T) {
 }
 
 func TestLobbyExecutorRejectsNonPlayersDeterministically(t *testing.T) {
+	t.Parallel()
+
 	registry, executor, roomID := newLobbyExecutorFixture(t)
 
 	if _, err := registry.Join(JoinRoomInput{
@@ -144,6 +148,8 @@ func TestLobbyExecutorRejectsNonPlayersDeterministically(t *testing.T) {
 }
 
 func TestLobbyExecutorBlocksReadyTeamChange(t *testing.T) {
+	t.Parallel()
+
 	_, executor, roomID := newLobbyExecutorFixture(t)
 	user := auth.User{ID: lobbyCreatorID}
 
@@ -163,6 +169,8 @@ func TestLobbyExecutorBlocksReadyTeamChange(t *testing.T) {
 }
 
 func TestLobbyExecutorUnknownRoomIsRetriableNotFound(t *testing.T) {
+	t.Parallel()
+
 	_, executor, _ := newLobbyExecutorFixture(t)
 
 	outcome, err := executor.Execute(
@@ -179,6 +187,8 @@ func TestLobbyExecutorUnknownRoomIsRetriableNotFound(t *testing.T) {
 }
 
 func TestLobbyExecutorRejectsInvalidUsageWithoutOutcome(t *testing.T) {
+	t.Parallel()
+
 	_, executor, roomID := newLobbyExecutorFixture(t)
 	user := auth.User{ID: lobbyCreatorID}
 
@@ -217,6 +227,8 @@ func TestLobbyExecutorRejectsInvalidUsageWithoutOutcome(t *testing.T) {
 }
 
 func TestLobbyExecutorConstructorAndContextGuards(t *testing.T) {
+	t.Parallel()
+
 	registry, err := NewRoomRegistry(time.Now)
 	if err != nil {
 		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
@@ -237,6 +249,8 @@ func TestLobbyExecutorConstructorAndContextGuards(t *testing.T) {
 }
 
 func TestLobbyExecutorMapsStartFlowRejections(t *testing.T) {
+	t.Parallel()
+
 	clock := &manualClock{current: time.Date(2026, 8, 23, 11, 0, 0, 0, time.UTC)}
 	registry := newTestRegistryWithClock(t, clock.Now)
 	executor, err := NewLobbyCommandExecutor(registry)

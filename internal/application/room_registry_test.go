@@ -36,6 +36,8 @@ func createDefaultRoom(t *testing.T, registry *RoomRegistry, creator auth.UserID
 }
 
 func TestCreateAdmitsCreatorAsFirstPlayer(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	creator := auth.UserID("user-1")
 
@@ -53,6 +55,8 @@ func TestCreateAdmitsCreatorAsFirstPlayer(t *testing.T) {
 }
 
 func TestListReturnsCreationOrderAndLiveCounts(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	first := createDefaultRoom(t, registry, auth.UserID("user-1"))
 	second := createDefaultRoom(t, registry, auth.UserID("user-2"))
@@ -83,6 +87,8 @@ func TestListReturnsCreationOrderAndLiveCounts(t *testing.T) {
 }
 
 func TestCreateRejectsCanonicalViolations(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		input   CreateRoomInput
@@ -148,6 +154,8 @@ func TestCreateRejectsCanonicalViolations(t *testing.T) {
 }
 
 func TestJoinPlayerRespectsCapacityTeamAndReadyState(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	creator := auth.UserID("creator")
 
@@ -193,6 +201,8 @@ func TestJoinPlayerRespectsCapacityTeamAndReadyState(t *testing.T) {
 }
 
 func TestJoinRejectsDuplicateMembership(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
 
@@ -222,6 +232,8 @@ func TestJoinRejectsDuplicateMembership(t *testing.T) {
 }
 
 func TestJoinEnforcesPasswordContract(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 
 	protected, err := registry.Create(CreateRoomInput{
@@ -293,6 +305,8 @@ func TestJoinEnforcesPasswordContract(t *testing.T) {
 }
 
 func TestJoinSpectatorHonorsCombinedCapacity(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
 
@@ -317,6 +331,8 @@ func TestJoinSpectatorHonorsCombinedCapacity(t *testing.T) {
 }
 
 func TestJoinPlayerHonorsCombinedCapacityBeforeLobbyLimit(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
 
@@ -354,6 +370,8 @@ func TestJoinPlayerHonorsCombinedCapacityBeforeLobbyLimit(t *testing.T) {
 }
 
 func TestSpectatorsMayFillCombinedCapacityUnderFullLobby(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 
 	summary, err := registry.Create(CreateRoomInput{
@@ -407,6 +425,8 @@ func TestSpectatorsMayFillCombinedCapacityUnderFullLobby(t *testing.T) {
 }
 
 func TestJoinUnknownRoomIsNotFound(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 
 	_, err := registry.Join(JoinRoomInput{
@@ -421,6 +441,8 @@ func TestJoinUnknownRoomIsNotFound(t *testing.T) {
 }
 
 func TestJoinRejectsInvalidRole(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
 
@@ -434,6 +456,8 @@ func TestJoinRejectsInvalidRole(t *testing.T) {
 }
 
 func TestChangeTeamAppliesCanonicalRules(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
 	joiner := auth.UserID("joiner")
@@ -471,6 +495,8 @@ func TestChangeTeamAppliesCanonicalRules(t *testing.T) {
 }
 
 func TestChangeTeamBlocksReadyPlayersAndNonMembers(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
 
@@ -518,6 +544,8 @@ func TestChangeTeamBlocksReadyPlayersAndNonMembers(t *testing.T) {
 }
 
 func TestSetReadyTogglesOnlyOwnState(t *testing.T) {
+	t.Parallel()
+
 	registry := newTestRegistry(t)
 	summary := createDefaultRoom(t, registry, auth.UserID("creator"))
 	other := auth.UserID("other")
