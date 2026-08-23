@@ -71,11 +71,8 @@ func newStartFixture(t *testing.T, players int) startFixture {
 		registry: registry,
 		roomID:   summary.RoomID,
 		matchID: func() domain.MatchID {
-			entry := registry.rooms[summary.RoomID]
-			if entry == nil || entry.confirmation == nil {
-				return ""
-			}
-			return entry.confirmation.Snapshot().MatchID
+			_, _, matchID := readStartState(registry, summary.RoomID)
+			return matchID
 		},
 		clock: clock,
 	}
@@ -122,6 +119,7 @@ func TestRequestStartRequiresHostAndEligibility(t *testing.T) {
 	if fixture.matchID() == "" {
 		t.Fatal("match id was not generated for the confirmation window")
 	}
+	resolveWindow(t, fixture)
 }
 
 func TestStartWindowBlocksLobbyMutationsAndRepeatStarts(t *testing.T) {
@@ -151,6 +149,7 @@ func TestStartWindowBlocksLobbyMutationsAndRepeatStarts(t *testing.T) {
 	if err != nil || !membership.Ready {
 		t.Fatalf("Membership(during window) = %+v error = %v, want readable ready state", membership, err)
 	}
+	resolveWindow(t, fixture)
 }
 
 func TestConfirmStartLifecycleReachesStartedState(t *testing.T) {
@@ -248,6 +247,7 @@ func TestExpireBeforeDeadlineIsRejectedWithoutMutation(t *testing.T) {
 	if _, err := before(lobbyCreatorID, fixture.roomID); err != nil {
 		t.Fatalf("premature expiry mutated roster: %v", err)
 	}
+	resolveWindow(t, fixture)
 }
 
 func TestLateConfirmationDoesNotResurrectCancelledStart(t *testing.T) {
@@ -260,5 +260,93 @@ func TestLateConfirmationDoesNotResurrectCancelledStart(t *testing.T) {
 
 	if err := fixture.registry.ConfirmStart(auth.UserID(startRosterIDs[1]), fixture.roomID, fixture.matchID()); !errors.Is(err, room.ErrStartConfirmationExpired) {
 		t.Fatalf("late ConfirmStart error = %v, want ErrStartConfirmationExpired", err)
+	}
+	resolveWindow(t, fixture)
+}
+
+// readStartState reads the room's confirmation internals under the registry
+// lock so tests never race the background expiry timer.
+func readStartState(registry *RoomRegistry, roomID domain.RoomID) (bool, bool, domain.MatchID) {
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+
+	entry := registry.rooms[roomID]
+	if entry == nil {
+		return false, false, ""
+	}
+	if entry.confirmation == nil {
+		return false, entry.started, ""
+	}
+	snapshot := entry.confirmation.Snapshot()
+	return snapshot.Status == room.StartConfirmationPending, entry.started, snapshot.MatchID
+}
+
+// resolveWindow deterministically closes an open start confirmation window so
+// no real 10-second background timer outlives the test.
+func resolveWindow(t *testing.T, fixture startFixture) {
+	t.Helper()
+
+	fixture.clock.Advance(room.StartConfirmationWindow + time.Second)
+	if err := fixture.registry.ExpireStartConfirmation(fixture.roomID); err != nil {
+		t.Fatalf("resolveWindow() error = %v", err)
+	}
+}
+
+// TestStartConfirmationRealTimerExpiresAutomatically seals the production
+// expiry path: time.AfterFunc scheduling, premature-fire re-arm, and the
+// mutex-serialized transition. It uses the real clock and therefore takes
+// slightly more than the canonical 10-second window.
+func TestStartConfirmationRealTimerExpiresAutomatically(t *testing.T) {
+	registry := newTestRegistryWithClock(t, time.Now)
+
+	summary, err := registry.Create(CreateRoomInput{
+		Creator:  lobbyCreatorID,
+		Creation: room.Creation{Title: "실시계 방"},
+		Settings: room.DefaultSettings(),
+		Team:     domain.TeamA,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	responder := auth.UserID(startRosterIDs[1])
+	if _, err := registry.Join(JoinRoomInput{
+		User:   responder,
+		RoomID: summary.RoomID,
+		Role:   RolePlayer,
+		Team:   domain.TeamB,
+	}); err != nil {
+		t.Fatalf("Join(responder) error = %v", err)
+	}
+	for _, user := range []auth.UserID{lobbyCreatorID, responder} {
+		if err := registry.SetReady(user, summary.RoomID, true); err != nil {
+			t.Fatalf("SetReady(%s) error = %v", user, err)
+		}
+	}
+	if err := registry.RequestStart(lobbyCreatorID, summary.RoomID); err != nil {
+		t.Fatalf("RequestStart() error = %v", err)
+	}
+	_, _, matchID := readStartState(registry, summary.RoomID)
+	if err := registry.ConfirmStart(responder, summary.RoomID, matchID); err != nil {
+		t.Fatalf("ConfirmStart(responder) error = %v", err)
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		pending, _, _ := readStartState(registry, summary.RoomID)
+		if !pending {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background timer did not clear the confirmation window in time")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if _, err := registry.Membership(lobbyCreatorID, summary.RoomID); !errors.Is(err, ErrRoomNotFound) {
+		t.Fatalf("Membership(nonresponder host) error = %v, want removed by sanctions", err)
+	}
+	retained, err := registry.Membership(responder, summary.RoomID)
+	if err != nil || retained.Ready {
+		t.Fatalf("retained membership = %+v error = %v, want ready reset only", retained, err)
 	}
 }
