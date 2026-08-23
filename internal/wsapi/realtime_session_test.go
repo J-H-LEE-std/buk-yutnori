@@ -95,7 +95,7 @@ func TestRealtimeSessionBroadcastsChatAndReplaysOnlyCommandResult(t *testing.T) 
 	assertNoWebSocketFrame(t, observer)
 }
 
-func TestRealtimeSessionResynchronizesPrototypeMatchOverWebSocket(t *testing.T) {
+func TestRealtimeSessionRejectsRetiredPrototypeMatchReconnectOverWebSocket(t *testing.T) {
 	lobbies, err := application.NewRoomRegistry(time.Now)
 	if err != nil {
 		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
@@ -122,44 +122,26 @@ func TestRealtimeSessionResynchronizesPrototypeMatchOverWebSocket(t *testing.T) 
 	}
 	defer client.CloseNow()
 
-	ahead := []byte(`{"version":1,"direction":"client_command","type":"RECONNECT","command_id":"sync-ahead","room_id":"prototype-room","match_id":"prototype-match","payload":{"last_sequence":2}}`)
-	var rejected protocol.CommandResult
-	readWebSocketJSON(t, client, ahead, &rejected)
-	if rejected.Payload.Status != protocol.CommandRejected || rejected.Payload.Error == nil ||
-		rejected.Payload.Error.Code != protocol.ErrorCodeResyncRequired || !rejected.Payload.Error.Retriable {
-		t.Fatalf("ahead result = %+v", rejected)
-	}
-
+	// ADR-0013's fixed prototype-match scope is retired (issue #82): the
+	// WebSocket path must reject RECONNECT for the non-registry prototype
+	// room without consuming a sequence and without retaining the result.
 	full := []byte(`{"version":1,"direction":"client_command","type":"RECONNECT","command_id":"sync-full","room_id":"prototype-room","match_id":"prototype-match","payload":{"last_sequence":0}}`)
-	var accepted protocol.CommandResult
-	readWebSocketJSON(t, client, full, &accepted)
-	if accepted.Payload.Status != protocol.CommandAccepted || accepted.Payload.Synchronization == nil ||
-		accepted.Payload.EventSequenceStart != nil || accepted.Payload.EventSequenceEnd != nil || accepted.Payload.Error != nil {
-		t.Fatalf("full result = %+v", accepted)
-	}
-	if len(accepted.Payload.Synchronization.Events) != 0 {
-		t.Fatalf("full synchronization events = %+v", accepted.Payload.Synchronization.Events)
-	}
-	var snapshot struct {
-		RoomID   string `json:"room_id"`
-		MatchID  string `json:"match_id"`
-		Sequence uint64 `json:"sequence"`
-		Status   string `json:"status"`
-	}
-	if err := json.Unmarshal(accepted.Payload.Synchronization.Snapshot, &snapshot); err != nil {
-		t.Fatalf("decode snapshot: %v", err)
-	}
-	if snapshot.RoomID != "prototype-room" || snapshot.MatchID != "prototype-match" || snapshot.Sequence != 1 || snapshot.Status != "starting" {
-		t.Fatalf("snapshot = %+v", snapshot)
+	var rejected protocol.CommandResult
+	readWebSocketJSON(t, client, full, &rejected)
+	if rejected.Payload.Status != protocol.CommandRejected || rejected.Payload.Error == nil ||
+		rejected.Payload.Error.Code != "ROOM_NOT_FOUND" || !rejected.Payload.Error.Retriable ||
+		rejected.Payload.EventSequenceStart != nil || rejected.Payload.EventSequenceEnd != nil ||
+		rejected.Payload.Synchronization != nil {
+		t.Fatalf("full result = %+v", rejected)
 	}
 
 	writeCommand(t, client, full)
 	var replay protocol.CommandResult
 	readWebSocketJSON(t, client, nil, &replay)
-	acceptedJSON, _ := json.Marshal(accepted)
+	rejectedJSON, _ := json.Marshal(rejected)
 	replayJSON, _ := json.Marshal(replay)
-	if string(acceptedJSON) != string(replayJSON) {
-		t.Fatalf("WebSocket replay changed:\naccepted = %s\nreplay = %s", acceptedJSON, replayJSON)
+	if string(rejectedJSON) != string(replayJSON) {
+		t.Fatalf("re-executed rejection changed:\nfirst = %s\nsecond = %s", rejectedJSON, replayJSON)
 	}
 }
 

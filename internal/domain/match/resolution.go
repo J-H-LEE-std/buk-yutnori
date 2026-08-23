@@ -85,16 +85,17 @@ func (game *Game) applyMoveResolutionLocked(
 	}
 
 	return MoveOutcome{
-		Route:             plan.Route,
-		MovementKind:      plan.MovementKind,
-		FromSpaceID:       fromSpaceID,
-		ToSpaceID:         plan.DestinationSpaceID,
-		MovedPieceIDs:     movedPieceIDs,
-		StackedPieceIDs:   stackedPieceIDs,
-		CapturedPieceIDs:  capturedPieceIDs,
-		CaptureExtraThrow: captureExtraThrow,
-		MatchEnded:        matchEnded,
-		WinnerTeamID:      game.winnerTeamID,
+		Route:               plan.Route,
+		MovementKind:        plan.MovementKind,
+		FromSpaceID:         fromSpaceID,
+		ToSpaceID:           plan.DestinationSpaceID,
+		ActualPreviousSpace: plan.ActualPreviousSpace,
+		MovedPieceIDs:       movedPieceIDs,
+		StackedPieceIDs:     stackedPieceIDs,
+		CapturedPieceIDs:    capturedPieceIDs,
+		CaptureExtraThrow:   captureExtraThrow,
+		MatchEnded:          matchEnded,
+		WinnerTeamID:        game.winnerTeamID,
 	}
 }
 

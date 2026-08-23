@@ -16,6 +16,7 @@ import (
 	"buk-yutnori/internal/application"
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/auth/googleid"
+	"buk-yutnori/internal/domain/board"
 	"buk-yutnori/internal/httpapi"
 	"buk-yutnori/internal/server"
 	"buk-yutnori/internal/wsapi"
@@ -53,6 +54,13 @@ func run() error {
 	}
 	roomsRegistry, err := application.NewRoomRegistry(time.Now)
 	if err != nil {
+		return err
+	}
+	boardGraph, err := board.LoadFile("spec/board_graph.yaml")
+	if err != nil {
+		return fmt.Errorf("load canonical board graph: %w", err)
+	}
+	if err := roomsRegistry.AttachBoardGraph(boardGraph); err != nil {
 		return err
 	}
 	roomsHandler, err := httpapi.NewRoomsHandler(authService, roomsRegistry)
@@ -111,9 +119,8 @@ func run() error {
 
 	slog.Warn("using in-memory authentication store; sessions do not survive restart")
 	slog.Warn(
-		"using in-memory prototype room and reconnect snapshot; state does not survive restart",
+		"using in-memory prototype room, room registry, and match runtime; state does not survive restart",
 		"room_id", application.PrototypeRoomID,
-		"match_id", application.PrototypeMatchID,
 	)
 	slog.Info("serving local prototype", "address", config.listenAddr, "web_root", config.webRoot)
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

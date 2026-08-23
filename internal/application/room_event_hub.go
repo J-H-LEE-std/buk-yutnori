@@ -57,9 +57,13 @@ func (registry *RoomRegistry) SubscribeEvents(user auth.UserID) (*RoomEventSubsc
 	registry.mutex.Lock()
 	defer registry.mutex.Unlock()
 
+	buffer := registry.eventBufferSize
+	if buffer <= 0 {
+		buffer = roomEventBuffer
+	}
 	subscription := &RoomEventSubscription{
 		registry: registry,
-		events:   make(chan RoomEvent, roomEventBuffer),
+		events:   make(chan RoomEvent, buffer),
 		done:     make(chan struct{}),
 	}
 	registry.eventSubscribers[subscription] = user

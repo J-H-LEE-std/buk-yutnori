@@ -69,16 +69,17 @@ func (outcome BukOutcome) TurnOutcome() turn.BukOutcome {
 
 // MoveOutcome describes one piece movement already committed to the game.
 type MoveOutcome struct {
-	Route             domain.Route
-	MovementKind      domain.MovementKind
-	FromSpaceID       domain.SpaceID
-	ToSpaceID         domain.SpaceID
-	MovedPieceIDs     []domain.PieceID
-	StackedPieceIDs   []domain.PieceID
-	CapturedPieceIDs  []domain.PieceID
-	CaptureExtraThrow bool
-	MatchEnded        bool
-	WinnerTeamID      domain.TeamID
+	Route               domain.Route
+	MovementKind        domain.MovementKind
+	FromSpaceID         domain.SpaceID
+	ToSpaceID           domain.SpaceID
+	ActualPreviousSpace domain.SpaceID
+	MovedPieceIDs       []domain.PieceID
+	StackedPieceIDs     []domain.PieceID
+	CapturedPieceIDs    []domain.PieceID
+	CaptureExtraThrow   bool
+	MatchEnded          bool
+	WinnerTeamID        domain.TeamID
 }
 
 // TurnOutcome returns the decisions needed by the turn state machine.

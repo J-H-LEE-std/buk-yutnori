@@ -2,10 +2,8 @@ package application
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,185 +13,78 @@ import (
 	"buk-yutnori/internal/protocol"
 )
 
-func TestPrototypeGameSnapshotMatchesSchemaValidatedExample(t *testing.T) {
-	encoded, err := json.Marshal(newPrototypeGameSnapshot(prototypeRoomInitializationSequence))
+// ADR-0013 retired the fixed prototype-match reconnect scope (issue #82).
+// The prototype room keeps only its chat scope; it is not a registry room,
+// so RECONNECT against it is a retriable ROOM_NOT_FOUND that never consumes
+// a sequence and is not retained as an idempotent result.
+func TestPrototypeRealtimeApplicationRejectsRetiredPrototypeMatchScope(t *testing.T) {
+	t.Parallel()
+	application := mustPrototypeRealtimeApplication(t, time.Now)
+	defer closePrototypeRealtimeApplication(t, application)
+
+	command := reconnectCommand("cmd-reconnect-retired", 0)
+	result, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, command)
 	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
+		t.Fatalf("reconnect Process() error = %v", err)
 	}
-	want, err := os.ReadFile(filepath.Join("..", "..", "schemas", "examples", "prototype_game_snapshot.json"))
+	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
+
+	ahead := reconnectCommand("cmd-reconnect-retired-ahead", 99)
+	result, err = application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, ahead)
 	if err != nil {
-		t.Fatalf("read prototype snapshot example: %v", err)
+		t.Fatalf("ahead reconnect Process() error = %v", err)
 	}
-	var gotValue any
-	var wantValue any
-	if err := json.Unmarshal(encoded, &gotValue); err != nil {
-		t.Fatalf("decode generated snapshot: %v", err)
+	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
+
+	retry := reconnectCommand("cmd-reconnect-retired", 0)
+	result, err = application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, retry)
+	if err != nil {
+		t.Fatalf("retried reconnect Process() error = %v", err)
 	}
-	if err := json.Unmarshal(want, &wantValue); err != nil {
-		t.Fatalf("decode example snapshot: %v", err)
-	}
-	gotCanonical, _ := json.Marshal(gotValue)
-	wantCanonical, _ := json.Marshal(wantValue)
-	if string(gotCanonical) != string(wantCanonical) {
-		t.Fatalf("generated snapshot differs from schema example:\ngot  = %s\nwant = %s", gotCanonical, wantCanonical)
-	}
+	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
+	assertBoundary(t, application.sequences, PrototypeRoomID, 0)
 }
 
-func TestPrototypeRealtimeApplicationReturnsLatestAtomicSnapshotWithoutConsumingSequence(t *testing.T) {
+func TestPrototypeRealtimeApplicationChatSequencesStartAtOne(t *testing.T) {
+	t.Parallel()
 	application := mustPrototypeRealtimeApplication(t, time.Now)
 	defer closePrototypeRealtimeApplication(t, application)
 
 	chatResult, err := application.Processor().Process(
 		context.Background(),
 		auth.User{ID: chatTestUserID},
-		chatCommand("cmd-chat-before-reconnect", "snapshot boundary"),
+		chatCommand("cmd-chat-first", "first message"),
 	)
 	if err != nil {
 		t.Fatalf("chat Process() error = %v", err)
 	}
-	if chatResult.Payload.EventSequenceStart == nil || *chatResult.Payload.EventSequenceStart != 2 {
-		t.Fatalf("chat result = %+v, want bootstrap-following sequence 2", chatResult)
+	if chatResult.Payload.EventSequenceStart == nil || *chatResult.Payload.EventSequenceStart != 1 {
+		t.Fatalf("chat result = %+v, want sequence 1 without bootstrap event", chatResult)
 	}
-
-	result, err := application.Processor().Process(
-		context.Background(),
-		auth.User{ID: chatTestUserID},
-		reconnectCommand("cmd-reconnect-latest", 1),
-	)
-	if err != nil {
-		t.Fatalf("reconnect Process() error = %v", err)
-	}
-	if result.Payload.Status != protocol.CommandAccepted || result.Payload.Synchronization == nil ||
-		result.Payload.EventSequenceStart != nil || result.Payload.EventSequenceEnd != nil || result.Payload.Error != nil {
-		t.Fatalf("reconnect result = %+v", result)
-	}
-	if len(result.Payload.Synchronization.Events) != 0 {
-		t.Fatalf("reconnect events = %s, want latest snapshot with no trailing events", result.Payload.Synchronization.Events)
-	}
-
-	var snapshot prototypeGameSnapshot
-	if err := json.Unmarshal(result.Payload.Synchronization.Snapshot, &snapshot); err != nil {
-		t.Fatalf("decode snapshot: %v", err)
-	}
-	if snapshot.RoomID != PrototypeRoomID || snapshot.MatchID != PrototypeMatchID || snapshot.Sequence != 2 || snapshot.Status != "starting" {
-		t.Fatalf("snapshot scope = %+v", snapshot)
-	}
-	if len(snapshot.Teams) != 2 || snapshot.Teams[0].TeamID != domain.TeamA || snapshot.Teams[1].TeamID != domain.TeamB ||
-		snapshot.Participants == nil || snapshot.ResultQueue == nil || snapshot.Pieces == nil || snapshot.Stacks == nil || snapshot.PositionGroups == nil {
-		t.Fatalf("snapshot does not preserve schema-shaped empty collections: %+v", snapshot)
-	}
-	assertBoundary(t, application.sequences, PrototypeRoomID, 2)
+	assertBoundary(t, application.sequences, PrototypeRoomID, 1)
 }
 
-func TestPrototypeRealtimeApplicationDoesNotRetainResyncRequired(t *testing.T) {
-	application := mustPrototypeRealtimeApplication(t, time.Now)
-	defer closePrototypeRealtimeApplication(t, application)
-	command := reconnectCommand("cmd-reconnect-retry", 2)
-
-	first, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, command)
-	if err != nil {
-		t.Fatalf("first Process() error = %v", err)
-	}
-	assertReconnectRejection(t, first, protocol.ErrorCodeResyncRequired, true)
-
-	chat, err := application.Processor().Process(
-		context.Background(),
-		auth.User{ID: chatTestUserID},
-		chatCommand("cmd-advance-boundary", "advance"),
-	)
-	if err != nil || chat.Payload.EventSequenceStart == nil || *chat.Payload.EventSequenceStart != 2 {
-		t.Fatalf("advance result = %+v, error = %v", chat, err)
-	}
-
-	second, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, command)
-	if err != nil {
-		t.Fatalf("second Process() error = %v", err)
-	}
-	if second.Payload.Status != protocol.CommandAccepted || second.Payload.Synchronization == nil {
-		t.Fatalf("transient rejection was retained: %+v", second)
-	}
-}
-
-func TestPrototypeRealtimeApplicationReplaysAcceptedReconnectAtOriginalBoundary(t *testing.T) {
-	application := mustPrototypeRealtimeApplication(t, time.Now)
-	defer closePrototypeRealtimeApplication(t, application)
-	command := reconnectCommand("cmd-reconnect-replay", 0)
-
-	first, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, command)
-	if err != nil {
-		t.Fatalf("first Process() error = %v", err)
-	}
-	if _, err := application.Processor().Process(
-		context.Background(),
-		auth.User{ID: chatTestUserID},
-		chatCommand("cmd-after-reconnect", "later event"),
-	); err != nil {
-		t.Fatalf("chat Process() error = %v", err)
-	}
-	second, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, command)
-	if err != nil {
-		t.Fatalf("second Process() error = %v", err)
-	}
-	firstJSON, _ := json.Marshal(first)
-	secondJSON, _ := json.Marshal(second)
-	if string(firstJSON) != string(secondJSON) {
-		t.Fatalf("accepted reconnect replay changed:\nfirst = %s\nsecond = %s", firstJSON, secondJSON)
-	}
-	var snapshot prototypeGameSnapshot
-	if err := json.Unmarshal(second.Payload.Synchronization.Snapshot, &snapshot); err != nil {
-		t.Fatalf("decode replayed snapshot: %v", err)
-	}
-	if snapshot.Sequence != 1 {
-		t.Fatalf("replayed snapshot sequence = %d, want original boundary 1", snapshot.Sequence)
-	}
-	assertBoundary(t, application.sequences, PrototypeRoomID, 2)
-}
-
-func TestPrototypeRealtimeApplicationRejectsUnknownScopeWithoutClosingActor(t *testing.T) {
+func TestPrototypeRealtimeApplicationRoutesUnknownRoomMatchCommandToRegistry(t *testing.T) {
+	t.Parallel()
 	application := mustPrototypeRealtimeApplication(t, time.Now)
 	defer closePrototypeRealtimeApplication(t, application)
 
-	wrongRoom := reconnectCommand("cmd-wrong-room", 0)
-	wrongRoom.RoomID = "other-room"
-	result, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, wrongRoom)
-	if err != nil {
-		t.Fatalf("wrong room Process() error = %v", err)
-	}
-	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
-
-	wrongMatch := reconnectCommand("cmd-wrong-match", 0)
-	matchID := domain.MatchID("other-match")
-	wrongMatch.MatchID = &matchID
-	result, err = application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, wrongMatch)
-	if err != nil {
-		t.Fatalf("wrong match Process() error = %v", err)
-	}
-	assertReconnectRejection(t, result, protocol.ErrorCodeResyncRequired, true)
-
-	result, err = application.Processor().Process(
-		context.Background(), auth.User{ID: chatTestUserID}, reconnectCommand("cmd-valid-after-scope-errors", 0),
-	)
-	if err != nil || result.Payload.Status != protocol.CommandAccepted {
-		t.Fatalf("valid reconnect after scope errors = %+v, error = %v", result, err)
-	}
-}
-
-func TestPrototypeRealtimeApplicationPreservesUnsupportedCommandRejection(t *testing.T) {
-	application := mustPrototypeRealtimeApplication(t, time.Now)
-	defer closePrototypeRealtimeApplication(t, application)
+	matchID := domain.MatchID("any-match")
 	command := protocol.ClientCommand{
 		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
-		Type: protocol.CommandThrowYut, CommandID: "cmd-unsupported-room", RoomID: "other-room",
+		Type: protocol.CommandThrowYut, CommandID: "cmd-throw-unknown-room",
+		RoomID: "other-room", MatchID: &matchID,
 		Payload: protocol.EmptyPayload{},
 	}
 	result, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, command)
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
-	assertReconnectRejection(t, result, applicationUnavailableCode, true)
+	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
 }
 
 func TestPrototypeRealtimeApplicationRoutesLobbyCommandsToRegistry(t *testing.T) {
+	t.Parallel()
 	lobbies, err := NewRoomRegistry(time.Now)
 	if err != nil {
 		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
@@ -260,7 +151,7 @@ func TestPrototypeRealtimeApplicationRoutesLobbyCommandsToRegistry(t *testing.T)
 	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
 }
 
-func TestPrototypeRealtimeApplicationSerializesChatBeforeReconnectSnapshot(t *testing.T) {
+func TestPrototypeRealtimeApplicationSerializesChatThroughActor(t *testing.T) {
 	clockEntered := make(chan struct{})
 	releaseClock := make(chan struct{})
 	clock := func() time.Time {
@@ -269,6 +160,11 @@ func TestPrototypeRealtimeApplicationSerializesChatBeforeReconnectSnapshot(t *te
 		return time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	}
 	application := mustPrototypeRealtimeApplication(t, clock)
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseClock) }) }
+	defer release()
+	// Registered after release so a failing assertion releases the blocked
+	// chat execution before the actor Close waits on it.
 	defer closePrototypeRealtimeApplication(t, application)
 	type processResult struct {
 		result protocol.CommandResult
@@ -294,34 +190,26 @@ func TestPrototypeRealtimeApplicationSerializesChatBeforeReconnectSnapshot(t *te
 		)
 		reconnectDone <- processResult{result: result, err: err}
 	}()
-	select {
-	case result := <-reconnectDone:
-		t.Fatalf("reconnect bypassed blocked room command: %+v", result)
-	case <-time.After(20 * time.Millisecond):
+	reconnect := <-reconnectDone
+	if reconnect.err != nil {
+		t.Fatalf("serialized reconnect error = %v", reconnect.err)
 	}
-	close(releaseClock)
+	// The retired prototype scope is not a registry room, so the match
+	// executor reports the unknown room without consuming any sequence.
+	assertReconnectRejection(t, reconnect.result, "ROOM_NOT_FOUND", true)
+	release()
 
 	chat := <-chatDone
-	if chat.err != nil || chat.result.Payload.EventSequenceStart == nil || *chat.result.Payload.EventSequenceStart != 2 {
+	if chat.err != nil || chat.result.Payload.EventSequenceStart == nil || *chat.result.Payload.EventSequenceStart != 1 {
 		t.Fatalf("serialized chat = %+v, error = %v", chat.result, chat.err)
-	}
-	reconnect := <-reconnectDone
-	if reconnect.err != nil || reconnect.result.Payload.Synchronization == nil {
-		t.Fatalf("serialized reconnect = %+v, error = %v", reconnect.result, reconnect.err)
-	}
-	var snapshot prototypeGameSnapshot
-	if err := json.Unmarshal(reconnect.result.Payload.Synchronization.Snapshot, &snapshot); err != nil {
-		t.Fatalf("decode snapshot: %v", err)
-	}
-	if snapshot.Sequence != 2 {
-		t.Fatalf("snapshot sequence = %d, want chat boundary 2", snapshot.Sequence)
 	}
 }
 
 func TestPrototypeRealtimeApplicationCloseReleasesRoomLifetimeState(t *testing.T) {
+	t.Parallel()
 	application := mustPrototypeRealtimeApplication(t, time.Now)
 	if _, err := application.Processor().Process(
-		context.Background(), auth.User{ID: chatTestUserID}, reconnectCommand("cmd-retained-before-close", 0),
+		context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-retained-before-close", "kept"),
 	); err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
@@ -336,7 +224,7 @@ func TestPrototypeRealtimeApplicationCloseReleasesRoomLifetimeState(t *testing.T
 		t.Fatalf("idempotency entries after close = %d", entryCount)
 	}
 	_, err := application.Processor().Process(
-		context.Background(), auth.User{ID: chatTestUserID}, reconnectCommand("cmd-after-close", 0),
+		context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-after-close", "again"),
 	)
 	if !errors.Is(err, ErrRoomActorClosed) {
 		t.Fatalf("Process() after close error = %v, want %v", err, ErrRoomActorClosed)
@@ -344,7 +232,7 @@ func TestPrototypeRealtimeApplicationCloseReleasesRoomLifetimeState(t *testing.T
 }
 
 func reconnectCommand(commandID string, lastSequence uint64) protocol.ClientCommand {
-	matchID := PrototypeMatchID
+	matchID := domain.MatchID("prototype-match")
 	return protocol.ClientCommand{
 		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
 		Type: protocol.CommandReconnect, CommandID: commandID, RoomID: PrototypeRoomID,

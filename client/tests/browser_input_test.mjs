@@ -365,7 +365,11 @@ try {
     throw new Error(`synchronization bundle validation failed: ${JSON.stringify(synchronizationBundle)}`);
   }
 
-  const prototypeRefreshSynchronization = await evaluate(`(() => {
+  // ADR-0013's fabricated prototype scope is retired: login must not send a
+  // RECONNECT on its own. The synchronization machinery is then exercised by
+  // setting an explicit scope, as the future lobby screens will do with a
+  // live GAME_STARTING match_id.
+  const explicitScopeSynchronization = await evaluate(`(() => {
     const originalWebSocket = globalThis.WebSocket;
     const instances = [];
     class CaptureWebSocket extends EventTarget {
@@ -397,28 +401,32 @@ try {
     showAuthenticated("usr_EREREREREREREREREREREQ");
     const capture = instances[0];
     capture.open();
-    const reconnect = capture.messages[0];
+    const commandsAfterLogin = capture.messages.length;
+    const scopeSet = setStateReconnectScope("room-82", "match-82");
+    const reconnect = capture.messages[commandsAfterLogin];
     const blockedBeforeResponse = sendStateChangingCommand({ type: "SET_READY" });
     handleRealtimeMessage(capture, { data: JSON.stringify({
       version: 1,
       direction: "server_response",
       type: "COMMAND_RESULT",
       command_id: reconnect.command_id,
-      room_id: "prototype-room",
-      match_id: "prototype-match",
+      room_id: "room-82",
+      match_id: "match-82",
       payload: {
         status: "accepted",
         event_sequence_start: null,
         event_sequence_end: null,
         error: null,
         synchronization: {
-          snapshot: { room_id: "prototype-room", match_id: "prototype-match", sequence: 1 },
+          snapshot: { room_id: "room-82", match_id: "match-82", sequence: 1 },
           events: [],
         },
       },
     }) });
     const result = {
       instanceCount: instances.length,
+      commandsAfterLogin,
+      scopeSet,
       requestType: reconnect?.type,
       roomId: reconnect?.room_id,
       matchId: reconnect?.match_id,
@@ -435,17 +443,19 @@ try {
     globalThis.WebSocket = originalWebSocket;
     return result;
   })()`);
-  if (prototypeRefreshSynchronization.instanceCount !== 1
-      || prototypeRefreshSynchronization.requestType !== "RECONNECT"
-      || prototypeRefreshSynchronization.roomId !== "prototype-room"
-      || prototypeRefreshSynchronization.matchId !== "prototype-match"
-      || prototypeRefreshSynchronization.lastSequence !== 0
-      || prototypeRefreshSynchronization.blockedBeforeResponse
-      || prototypeRefreshSynchronization.pendingCount !== 0
-      || prototypeRefreshSynchronization.confirmedSequence !== "1"
-      || !prototypeRefreshSynchronization.canSend
-      || prototypeRefreshSynchronization.status !== "실시간 서버 상태 동기화 완료") {
-    throw new Error(`prototype refresh synchronization failed: ${JSON.stringify(prototypeRefreshSynchronization)}`);
+  if (explicitScopeSynchronization.instanceCount !== 1
+      || explicitScopeSynchronization.commandsAfterLogin !== 0
+      || !explicitScopeSynchronization.scopeSet
+      || explicitScopeSynchronization.requestType !== "RECONNECT"
+      || explicitScopeSynchronization.roomId !== "room-82"
+      || explicitScopeSynchronization.matchId !== "match-82"
+      || explicitScopeSynchronization.lastSequence !== 0
+      || explicitScopeSynchronization.blockedBeforeResponse
+      || explicitScopeSynchronization.pendingCount !== 0
+      || explicitScopeSynchronization.confirmedSequence !== "1"
+      || !explicitScopeSynchronization.canSend
+      || explicitScopeSynchronization.status !== "실시간 서버 상태 동기화 완료") {
+    throw new Error(`explicit scope synchronization failed: ${JSON.stringify(explicitScopeSynchronization)}`);
   }
 
   const automaticReconnect = await evaluate(`new Promise((resolve, reject) => {
