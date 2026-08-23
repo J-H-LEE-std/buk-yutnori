@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
@@ -29,6 +30,17 @@ var (
 	// ErrCombinedCapacityFull identifies a join beyond the combined
 	// player-plus-spectator limit.
 	ErrCombinedCapacityFull = errors.New("player plus spectator count exceeds the room capacity")
+
+	// ErrNotRoomHost rejects a start request from anyone but the room owner.
+	ErrNotRoomHost = errors.New("only the room owner can request the match start")
+	// ErrStartAlreadyRequested rejects commands while a start window is open.
+	ErrStartAlreadyRequested = errors.New("start confirmation is already in progress")
+	// ErrRoomAlreadyStarted rejects membership changes after a confirmed start.
+	ErrRoomAlreadyStarted = errors.New("the match has already started")
+	// ErrNoActiveStartConfirmation rejects confirmations without an open window.
+	ErrNoActiveStartConfirmation = errors.New("no active start confirmation")
+	// ErrMatchScopeMismatch rejects confirmations bound to another match scope.
+	ErrMatchScopeMismatch = errors.New("start confirmation match scope does not match")
 )
 
 const (
@@ -73,37 +85,44 @@ type JoinRoomInput struct {
 // boundary and is out of scope here.
 type RoomRegistry struct {
 	mutex    sync.Mutex
-	nextID   func() (string, error)
+	clock    func() time.Time
+	randomID func() (string, error)
 	rooms    map[domain.RoomID]*registeredRoom
 	ordering []domain.RoomID
 }
 
 type registeredRoom struct {
-	lobby      *room.Lobby
-	password   []byte
-	spectators map[auth.UserID]struct{}
-	summary    RoomSummary
+	lobby        *room.Lobby
+	password     []byte
+	spectators   map[auth.UserID]struct{}
+	summary      RoomSummary
+	host         auth.UserID
+	confirmation *room.StartConfirmation
+	started      bool
+	expiryTimer  *time.Timer
 }
 
 // NewRoomRegistry constructs an empty registry keyed by crypto-random room IDs.
-func NewRoomRegistry() (*RoomRegistry, error) {
+// The clock drives start confirmation deadlines and must be monotonic in
+// production (ADR-0003).
+func NewRoomRegistry(clock func() time.Time) (*RoomRegistry, error) {
+	if clock == nil {
+		return nil, errors.New("invalid room registry configuration")
+	}
 	return &RoomRegistry{
-		nextID: newRoomIDGenerator(rand.Reader),
-		rooms:  make(map[domain.RoomID]*registeredRoom),
+		clock:    clock,
+		randomID: newRandomIDGenerator(rand.Reader),
+		rooms:    make(map[domain.RoomID]*registeredRoom),
 	}, nil
 }
 
-func newRoomIDGenerator(source io.Reader) func() (string, error) {
+func newRandomIDGenerator(source io.Reader) func() (string, error) {
 	return func() (string, error) {
 		buffer := make([]byte, 16)
 		if _, err := io.ReadFull(source, buffer); err != nil {
-			return "", fmt.Errorf("generate room id: %w", err)
+			return "", fmt.Errorf("generate random id: %w", err)
 		}
-		id := domain.RoomID(hex.EncodeToString(buffer))
-		if err := id.Validate(); err != nil {
-			return "", err
-		}
-		return string(id), nil
+		return hex.EncodeToString(buffer), nil
 	}
 }
 
@@ -127,7 +146,7 @@ func (registry *RoomRegistry) Create(input CreateRoomInput) (RoomSummary, error)
 	registry.mutex.Lock()
 	defer registry.mutex.Unlock()
 
-	rawID, err := registry.nextID()
+	rawID, err := registry.randomID()
 	if err != nil {
 		return RoomSummary{}, err
 	}
@@ -143,6 +162,7 @@ func (registry *RoomRegistry) Create(input CreateRoomInput) (RoomSummary, error)
 	entry := &registeredRoom{
 		lobby:      lobby,
 		spectators: make(map[auth.UserID]struct{}),
+		host:       input.Creator,
 	}
 	if input.Creation.Password != "" {
 		sum := sha256.Sum256([]byte(input.Creation.Password))
@@ -209,6 +229,9 @@ func (registry *RoomRegistry) Join(input JoinRoomInput) (RoomSummary, error) {
 		if subtle.ConstantTimeCompare(sum[:], entry.password) != 1 {
 			return RoomSummary{}, ErrInvalidRoomPassword
 		}
+	}
+	if err := registry.guardLobbyMutation(entry); err != nil {
+		return RoomSummary{}, err
 	}
 
 	playerCount := len(entry.lobby.Players())
@@ -279,6 +302,9 @@ func (registry *RoomRegistry) ChangeTeam(user auth.UserID, roomID domain.RoomID,
 	if !exists {
 		return ErrRoomNotFound
 	}
+	if err := registry.guardLobbyMutation(entry); err != nil {
+		return err
+	}
 	return entry.lobby.ChangeTeam(playerID, team)
 }
 
@@ -296,6 +322,9 @@ func (registry *RoomRegistry) SetReady(user auth.UserID, roomID domain.RoomID, r
 	entry, exists := registry.rooms[roomID]
 	if !exists {
 		return ErrRoomNotFound
+	}
+	if err := registry.guardLobbyMutation(entry); err != nil {
+		return err
 	}
 	return entry.lobby.SetReady(playerID, ready)
 }

@@ -74,7 +74,17 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   않는 방은 `ROOM_NOT_FOUND`(재시도 가능)로 거부하고, 플레이어가 아닌 발신자
   (`ROOM_PLAYER_REQUIRED`)와 준비 완료 플레이어의 팀 변경
   (`READY_TEAM_CHANGE_BLOCKED`)은 재시도 불가능한 결정적 거부로 보존한다.
-  이들을 제외한 방·경기 command는 상태를 적용하지 않고 `APPLICATION_UNAVAILABLE`
+- `START_GAME`은 방장(`ROOM_HOST_REQUIRED`)만 요청할 수 있고 시작 조건 미충족은
+  `START_CONDITIONS_NOT_MET`으로 거부된다. 요청이 받아들여지면 서버 기준 10초의
+  시작 확인 창이 열리고(ADR-0003) 창 진행 중에는 팀·준비 변경과 입장이
+  `START_CONFIRMATION_IN_PROGRESS`로 차단된다. `CONFIRM_GAME_START`는 창 안의
+  로스터 플레이어 응답만 기록하고 전원 확인 시 경기가 started 상태로 확정된다.
+  마감 만료는 미응답자 제외와 잔여 전원 준비 해제를 하나의 방 상태 전이로
+  적용하며 늦은 응답은 취소된 시작을 되살리지 않는다.
+- 시작 확인 요청과 마감 시각을 알리는 `GAME_STARTING` 이벤트 방송은 아직
+  없으므로 클라이언트는 활성 `match_id`와 마감을 학습할 수 없다. 확인 명령의
+  실제 도달성은 미결인 구독자 알림 계약 확정에 달려 있다.
+- 이들을 제외한 방·경기 command는 상태를 적용하지 않고 `APPLICATION_UNAVAILABLE`
   일시적 거부를 반환한다. 일시적 거부는 `error.retriable=true`이므로 방 생명주기
   결과로 보존하지 않는다.
 - 대기실 상태 변경은 아직 같은 방 구독자에게 서버 이벤트로 방송되지 않는다.

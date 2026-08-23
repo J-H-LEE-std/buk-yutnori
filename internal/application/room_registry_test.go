@@ -7,14 +7,15 @@ import (
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/room"
+	"time"
 )
 
 func newTestRegistry(t *testing.T) *RoomRegistry {
 	t.Helper()
 
-	registry, err := NewRoomRegistry()
+	registry, err := NewRoomRegistry(time.Now)
 	if err != nil {
-		t.Fatalf("NewRoomRegistry() error = %v", err)
+		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
 	}
 	return registry
 }

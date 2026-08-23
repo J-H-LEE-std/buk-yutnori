@@ -183,7 +183,7 @@ func TestPrototypeRealtimeApplicationPreservesUnsupportedCommandRejection(t *tes
 	defer closePrototypeRealtimeApplication(t, application)
 	command := protocol.ClientCommand{
 		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
-		Type: protocol.CommandStartGame, CommandID: "cmd-unsupported-room", RoomID: "other-room",
+		Type: protocol.CommandThrowYut, CommandID: "cmd-unsupported-room", RoomID: "other-room",
 		Payload: protocol.EmptyPayload{},
 	}
 	result, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, command)
@@ -194,9 +194,9 @@ func TestPrototypeRealtimeApplicationPreservesUnsupportedCommandRejection(t *tes
 }
 
 func TestPrototypeRealtimeApplicationRoutesLobbyCommandsToRegistry(t *testing.T) {
-	lobbies, err := NewRoomRegistry()
+	lobbies, err := NewRoomRegistry(time.Now)
 	if err != nil {
-		t.Fatalf("NewRoomRegistry() error = %v", err)
+		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
 	}
 	summary, err := lobbies.Create(CreateRoomInput{
 		Creator:  chatTestUserID,
@@ -354,9 +354,9 @@ func reconnectCommand(commandID string, lastSequence uint64) protocol.ClientComm
 
 func mustPrototypeRealtimeApplication(t *testing.T, now func() time.Time) *PrototypeRealtimeApplication {
 	t.Helper()
-	lobbies, err := NewRoomRegistry()
+	lobbies, err := NewRoomRegistry(time.Now)
 	if err != nil {
-		t.Fatalf("NewRoomRegistry() error = %v", err)
+		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
 	}
 	return mustPrototypeRealtimeApplicationWithLobbies(t, now, lobbies)
 }
