@@ -1,5 +1,7 @@
 // Turn timers, public match command entry points, and CPU substitution for
 // the canonical match runtime. All functions require the registry mutex.
+// Public commands stage their events on one emission transaction and flush
+// it after the flow completes: persist → commit → broadcast (issue #84).
 
 package application
 
@@ -80,28 +82,29 @@ func (registry *RoomRegistry) fireTurnTimeout(roomID domain.RoomID, generation u
 		return
 	}
 	rt := entry.runtime
-	if rt == nil || generation != rt.timerGeneration || rt.timerKind == "" || rt.cpuControlled {
+	if rt == nil || entry.poisoned || generation != rt.timerGeneration ||
+		rt.timerKind == "" || rt.cpuControlled {
 		return
 	}
 	player := rt.currentPlayer()
 	rt.cpuControlled = true
 	registry.cancelTimerLocked(rt)
-	if err := registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewCPUControlStartedEvent(rt.roomID, rt.matchID, sequence, protocol.CPUControlStartedPayload{
 			PlayerID: player,
 			Reason:   cpuControlReasonTimeout,
 		})
-	}); err != nil {
-		return
-	}
-	registry.runCpuTurnLocked(entry, rt)
+	})
+	registry.runCpuTurnLocked(entry, rt, tx)
+	_ = tx.flush()
 }
 
 // ---------------------------------------------------------------------------
 // Public match commands
 
 // liveMatchLocked resolves the caller's live runtime for a started room and
-// validates membership plus match scope in one step.
+// validates membership, poison fencing, and match scope in one step.
 func (registry *RoomRegistry) liveMatchLocked(
 	user auth.UserID,
 	roomID domain.RoomID,
@@ -114,6 +117,9 @@ func (registry *RoomRegistry) liveMatchLocked(
 	entry, exists := registry.rooms[roomID]
 	if !exists {
 		return nil, nil, ErrRoomNotFound
+	}
+	if entry.poisoned {
+		return nil, nil, ErrEventStoreUnavailable
 	}
 	if _, member := entry.lobby.Player(playerID); !member {
 		return nil, nil, ErrNotMember
@@ -143,10 +149,14 @@ func (registry *RoomRegistry) ThrowYut(user auth.UserID, roomID domain.RoomID, m
 	if rt.machine.Snapshot().RequiredInput != domain.InputThrow {
 		return ErrInvalidTurnAction
 	}
-	if err := registry.performThrowLocked(entry, rt); err != nil {
+	tx := registry.newEventTx(roomID)
+	if err := registry.performThrowLocked(tx, rt); err != nil {
 		return err
 	}
-	return registry.advanceTurnLocked(entry, rt)
+	if err := registry.advanceTurnLocked(entry, rt, tx); err != nil {
+		return err
+	}
+	return tx.flush()
 }
 
 // SelectResult consumes SELECT_RESULT while several ordinary tokens compete
@@ -169,10 +179,12 @@ func (registry *RoomRegistry) SelectResult(user auth.UserID, roomID domain.RoomI
 	if err := rt.machine.SelectResult(tokenID); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidTurnAction, err)
 	}
-	if err := registry.emitResultQueueUpdatedLocked(entry, rt); err != nil {
+	tx := registry.newEventTx(roomID)
+	stageResultQueueUpdated(tx, rt)
+	if err := registry.advanceTurnLocked(entry, rt, tx); err != nil {
 		return err
 	}
-	return registry.advanceTurnLocked(entry, rt)
+	return tx.flush()
 }
 
 // SelectPiece consumes SELECT_PIECE and either applies the move directly or
@@ -192,7 +204,11 @@ func (registry *RoomRegistry) SelectPiece(user auth.UserID, roomID domain.RoomID
 	if snapshot.RequiredInput != domain.InputSelectPiece || snapshot.SelectedTokenID != tokenID {
 		return ErrInvalidTurnAction
 	}
-	return registry.selectPieceInternalLocked(entry, rt, tokenID, pieceID)
+	tx := registry.newEventTx(roomID)
+	if err := registry.selectPieceInternalLocked(entry, rt, tx, tokenID, pieceID); err != nil {
+		return err
+	}
+	return tx.flush()
 }
 
 // SelectRoute consumes SELECT_ROUTE for a piece awaiting its shortcut choice.
@@ -215,13 +231,17 @@ func (registry *RoomRegistry) SelectRoute(user auth.UserID, roomID domain.RoomID
 	if err := rt.machine.RouteSelected(tokenID); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidTurnAction, err)
 	}
-	return registry.applySelectedMoveLocked(entry, rt, tokenID, pieceID, route)
+	tx := registry.newEventTx(roomID)
+	if err := registry.applySelectedMoveLocked(entry, rt, tx, tokenID, pieceID, route); err != nil {
+		return err
+	}
+	return tx.flush()
 }
 
 // ---------------------------------------------------------------------------
 // Turn flow internals
 
-func (registry *RoomRegistry) performThrowLocked(entry *registeredRoom, rt *matchRuntime) error {
+func (registry *RoomRegistry) performThrowLocked(tx *eventTx, rt *matchRuntime) error {
 	origin, err := rt.machine.BeginThrow()
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidTurnAction, err)
@@ -242,16 +262,12 @@ func (registry *RoomRegistry) performThrowLocked(entry *registeredRoom, rt *matc
 	if err := rt.machine.RecordThrow(token); err != nil {
 		return err
 	}
-	if err := registry.emitYutResultLocked(entry, rt, token); err != nil {
-		return err
-	}
-	if err := registry.emitResultQueueUpdatedLocked(entry, rt); err != nil {
-		return err
-	}
+	stageYutResult(tx, rt, token)
+	stageResultQueueUpdated(tx, rt)
 	// Yut/Mo extra throws reset the throw window immediately (docs/03).
 	if rt.machine.Snapshot().Phase == domain.TurnWaitThrow {
 		registry.scheduleThrowTimerLocked(rt)
-		return registry.emitTurnStartedLocked(entry, rt)
+		registry.stageTurnStarted(tx, rt)
 	}
 	return nil
 }
@@ -266,27 +282,27 @@ const (
 
 // advanceTurnLocked performs automatic steps until an external decision is
 // required, the turn ends, or the match ends.
-func (registry *RoomRegistry) advanceTurnLocked(entry *registeredRoom, rt *matchRuntime) error {
+func (registry *RoomRegistry) advanceTurnLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) error {
 	for {
-		step, err := registry.stepResolutionLocked(entry, rt)
+		step, err := registry.stepResolutionLocked(entry, rt, tx)
 		if err != nil || step != stepContinue {
 			return err
 		}
 	}
 }
 
-func (registry *RoomRegistry) stepResolutionLocked(entry *registeredRoom, rt *matchRuntime) (resolutionStep, error) {
+func (registry *RoomRegistry) stepResolutionLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) (resolutionStep, error) {
 	snapshot := rt.machine.Snapshot()
 	switch snapshot.Phase {
 	case domain.TurnResolveQueue:
 		if err := rt.machine.ResolveQueue(); err != nil {
 			return stepStopped, err
 		}
-		return registry.afterQueueResolvedLocked(entry, rt)
+		return registry.afterQueueResolvedLocked(entry, rt, tx)
 	case domain.TurnResolveBuk:
-		return registry.resolveBukHeadLocked(entry, rt, snapshot.SelectedTokenID)
+		return registry.resolveBukHeadLocked(entry, rt, tx, snapshot.SelectedTokenID)
 	case domain.TurnWaitPieceSelection:
-		awaiting, err := registry.enterPieceSelectionLocked(entry, rt)
+		awaiting, err := registry.enterPieceSelectionLocked(entry, rt, tx)
 		if err != nil || awaiting {
 			return stepAwaitInput, err
 		}
@@ -296,14 +312,14 @@ func (registry *RoomRegistry) stepResolutionLocked(entry *registeredRoom, rt *ma
 			return stepAwaitInput, nil
 		}
 		available := availableTokensFor(rt.settings.MovementOrder, snapshot.ResultQueue)
-		return stepAwaitInput, registry.emitMoveRequiredLocked(entry, rt, protocol.MoveRequiredPayload{
+		return stepAwaitInput, stageMoveRequired(tx, rt, protocol.MoveRequiredPayload{
 			RequiredInput: domain.InputSelectResult,
 			TokenIDs:      availableTokenIDs(available),
 		})
 	case domain.TurnEnd:
-		return stepStopped, registry.endTurnLocked(entry, rt)
+		return stepStopped, registry.endTurnLocked(entry, rt, tx)
 	case domain.TurnMatchEnd:
-		return stepStopped, registry.finishMatchLocked(entry, rt)
+		return stepStopped, registry.finishMatchLocked(entry, rt, tx)
 	default:
 		return stepStopped, nil
 	}
@@ -312,7 +328,7 @@ func (registry *RoomRegistry) stepResolutionLocked(entry *registeredRoom, rt *ma
 // afterQueueResolvedLocked swaps the armed deadline for the move-decision
 // window once per throw chain (docs/03: 결과·말·지름길 선택을 하나의 이동
 // 처리 시간에 포함) and reports whether an automatic step must continue.
-func (registry *RoomRegistry) afterQueueResolvedLocked(entry *registeredRoom, rt *matchRuntime) (resolutionStep, error) {
+func (registry *RoomRegistry) afterQueueResolvedLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) (resolutionStep, error) {
 	snapshot := rt.machine.Snapshot()
 	switch snapshot.Phase {
 	case domain.TurnWaitPieceSelection, domain.TurnWaitResultSelection:
@@ -326,7 +342,7 @@ func (registry *RoomRegistry) afterQueueResolvedLocked(entry *registeredRoom, rt
 // resolveBukHeadLocked applies the automatic canonical Buk resolution: the
 // server computes candidates and applies weighted selection without any user
 // piece choice (docs/03 북 처리).
-func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *matchRuntime, tokenID domain.ResultTokenID) (resolutionStep, error) {
+func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx, tokenID domain.ResultTokenID) (resolutionStep, error) {
 	outcome, err := rt.game.ResolveBuk(rt.currentTeam())
 	if err != nil {
 		return stepStopped, err
@@ -340,7 +356,7 @@ func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *ma
 	if movedPieceIDs == nil {
 		movedPieceIDs = []domain.PieceID{}
 	}
-	if err := registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewBukResolvedEvent(rt.roomID, rt.matchID, sequence, protocol.BukResolvedPayload{
 			TokenID:            tokenID,
 			DestinationSpaceID: outcome.DestinationSpaceID,
@@ -348,27 +364,22 @@ func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *ma
 			SourceSpaceID:      sourceSpaceID,
 			NoCandidate:        outcome.NoCandidate,
 		})
-	}); err != nil {
-		return stepStopped, err
-	}
+	})
 	if outcome.Moved {
-		if err := registry.emitMoveOutcomeEventsLocked(entry, rt, outcome.Move); err != nil {
-			return stepStopped, err
-		}
+		stageMoveOutcomeEvents(tx, rt, outcome.Move)
 	}
 	if err := rt.machine.CompleteBuk(tokenID, outcome.TurnOutcome()); err != nil {
 		return stepStopped, err
 	}
-	if err := registry.emitResultQueueUpdatedLocked(entry, rt); err != nil {
-		return stepStopped, err
-	}
+	stageResultQueueUpdated(tx, rt)
 	switch rt.machine.Snapshot().Phase {
 	case domain.TurnMatchEnd:
-		return stepStopped, registry.finishMatchLocked(entry, rt)
+		return stepStopped, registry.finishMatchLocked(entry, rt, tx)
 	case domain.TurnWaitThrow:
 		// Capture extra throw granted during Buk resolution.
 		registry.scheduleThrowTimerLocked(rt)
-		return stepStopped, registry.emitTurnStartedLocked(entry, rt)
+		registry.stageTurnStarted(tx, rt)
+		return stepStopped, nil
 	default:
 		return stepContinue, nil
 	}
@@ -378,7 +389,7 @@ func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *ma
 // phase. Tokens without any legal piece are discarded automatically because
 // the v1 protocol has no client-facing discard command; the outcome equals
 // the forced player choice documented in docs/03 (discard_only_that_token).
-func (registry *RoomRegistry) enterPieceSelectionLocked(entry *registeredRoom, rt *matchRuntime) (bool, error) {
+func (registry *RoomRegistry) enterPieceSelectionLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) (bool, error) {
 	snapshot := rt.machine.Snapshot()
 	tokenID := snapshot.SelectedTokenID
 	movable, err := rt.movablePieceIDs(snapshot)
@@ -389,7 +400,7 @@ func (registry *RoomRegistry) enterPieceSelectionLocked(entry *registeredRoom, r
 		if rt.cpuControlled {
 			return true, nil
 		}
-		return true, registry.emitMoveRequiredLocked(entry, rt, protocol.MoveRequiredPayload{
+		return true, stageMoveRequired(tx, rt, protocol.MoveRequiredPayload{
 			RequiredInput: domain.InputSelectPiece,
 			TokenIDs:      []domain.ResultTokenID{tokenID},
 			PieceIDs:      movable,
@@ -398,12 +409,14 @@ func (registry *RoomRegistry) enterPieceSelectionLocked(entry *registeredRoom, r
 	if err := rt.machine.DiscardUnusableResult(tokenID); err != nil {
 		return false, err
 	}
-	return false, registry.emitResultQueueUpdatedLocked(entry, rt)
+	stageResultQueueUpdated(tx, rt)
+	return false, nil
 }
 
 func (registry *RoomRegistry) selectPieceInternalLocked(
 	entry *registeredRoom,
 	rt *matchRuntime,
+	tx *eventTx,
 	tokenID domain.ResultTokenID,
 	pieceID domain.PieceID,
 ) error {
@@ -419,7 +432,7 @@ func (registry *RoomRegistry) selectPieceInternalLocked(
 		if err := rt.machine.PieceSelected(tokenID, false); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidTurnAction, err)
 		}
-		return registry.applySelectedMoveLocked(entry, rt, tokenID, pieceID, "")
+		return registry.applySelectedMoveLocked(entry, rt, tx, tokenID, pieceID, "")
 	}
 	plans, err := rt.game.OrdinaryMovePlans(rt.currentTeam(), pieceID, result)
 	if err != nil {
@@ -436,18 +449,19 @@ func (registry *RoomRegistry) selectPieceInternalLocked(
 			// CPU_CONTROL_STARTED already announced the substitution.
 			return nil
 		}
-		return registry.emitMoveRequiredLocked(entry, rt, protocol.MoveRequiredPayload{
+		return stageMoveRequired(tx, rt, protocol.MoveRequiredPayload{
 			RequiredInput: domain.InputSelectRoute,
 			TokenIDs:      []domain.ResultTokenID{tokenID},
 			PieceIDs:      []domain.PieceID{pieceID},
 		})
 	}
-	return registry.applySelectedMoveLocked(entry, rt, tokenID, pieceID, "")
+	return registry.applySelectedMoveLocked(entry, rt, tx, tokenID, pieceID, "")
 }
 
 func (registry *RoomRegistry) applySelectedMoveLocked(
 	entry *registeredRoom,
 	rt *matchRuntime,
+	tx *eventTx,
 	tokenID domain.ResultTokenID,
 	pieceID domain.PieceID,
 	route domain.Route,
@@ -466,36 +480,34 @@ func (registry *RoomRegistry) applySelectedMoveLocked(
 	if err != nil {
 		return err
 	}
-	return registry.completeMoveLocked(entry, rt, tokenID, outcome)
+	return registry.completeMoveLocked(entry, rt, tx, tokenID, outcome)
 }
 
 func (registry *RoomRegistry) completeMoveLocked(
 	entry *registeredRoom,
 	rt *matchRuntime,
+	tx *eventTx,
 	tokenID domain.ResultTokenID,
 	outcome match.MoveOutcome,
 ) error {
 	if err := rt.machine.MoveApplied(tokenID); err != nil {
 		return err
 	}
-	if err := registry.emitMoveOutcomeEventsLocked(entry, rt, outcome); err != nil {
-		return err
-	}
+	stageMoveOutcomeEvents(tx, rt, outcome)
 	if err := rt.machine.CompleteMove(tokenID, outcome.TurnOutcome()); err != nil {
 		return err
 	}
-	if err := registry.emitResultQueueUpdatedLocked(entry, rt); err != nil {
-		return err
-	}
+	stageResultQueueUpdated(tx, rt)
 	switch rt.machine.Snapshot().Phase {
 	case domain.TurnMatchEnd:
-		return registry.finishMatchLocked(entry, rt)
+		return registry.finishMatchLocked(entry, rt, tx)
 	case domain.TurnWaitThrow:
 		// Capture extra throw resets the throw window (docs/03).
 		registry.scheduleThrowTimerLocked(rt)
-		return registry.emitTurnStartedLocked(entry, rt)
+		registry.stageTurnStarted(tx, rt)
+		return nil
 	default:
-		return registry.advanceTurnLocked(entry, rt)
+		return registry.advanceTurnLocked(entry, rt, tx)
 	}
 }
 
@@ -505,18 +517,18 @@ func (registry *RoomRegistry) completeMoveLocked(
 // runCpuTurnLocked completes the substituted turn synchronously: the CPU
 // throws, selects results, moves pieces, and resolves Buk until the turn
 // ends or the match finishes (docs/03: 해당 턴 전체를 CPU가 이어서 완료한다).
-func (registry *RoomRegistry) runCpuTurnLocked(entry *registeredRoom, rt *matchRuntime) {
+func (registry *RoomRegistry) runCpuTurnLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) {
 	for {
 		if entry.runtime != rt || rt.machine == nil {
 			return
 		}
 		switch rt.machine.Snapshot().Phase {
 		case domain.TurnWaitThrow:
-			if err := registry.performThrowLocked(entry, rt); err != nil {
+			if err := registry.performThrowLocked(tx, rt); err != nil {
 				return
 			}
 		case domain.TurnResolveQueue:
-			if err := registry.advanceTurnLocked(entry, rt); err != nil {
+			if err := registry.advanceTurnLocked(entry, rt, tx); err != nil {
 				return
 			}
 		case domain.TurnWaitResultSelection, domain.TurnWaitPieceSelection, domain.TurnWaitRouteSelection:
@@ -524,7 +536,7 @@ func (registry *RoomRegistry) runCpuTurnLocked(entry *registeredRoom, rt *matchR
 			if err != nil {
 				return
 			}
-			if err := registry.applyCPUDecisionLocked(entry, rt, decision); err != nil {
+			if err := registry.applyCPUDecisionLocked(entry, rt, tx, decision); err != nil {
 				return
 			}
 		default:
@@ -540,21 +552,23 @@ func (registry *RoomRegistry) runCpuTurnLocked(entry *registeredRoom, rt *matchR
 	}
 }
 
-func (registry *RoomRegistry) applyCPUDecisionLocked(entry *registeredRoom, rt *matchRuntime, decision cpu.Decision) error {
+func (registry *RoomRegistry) applyCPUDecisionLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx, decision cpu.Decision) error {
 	switch rt.machine.Snapshot().Phase {
 	case domain.TurnWaitResultSelection:
 		if err := rt.machine.SelectResult(decision.TokenID); err != nil {
 			return err
 		}
-		return registry.emitResultQueueUpdatedLocked(entry, rt)
+		stageResultQueueUpdated(tx, rt)
+		return nil
 	case domain.TurnWaitPieceSelection:
 		if decision.Action == cpu.ActionDiscardResult {
 			if err := rt.machine.DiscardUnusableResult(decision.TokenID); err != nil {
 				return err
 			}
-			return registry.emitResultQueueUpdatedLocked(entry, rt)
+			stageResultQueueUpdated(tx, rt)
+			return nil
 		}
-		return registry.selectPieceInternalLocked(entry, rt, decision.TokenID, decision.PieceID)
+		return registry.selectPieceInternalLocked(entry, rt, tx, decision.TokenID, decision.PieceID)
 	case domain.TurnWaitRouteSelection:
 		pieceID := rt.pendingMovePiece
 		if decision.Route.Validate() != nil {
@@ -563,7 +577,7 @@ func (registry *RoomRegistry) applyCPUDecisionLocked(entry *registeredRoom, rt *
 		if err := rt.machine.RouteSelected(decision.TokenID); err != nil {
 			return err
 		}
-		return registry.applySelectedMoveLocked(entry, rt, decision.TokenID, pieceID, decision.Route)
+		return registry.applySelectedMoveLocked(entry, rt, tx, decision.TokenID, pieceID, decision.Route)
 	default:
 		return fmt.Errorf("%w: CPU decision in phase %q", ErrInvalidTurnAction, rt.machine.Snapshot().Phase)
 	}

@@ -4,8 +4,6 @@ package application
 
 import (
 	"buk-yutnori/internal/auth"
-	"buk-yutnori/internal/domain"
-	"buk-yutnori/internal/protocol"
 )
 
 const roomEventBuffer = 16
@@ -92,43 +90,6 @@ func (entry *registeredRoom) hasMember(user auth.UserID) bool {
 	}
 	_, player_ := entry.lobby.Player(player)
 	return player_
-}
-
-// emitLocked runs strictly AFTER the caller commits authoritative state, so a
-// returned error must never be read as transactional rollback. Today it cannot
-// fail (sequence exhaustion is unreachable and builder inputs are
-// pre-validated); any future change that makes it fallible must introduce
-// explicit compensation instead of propagating the error as command failure.
-// emitLocked consumes one room sequence, publishes the built message to every
-// member subscriber, and refreshes caches — all inside the caller's critical
-// section so ordering matches sequence order exactly (ADR-0015).
-func (registry *RoomRegistry) emitLocked(roomID domain.RoomID, build func(sequence uint64) (any, error)) error {
-	sequence, err := registry.sequences.CommitNext(roomID)
-	if err != nil {
-		return err
-	}
-	message, err := build(sequence)
-	if err != nil {
-		return err
-	}
-
-	entry := registry.rooms[roomID]
-	switch event := message.(type) {
-	case protocol.GameStartingEvent:
-		entry.activeGameStarting = message
-	case protocol.RoomUpdatedEvent:
-		entry.lastRoomUpdated = message
-		if event.Payload.Status == protocol.RoomStatusLobby || event.Payload.Status == protocol.RoomStatusInMatch {
-			entry.activeGameStarting = nil
-		}
-	}
-
-	for subscription, user := range registry.eventSubscribers {
-		if entry.hasMember(user) {
-			registry.deliverLocked(subscription, RoomEvent{Message: message})
-		}
-	}
-	return nil
 }
 
 // deliverLocked performs the non-blocking send and drops slow subscribers.

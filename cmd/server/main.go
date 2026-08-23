@@ -19,6 +19,7 @@ import (
 	"buk-yutnori/internal/domain/board"
 	"buk-yutnori/internal/httpapi"
 	"buk-yutnori/internal/server"
+	"buk-yutnori/internal/storage"
 	"buk-yutnori/internal/wsapi"
 )
 
@@ -26,6 +27,7 @@ type config struct {
 	googleClientID string
 	listenAddr     string
 	webRoot        string
+	dbPath         string
 }
 
 func main() {
@@ -61,6 +63,18 @@ func run() error {
 		return fmt.Errorf("load canonical board graph: %w", err)
 	}
 	if err := roomsRegistry.AttachBoardGraph(boardGraph); err != nil {
+		return err
+	}
+	eventStore, err := storage.OpenSQLite(config.dbPath)
+	if err != nil {
+		return fmt.Errorf("open canonical event store: %w", err)
+	}
+	defer func() {
+		if closeErr := eventStore.Close(); closeErr != nil {
+			slog.Error("event store shutdown failed", "error", closeErr)
+		}
+	}()
+	if err := roomsRegistry.AttachEventStore(eventStore); err != nil {
 		return err
 	}
 	roomsHandler, err := httpapi.NewRoomsHandler(authService, roomsRegistry)
@@ -142,5 +156,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if webRoot == "" {
 		webRoot = "build/client/web"
 	}
-	return config{googleClientID: clientID, listenAddr: listenAddr, webRoot: webRoot}, nil
+	dbPath := strings.TrimSpace(getenv("BUK_DB_PATH"))
+	if dbPath == "" {
+		dbPath = "buk.db"
+	}
+	return config{googleClientID: clientID, listenAddr: listenAddr, webRoot: webRoot, dbPath: dbPath}, nil
 }

@@ -15,11 +15,16 @@ import (
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/match"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/storage"
 )
 
 // ErrClientSequenceAhead rejects a RECONNECT whose last_sequence is beyond
 // the server boundary; clients must resynchronize from zero (ADR-0009).
 var ErrClientSequenceAhead = errors.New("client sequence is ahead of the room boundary")
+
+// ErrStoredEventsNotContiguous reports a corrupted canonical store whose rows
+// no longer form an unbroken sequence; such rows are never served as replay.
+var ErrStoredEventsNotContiguous = errors.New("stored room events are not contiguous")
 
 const (
 	snapshotStatusActive = "active"
@@ -369,7 +374,7 @@ func cloneSpace(value *domain.SpaceID) *domain.SpaceID {
 // ReconnectSnapshot builds the authoritative game snapshot for one member's
 // RECONNECT command. It never consumes a room sequence (ADR-0009) and fails
 // closed with typed errors the executor maps onto protocol rejections.
-func (registry *RoomRegistry) ReconnectSnapshot(user auth.UserID, roomID domain.RoomID, matchID domain.MatchID, lastSequence uint64) (json.RawMessage, error) {
+func (registry *RoomRegistry) ReconnectBundle(user auth.UserID, roomID domain.RoomID, matchID domain.MatchID, lastSequence uint64) (*ReconnectBundle, error) {
 	if err := user.Validate(); err != nil {
 		return nil, err
 	}
@@ -380,6 +385,9 @@ func (registry *RoomRegistry) ReconnectSnapshot(user auth.UserID, roomID domain.
 	entry, exists := registry.rooms[roomID]
 	if !exists {
 		return nil, ErrRoomNotFound
+	}
+	if entry.poisoned {
+		return nil, ErrEventStoreUnavailable
 	}
 	if !entry.hasMember(user) {
 		return nil, ErrNotMember
@@ -401,5 +409,50 @@ func (registry *RoomRegistry) ReconnectSnapshot(user auth.UserID, roomID domain.
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(snapshot)
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("encode game snapshot: %w", err)
+	}
+
+	// ADR-0009 bundles may append the contiguous stored events that follow
+	// the snapshot boundary. Snapshots are always assembled at the current
+	// boundary, so the replay tail is empty today; the read path keeps the
+	// bundle contract honest and serves checkpoint-based historical
+	// snapshots without protocol change once they exist.
+	var events []json.RawMessage
+	if registry.store != nil {
+		ctx, cancel := eventStoreContext()
+		defer cancel()
+		rows, err := registry.store.ReadRoomEventsAfter(ctx, roomID, boundary)
+		if err != nil {
+			return nil, fmt.Errorf("%w: read replay events: %v", ErrEventStoreUnavailable, err)
+		}
+		events, err = replayPayloads(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &ReconnectBundle{Snapshot: encoded, Events: events}, nil
+}
+
+// ReconnectBundle carries one atomic game snapshot plus the contiguous
+// stored events following its sequence boundary (ADR-0009).
+type ReconnectBundle struct {
+	Snapshot json.RawMessage
+	Events   []json.RawMessage
+}
+
+// replayPayloads converts stored rows into verbatim wire events and verifies
+// their contiguity so a corrupted store can never produce an invalid bundle.
+func replayPayloads(rows []storage.EventRow) ([]json.RawMessage, error) {
+	events := make([]json.RawMessage, 0, len(rows))
+	expected := uint64(0)
+	for index, row := range rows {
+		if expected != 0 && row.Sequence != expected {
+			return nil, fmt.Errorf("%w: stored event %d is not contiguous", ErrStoredEventsNotContiguous, index)
+		}
+		expected = row.Sequence + 1
+		events = append(events, json.RawMessage(row.PayloadJSON))
+	}
+	return events, nil
 }

@@ -19,6 +19,7 @@ import (
 	"buk-yutnori/internal/domain/board"
 	"buk-yutnori/internal/domain/room"
 	"buk-yutnori/internal/protocol"
+	"buk-yutnori/internal/storage"
 )
 
 var (
@@ -46,6 +47,11 @@ var (
 	ErrNoActiveStartConfirmation = errors.New("no active start confirmation")
 	// ErrMatchScopeMismatch rejects confirmations bound to another match scope.
 	ErrMatchScopeMismatch = errors.New("start confirmation match scope does not match")
+	// ErrEventStoreUnavailable reports a durable event-store failure or a
+	// room fenced off by an earlier one. State transitions are refused until
+	// operations intervene because the canonical store would otherwise
+	// diverge from committed broadcasts (ADR-0017).
+	ErrEventStoreUnavailable = errors.New("event store is unavailable")
 )
 
 const (
@@ -96,6 +102,7 @@ type RoomRegistry struct {
 	randomSeed       func() (uint64, uint64, error)
 	matchClock       matchClock
 	boardGraph       *board.Graph
+	store            storage.EventStore
 	sequences        *RoomEventSequences
 	rooms            map[domain.RoomID]*registeredRoom
 	ordering         []domain.RoomID
@@ -113,6 +120,7 @@ type registeredRoom struct {
 	started            bool
 	roomStatus         string
 	runtime            *matchRuntime
+	poisoned           bool
 	expiryTimer        *time.Timer
 	lastRoomUpdated    any
 	activeGameStarting any
@@ -144,6 +152,21 @@ func newRandomIDGenerator(source io.Reader) func() (string, error) {
 		}
 		return hex.EncodeToString(buffer), nil
 	}
+}
+
+// AttachEventStore installs the durable canonical event store. Once a store
+// is attached, every committed room event is persisted before its in-memory
+// sequence and broadcast are allowed to commit (ADR-0014, ADR-0017). A nil
+// argument is rejected; registries without an attached store keep the
+// memory-only behavior used by tests.
+func (registry *RoomRegistry) AttachEventStore(store storage.EventStore) error {
+	if store == nil {
+		return fmt.Errorf("%w: event store is required", ErrInvalidConfiguration)
+	}
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	registry.store = store
+	return nil
 }
 
 // Create validates the canonical contracts, admits the creator as the first
@@ -198,9 +221,11 @@ func (registry *RoomRegistry) Create(input CreateRoomInput) (RoomSummary, error)
 	}
 	registry.rooms[roomID] = entry
 	registry.ordering = append(registry.ordering, roomID)
-	if err := registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(roomID, sequence, protocol.RoomStatusLobby)
-	}); err != nil {
+	})
+	if err := tx.flush(); err != nil {
 		return RoomSummary{}, err
 	}
 	return entry.summary, nil
@@ -214,6 +239,11 @@ func (registry *RoomRegistry) List() []RoomSummary {
 	summaries := make([]RoomSummary, 0, len(registry.ordering))
 	for _, roomID := range registry.ordering {
 		entry := registry.rooms[roomID]
+		if entry.poisoned {
+			// A fenced room rejects every mutation (ADR-0017), so it must
+			// not advertise itself to joining users either.
+			continue
+		}
 		entry.summary.PlayerCount = len(entry.lobby.Players())
 		summaries = append(summaries, entry.summary)
 	}
@@ -275,9 +305,11 @@ func (registry *RoomRegistry) Join(input JoinRoomInput) (RoomSummary, error) {
 		entry.spectators[input.User] = struct{}{}
 	}
 	entry.summary.PlayerCount = playerCount
-	if err := registry.emitLocked(input.RoomID, func(sequence uint64) (any, error) {
+	tx := registry.newEventTx(input.RoomID)
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(input.RoomID, sequence, entry.roomStatus)
-	}); err != nil {
+	})
+	if err := tx.flush(); err != nil {
 		return RoomSummary{}, err
 	}
 	return entry.summary, nil
@@ -415,9 +447,11 @@ func (registry *RoomRegistry) ChangeTeam(user auth.UserID, roomID domain.RoomID,
 	if err := entry.lobby.ChangeTeam(playerID, team); err != nil {
 		return err
 	}
-	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
 	})
+	return tx.flush()
 }
 
 // SetReady changes only the authenticated player's ready state through the
@@ -441,9 +475,11 @@ func (registry *RoomRegistry) SetReady(user auth.UserID, roomID domain.RoomID, r
 	if err := entry.lobby.SetReady(playerID, ready); err != nil {
 		return err
 	}
-	return registry.emitLocked(roomID, func(sequence uint64) (any, error) {
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
 	})
+	return tx.flush()
 }
 
 func playerIDFromUser(user auth.UserID) (domain.PlayerID, error) {

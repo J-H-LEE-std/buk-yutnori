@@ -1,6 +1,7 @@
-// Match event builders and hub emission helpers for the canonical match
-// runtime. Every helper consumes exactly one room sequence through the shared
-// ADR-0015 hub while the registry mutex is held.
+// Match event staging helpers for the canonical match runtime. Every helper
+// eagerly captures payload values from the live runtime and stages the event
+// on the caller's emission transaction; sequence numbers and delivery happen
+// at flush time (issue #84).
 
 package application
 
@@ -15,32 +16,35 @@ import (
 	"buk-yutnori/internal/protocol"
 )
 
-func (registry *RoomRegistry) emitTurnStartedLocked(entry *registeredRoom, rt *matchRuntime) error {
+func (registry *RoomRegistry) stageTurnStarted(tx *eventTx, rt *matchRuntime) {
 	snapshot := rt.machine.Snapshot()
-	return registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+	remaining := rt.remainingMS(registry.matchClock.Now())
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewTurnStartedEvent(rt.roomID, rt.matchID, sequence, protocol.TurnStartedPayload{
 			PlayerID:      snapshot.PlayerID,
 			Phase:         snapshot.Phase,
 			RequiredInput: snapshot.RequiredInput,
-			RemainingMS:   rt.remainingMS(registry.matchClock.Now()),
+			RemainingMS:   remaining,
 		})
 	})
 }
 
-func (registry *RoomRegistry) emitYutResultLocked(entry *registeredRoom, rt *matchRuntime, token turn.ResultToken) error {
-	return registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+func stageYutResult(tx *eventTx, rt *matchRuntime, token turn.ResultToken) {
+	playerID := token.GeneratedByPlayerID
+	view := protocol.ResultTokenView{
+		TokenID: token.ID,
+		Result:  token.Result,
+		Origin:  token.Origin,
+	}
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewYutResultEvent(rt.roomID, rt.matchID, sequence, protocol.YutResultPayload{
-			PlayerID: token.GeneratedByPlayerID,
-			Token: protocol.ResultTokenView{
-				TokenID: token.ID,
-				Result:  token.Result,
-				Origin:  token.Origin,
-			},
+			PlayerID: playerID,
+			Token:    view,
 		})
 	})
 }
 
-func (registry *RoomRegistry) emitResultQueueUpdatedLocked(entry *registeredRoom, rt *matchRuntime) error {
+func stageResultQueueUpdated(tx *eventTx, rt *matchRuntime) {
 	tokens := rt.machine.Snapshot().ResultQueue
 	views := make([]protocol.ResultTokenView, 0, len(tokens))
 	for _, token := range tokens {
@@ -50,55 +54,59 @@ func (registry *RoomRegistry) emitResultQueueUpdatedLocked(entry *registeredRoom
 			Origin:  token.Origin,
 		})
 	}
-	return registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewResultQueueUpdatedEvent(rt.roomID, rt.matchID, sequence, views)
 	})
 }
 
-func (registry *RoomRegistry) emitMoveRequiredLocked(entry *registeredRoom, rt *matchRuntime, payload protocol.MoveRequiredPayload) error {
-	return registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+func stageMoveRequired(tx *eventTx, rt *matchRuntime, payload protocol.MoveRequiredPayload) error {
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewMoveRequiredEvent(rt.roomID, rt.matchID, sequence, payload)
 	})
+	return nil
 }
 
-// emitMoveOutcomeEventsLocked broadcasts the observable effects of one
-// committed movement: PIECE_MOVED always, then PIECES_STACKED and
-// PIECES_CAPTURED when the resolution produced them.
-func (registry *RoomRegistry) emitMoveOutcomeEventsLocked(entry *registeredRoom, rt *matchRuntime, outcome match.MoveOutcome) error {
-	if err := registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+// stageMoveOutcomeEvents stages the observable effects of one committed
+// movement: PIECE_MOVED always, then PIECES_STACKED and PIECES_CAPTURED when
+// the resolution produced them.
+func stageMoveOutcomeEvents(tx *eventTx, rt *matchRuntime, outcome match.MoveOutcome) {
+	pieceIDs := append([]domain.PieceID(nil), outcome.MovedPieceIDs...)
+	fromSpace := optionalSpaceID(outcome.FromSpaceID)
+	toSpace := optionalSpaceID(outcome.ToSpaceID)
+	movementKind := outcome.MovementKind
+	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewPieceMovedEvent(rt.roomID, rt.matchID, sequence, protocol.PieceMovedPayload{
-			PieceIDs:     append([]domain.PieceID(nil), outcome.MovedPieceIDs...),
-			FromSpaceID:  optionalSpaceID(outcome.FromSpaceID),
-			ToSpaceID:    optionalSpaceID(outcome.ToSpaceID),
-			MovementKind: outcome.MovementKind,
+			PieceIDs:     pieceIDs,
+			FromSpaceID:  fromSpace,
+			ToSpaceID:    toSpace,
+			MovementKind: movementKind,
 		})
-	}); err != nil {
-		return err
-	}
+	})
+
 	if len(outcome.StackedPieceIDs) >= 2 && outcome.ToSpaceID != "" {
 		stackID := stackIDFor(rt.currentTeam(), outcome.ToSpaceID)
-		if err := registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+		stacked := append([]domain.PieceID(nil), outcome.StackedPieceIDs...)
+		stackSpace := outcome.ToSpaceID
+		previousSpace := optionalSpaceID(outcome.ActualPreviousSpace)
+		tx.emit(func(sequence uint64) (any, error) {
 			return protocol.NewPiecesStackedEvent(rt.roomID, rt.matchID, sequence, protocol.PiecesStackedPayload{
 				StackID:             stackID,
-				PieceIDs:            append([]domain.PieceID(nil), outcome.StackedPieceIDs...),
-				SpaceID:             outcome.ToSpaceID,
-				ActualPreviousSpace: optionalSpaceID(outcome.ActualPreviousSpace),
+				PieceIDs:            stacked,
+				SpaceID:             stackSpace,
+				ActualPreviousSpace: previousSpace,
 			})
-		}); err != nil {
-			return err
-		}
+		})
 	}
 	if len(outcome.CapturedPieceIDs) > 0 && outcome.ToSpaceID != "" {
-		if err := registry.emitLocked(rt.roomID, func(sequence uint64) (any, error) {
+		captured := append([]domain.PieceID(nil), outcome.CapturedPieceIDs...)
+		captureSpace := outcome.ToSpaceID
+		tx.emit(func(sequence uint64) (any, error) {
 			return protocol.NewPiecesCapturedEvent(rt.roomID, rt.matchID, sequence, protocol.PiecesCapturedPayload{
-				CapturedPieceIDs: append([]domain.PieceID(nil), outcome.CapturedPieceIDs...),
-				SpaceID:          outcome.ToSpaceID,
+				CapturedPieceIDs: captured,
+				SpaceID:          captureSpace,
 			})
-		}); err != nil {
-			return err
-		}
+		})
 	}
-	return nil
 }
 
 func stackIDFor(team domain.TeamID, space domain.SpaceID) string {

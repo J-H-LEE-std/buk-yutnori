@@ -12,6 +12,8 @@ import (
 )
 
 const (
+	eventStoreUnavailableCode = "EVENT_STORE_UNAVAILABLE"
+
 	matchNotActiveCode    = "MATCH_NOT_ACTIVE"
 	notMemberCode         = "ROOM_NOT_MEMBER"
 	notTurnPlayerCode     = "NOT_YOUR_TURN"
@@ -92,11 +94,11 @@ func (executor *MatchCommandExecutor) Execute(ctx context.Context, user auth.Use
 		if !ok {
 			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid RECONNECT payload", ErrInvalidCommand)
 		}
-		snapshot, err := executor.lobbies.ReconnectSnapshot(user.ID, command.RoomID, *command.MatchID, payload.LastSequence)
+		bundle, err := executor.lobbies.ReconnectBundle(user.ID, command.RoomID, *command.MatchID, payload.LastSequence)
 		if err != nil {
 			return executor.rejectReconnectError(err), nil
 		}
-		synchronization, err := protocol.NewReconnectSynchronization(command, snapshot, nil)
+		synchronization, err := protocol.NewReconnectSynchronization(command, bundle.Snapshot, bundle.Events)
 		if err != nil {
 			return protocol.CommandOutcome{}, fmt.Errorf("build reconnect synchronization: %w", err)
 		}
@@ -124,6 +126,8 @@ func (executor *MatchCommandExecutor) rejectMatchError(err error) protocol.Comma
 		return rejectedLobbyOutcome(matchScopeMismatchCode, "경기 스코프가 일치하지 않습니다.", false)
 	case errors.Is(err, ErrMatchNotActive):
 		return rejectedLobbyOutcome(matchNotActiveCode, "진행 중인 경기가 없습니다.", true)
+	case errors.Is(err, ErrEventStoreUnavailable):
+		return rejectedLobbyOutcome(eventStoreUnavailableCode, "일시적 저장 장애입니다. 잠시 후 다시 시도하세요.", true)
 	case errors.Is(err, auth.ErrUnauthenticated):
 		return rejectedLobbyOutcome("INVALID_REQUEST", "요청을 처리할 수 없습니다.", false)
 	default:
@@ -140,9 +144,12 @@ func (executor *MatchCommandExecutor) rejectReconnectError(err error) protocol.C
 		return rejectedLobbyOutcome("ROOM_NOT_FOUND", "lobby room not found", true)
 	case errors.Is(err, ErrNotMember):
 		return rejectedLobbyOutcome(notMemberCode, "방 멤버만 이 명령을 보낼 수 있습니다.", false)
+	case errors.Is(err, ErrEventStoreUnavailable):
+		return rejectedLobbyOutcome(eventStoreUnavailableCode, "일시적 저장 장애입니다. 잠시 후 다시 시도하세요.", true)
 	case errors.Is(err, ErrMatchScopeMismatch),
 		errors.Is(err, ErrMatchNotActive),
-		errors.Is(err, ErrClientSequenceAhead):
+		errors.Is(err, ErrClientSequenceAhead),
+		errors.Is(err, ErrStoredEventsNotContiguous):
 		return rejectedLobbyOutcome(protocol.ErrorCodeResyncRequired, "재동기화가 필요합니다.", true)
 	case errors.Is(err, auth.ErrUnauthenticated):
 		return rejectedLobbyOutcome("INVALID_REQUEST", "요청을 처리할 수 없습니다.", false)
