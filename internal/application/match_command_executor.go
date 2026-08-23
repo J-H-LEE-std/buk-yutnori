@@ -148,7 +148,8 @@ func (executor *MatchCommandExecutor) rejectReconnectError(err error) protocol.C
 		return rejectedLobbyOutcome(eventStoreUnavailableCode, "일시적 저장 장애입니다. 잠시 후 다시 시도하세요.", true)
 	case errors.Is(err, ErrMatchScopeMismatch),
 		errors.Is(err, ErrMatchNotActive),
-		errors.Is(err, ErrClientSequenceAhead):
+		errors.Is(err, ErrClientSequenceAhead),
+		errors.Is(err, ErrStoredEventsNotContiguous):
 		return rejectedLobbyOutcome(protocol.ErrorCodeResyncRequired, "재동기화가 필요합니다.", true)
 	case errors.Is(err, auth.ErrUnauthenticated):
 		return rejectedLobbyOutcome("INVALID_REQUEST", "요청을 처리할 수 없습니다.", false)

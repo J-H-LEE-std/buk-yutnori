@@ -239,6 +239,11 @@ func (registry *RoomRegistry) List() []RoomSummary {
 	summaries := make([]RoomSummary, 0, len(registry.ordering))
 	for _, roomID := range registry.ordering {
 		entry := registry.rooms[roomID]
+		if entry.poisoned {
+			// A fenced room rejects every mutation (ADR-0017), so it must
+			// not advertise itself to joining users either.
+			continue
+		}
 		entry.summary.PlayerCount = len(entry.lobby.Players())
 		summaries = append(summaries, entry.summary)
 	}

@@ -137,6 +137,11 @@ func TestStorageFailureFencesRoomWithoutCommitOrBroadcast(t *testing.T) {
 	if err := fixture.registry.SetReady(fixture.users[0], fixture.roomID, true); !errors.Is(err, ErrEventStoreUnavailable) {
 		t.Fatalf("post-fence SetReady = %v, want ErrEventStoreUnavailable", err)
 	}
+	for _, summary := range fixture.registry.List() {
+		if summary.RoomID == fixture.roomID {
+			t.Fatal("fenced room must not advertise itself in the open-room list")
+		}
+	}
 	if _, bundleErr := fixture.registry.ReconnectBundle(
 		auth.UserID(current), fixture.roomID, fixture.matchID, 0,
 	); !errors.Is(bundleErr, ErrEventStoreUnavailable) {

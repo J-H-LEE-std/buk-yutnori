@@ -22,6 +22,10 @@ import (
 // the server boundary; clients must resynchronize from zero (ADR-0009).
 var ErrClientSequenceAhead = errors.New("client sequence is ahead of the room boundary")
 
+// ErrStoredEventsNotContiguous reports a corrupted canonical store whose rows
+// no longer form an unbroken sequence; such rows are never served as replay.
+var ErrStoredEventsNotContiguous = errors.New("stored room events are not contiguous")
+
 const (
 	snapshotStatusActive = "active"
 
@@ -445,7 +449,7 @@ func replayPayloads(rows []storage.EventRow) ([]json.RawMessage, error) {
 	expected := uint64(0)
 	for index, row := range rows {
 		if expected != 0 && row.Sequence != expected {
-			return nil, fmt.Errorf("%w: stored event %d is not contiguous", ErrClientSequenceAhead, index)
+			return nil, fmt.Errorf("%w: stored event %d is not contiguous", ErrStoredEventsNotContiguous, index)
 		}
 		expected = row.Sequence + 1
 		events = append(events, json.RawMessage(row.PayloadJSON))

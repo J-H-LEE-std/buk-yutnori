@@ -82,7 +82,7 @@ func (tx *eventTx) flush() error {
 		rows = append(rows, storage.EventRow{
 			RoomID:      domain.RoomID(tx.roomID),
 			Sequence:    sequence,
-			EventType:   serverEventType(encoded),
+			EventType:   serverEventType(message),
 			PayloadJSON: encoded,
 		})
 	}
@@ -129,12 +129,39 @@ func (tx *eventTx) flush() error {
 	return nil
 }
 
-func serverEventType(encoded []byte) string {
-	var probe struct {
-		Type string `json:"type"`
-	}
-	if json.Unmarshal(encoded, &probe) != nil {
+// serverEventType returns the wire type constant for one staged event via an
+// exhaustive switch — no JSON re-parsing. An unknown type maps to the empty
+// string so a forgotten case surfaces as visibly malformed store data instead
+// of silently mislabeled rows.
+func serverEventType(message any) string {
+	switch message.(type) {
+	case protocol.RoomUpdatedEvent:
+		return protocol.EventRoomUpdated
+	case protocol.GameStartingEvent:
+		return protocol.EventGameStarting
+	case protocol.GameStartedEvent:
+		return protocol.EventGameStarted
+	case protocol.TurnStartedEvent:
+		return protocol.EventTurnStarted
+	case protocol.YutResultEvent:
+		return protocol.EventYutResult
+	case protocol.ResultQueueUpdatedEvent:
+		return protocol.EventResultQueueUpdated
+	case protocol.MoveRequiredEvent:
+		return protocol.EventMoveRequired
+	case protocol.PieceMovedEvent:
+		return protocol.EventPieceMoved
+	case protocol.PiecesStackedEvent:
+		return protocol.EventPiecesStacked
+	case protocol.PiecesCapturedEvent:
+		return protocol.EventPiecesCaptured
+	case protocol.BukResolvedEvent:
+		return protocol.EventBukResolved
+	case protocol.CPUControlStartedEvent:
+		return protocol.EventCPUControlStarted
+	case protocol.GameEndedEvent:
+		return protocol.EventGameEnded
+	default:
 		return ""
 	}
-	return probe.Type
 }
