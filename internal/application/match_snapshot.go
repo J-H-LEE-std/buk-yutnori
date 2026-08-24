@@ -231,7 +231,9 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 	turnPlayer := currentPlayer
 	timer := buildTimerView(rt, now)
 	phase := string(machine.Phase)
-	pauseView := snapshotPauseJSON{}
+	// Used tracks per-match consumption even after resume so reconnecting
+	// clients see that the one-time host pause is spent (docs/03 경기당 1회).
+	pauseView := snapshotPauseJSON{Used: rt.pauseUsed}
 	if rt.paused {
 		phase = string(domain.TurnPaused)
 		timer = snapshotTimerJSON{
@@ -240,11 +242,8 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 			DeadlineAt:  pauseEndsAtPointer(rt),
 		}
 		endsAt := rt.pauseEndsAt.UTC().Format(time.RFC3339)
-		pauseView = snapshotPauseJSON{
-			Used:   true,
-			Paused: true,
-			EndsAt: &endsAt,
-		}
+		pauseView.Paused = true
+		pauseView.EndsAt = &endsAt
 	}
 
 	return gameSnapshotJSON{

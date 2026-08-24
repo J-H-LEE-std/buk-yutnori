@@ -157,3 +157,42 @@ func TestResumeWithoutPauseRejected(t *testing.T) {
 		t.Fatalf("ResumeGame without pause = %v, want ErrMatchNotPaused", err)
 	}
 }
+
+// After the one-time pause is consumed and resumed, reconnecting clients must
+// still see pause.used=true so the spent budget stays visible (Claude review
+// blocker, issue #86).
+func TestSnapshotShowsSpentPauseAfterResume(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMatchFixture(t, nil)
+	defer fixture.recorder.close()
+	host := fixture.users[0]
+
+	if err := fixture.registry.PauseGame(auth.UserID(host), fixture.roomID, fixture.matchID, 5); err != nil {
+		t.Fatalf("PauseGame error = %v", err)
+	}
+	if err := fixture.registry.ResumeGame(auth.UserID(host), fixture.roomID, fixture.matchID); err != nil {
+		t.Fatalf("ResumeGame error = %v", err)
+	}
+
+	boundary := boundaryOf(t, fixture.registry, fixture.roomID)
+	entry := fixture.registry.rooms[fixture.roomID]
+	snapshot, snapErr := fixture.registry.assembleGameSnapshotLocked(entry, boundary)
+	if snapErr != nil {
+		t.Fatalf("assemble snapshot error = %v", snapErr)
+	}
+	if !snapshot.Pause.Used {
+		t.Fatalf("snapshot.pause.used = false after the one-time pause was consumed: %+v", snapshot.Pause)
+	}
+	if snapshot.Pause.Paused || snapshot.Pause.EndsAt != nil {
+		t.Fatalf("snapshot.pause still reports an active pause: %+v", snapshot.Pause)
+	}
+	if snapshot.CurrentTurn.Phase == "paused" {
+		t.Fatal("resumed match still reports phase=paused")
+	}
+	// The server-side budget stays spent regardless.
+	rt := fixture.runtime()
+	if !rt.pauseUsed || rt.paused {
+		t.Fatalf("runtime pause state = used=%v paused=%v", rt.pauseUsed, rt.paused)
+	}
+}

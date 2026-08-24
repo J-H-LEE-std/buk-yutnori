@@ -203,11 +203,11 @@ func (registry *RoomRegistry) SelectPiece(user auth.UserID, roomID domain.RoomID
 	if err != nil {
 		return err
 	}
-	if rt.currentPlayer() != domain.PlayerID(user) {
-		return ErrNotTurnPlayer
-	}
 	if rt.paused {
 		return ErrMatchPaused
+	}
+	if rt.currentPlayer() != domain.PlayerID(user) {
+		return ErrNotTurnPlayer
 	}
 	snapshot := rt.machine.Snapshot()
 	if snapshot.RequiredInput != domain.InputSelectPiece || snapshot.SelectedTokenID != tokenID {
@@ -229,11 +229,11 @@ func (registry *RoomRegistry) SelectRoute(user auth.UserID, roomID domain.RoomID
 	if err != nil {
 		return err
 	}
-	if rt.currentPlayer() != domain.PlayerID(user) {
-		return ErrNotTurnPlayer
-	}
 	if rt.paused {
 		return ErrMatchPaused
+	}
+	if rt.currentPlayer() != domain.PlayerID(user) {
+		return ErrNotTurnPlayer
 	}
 	snapshot := rt.machine.Snapshot()
 	if snapshot.RequiredInput != domain.InputSelectRoute ||
