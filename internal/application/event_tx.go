@@ -161,6 +161,10 @@ func serverEventType(message any) string {
 		return protocol.EventCPUControlStarted
 	case protocol.GameEndedEvent:
 		return protocol.EventGameEnded
+	case protocol.GamePausedEvent:
+		return protocol.EventGamePaused
+	case protocol.GameResumedEvent:
+		return protocol.EventGameResumed
 	default:
 		return ""
 	}

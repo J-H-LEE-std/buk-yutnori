@@ -99,7 +99,17 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   스코프가 다르면 `MATCH_SCOPE_MISMATCH`, 진행 중 경기가 없으면 retriable
   `MATCH_NOT_ACTIVE`, 이벤트 정본 저장 장애 또는 차단된 방이면 retriable
   `EVENT_STORE_UNAVAILABLE`(ADR-0017)로 거부된다. 모든 상태 변경 이벤트는
-  메모리·sequence 확정과 방송 전에 정본 저장소에 영속된다. 던지기·선택 제한 시간이 만료되면 서버가 해당 턴에
+  메모리·sequence 확정과 방송 전에 정본 저장소에 영속된다.
+- `PAUSE_GAME`은 방장만(`ROOM_HOST_REQUIRED`), 경기당 1회
+  (`PAUSE_ALREADY_USED`), 1~30분을 지정해 호출한다(docs/03 일시 정지,
+  ADR-0003). 수락되면 활성 던지기·이동 창을 취소하고 종류와 남은 밀리초를 보존한
+  채 `GAME_PAUSED(reason=host_request)`를 방송하며, 일시 정지 중 경기 명령은
+  retriable `MATCH_PAUSED`로 거부되고 RECONNECT는 계속 허용된다. 방장의 조기
+  재개와 예약 시각 만료는 같은 타이머를 보존된 남은 시간으로 되돌리고
+  `GAME_RESUMED(host_request|pause_expired)`를 방송한다. 스냅샷의
+  `pause{used,paused,ends_at}`와 `current_turn.phase=paused`,
+  `timer.phase=paused`가 이 상태를 그대로 표현한다. 방장 연결 끊김 자동 재개와
+  전원 이탈 감시는 presence 추적 후속 과제다. 던지기·선택 제한 시간이 만료되면 서버가 해당 턴에
   한해 CPU로 대체하고 `CPU_CONTROL_STARTED(reason=timeout)`를 방송한다(docs/03).
   경기 이벤트는 ROOM_UPDATED·GAME_STARTING과 같은 방 sequence 공간과 허브로
   live 방송되며, 저장·replay는 ADR-0014 구현 이후 과제다.
@@ -176,6 +186,8 @@ event source(ADR-0014)도 후속 구현이다.
 - `SELECT_RESULT`
 - `SELECT_PIECE`
 - `SELECT_ROUTE`
+- `PAUSE_GAME`
+- `RESUME_GAME`
 - `SEND_CHAT`
 - `RECONNECT`
 - `CONFIRM_GAME_START`
