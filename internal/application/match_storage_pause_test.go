@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
@@ -50,17 +51,23 @@ func (store *flakyStore) ReadRoomEventsAfter(ctx context.Context, roomID domain.
 	return read, nil
 }
 
-func newStoragePauseFixture(t *testing.T, initialFailures int) *matchFixture {
+func newStoragePauseFixture(t *testing.T) *matchFixture {
 	t.Helper()
 	fixture := newMatchFixture(t, nil)
 	t.Cleanup(fixture.recorder.close)
-	fixture.registry.setEventStoreForTest(&flakyStore{
-		failuresRemaining: initialFailures,
-		seen:              make(map[string]struct{}),
-	})
 	scripted := fixture.runtime()
 	scripted.throwResult = func(yut.Mode) (domain.YutResult, error) { return domain.YutGae, nil }
 	return fixture
+}
+
+// beginStorageOutage swaps in a store that fails the next N appends. Call it
+// at the point in the match where the outage should begin.
+func (fixture *matchFixture) beginStorageOutage(t *testing.T, failures int) {
+	t.Helper()
+	fixture.registry.setEventStoreForTest(&flakyStore{
+		failuresRemaining: failures,
+		seen:              make(map[string]struct{}),
+	})
 }
 
 // An initial durable failure must degrade into the operational pause without
@@ -68,9 +75,10 @@ func newStoragePauseFixture(t *testing.T, initialFailures int) *matchFixture {
 func TestStorageFailureAutoPausesWithoutCommitOrBroadcast(t *testing.T) {
 	t.Parallel()
 
-	fixture := newStoragePauseFixture(t, 1)
+	fixture := newStoragePauseFixture(t)
 	rt := fixture.runtime()
 	current := rt.currentPlayer()
+	fixture.beginStorageOutage(t, 1)
 
 	boundaryBefore := boundaryOf(t, fixture.registry, fixture.roomID)
 	recordedBefore := len(fixture.recorder.snapshotEvents())
@@ -123,10 +131,11 @@ func TestStorageFailureAutoPausesWithoutCommitOrBroadcast(t *testing.T) {
 func TestRecoveryDeliversDeferredBatchAndRestoresWindow(t *testing.T) {
 	t.Parallel()
 
-	fixture := newStoragePauseFixture(t, 1)
+	fixture := newStoragePauseFixture(t)
 	rt := fixture.runtime()
 	current := rt.currentPlayer()
 	boundaryBefore := boundaryOf(t, fixture.registry, fixture.roomID)
+	fixture.beginStorageOutage(t, 1)
 
 	if err := fixture.registry.ThrowYut(auth.UserID(current), fixture.roomID, fixture.matchID); !errors.Is(err, ErrEventStoreUnavailable) {
 		t.Fatalf("expected storage-failure rejection, got %v", err)
@@ -206,11 +215,12 @@ func TestRecoveryDeliversDeferredBatchAndRestoresWindow(t *testing.T) {
 func TestRetryExhaustionInvalidatesMatchAndNotifies(t *testing.T) {
 	t.Parallel()
 
-	fixture := newStoragePauseFixture(t, 99)
+	fixture := newStoragePauseFixture(t)
 	host := fixture.users[0]
 	rt := fixture.runtime()
 	current := rt.currentPlayer()
 	matchID := rt.matchID
+	fixture.beginStorageOutage(t, 99)
 
 	if err := fixture.registry.ThrowYut(auth.UserID(current), fixture.roomID, matchID); !errors.Is(err, ErrEventStoreUnavailable) {
 		t.Fatalf("initial failure = %v, want ErrEventStoreUnavailable", err)
@@ -266,7 +276,7 @@ func TestRetryExhaustionInvalidatesMatchAndNotifies(t *testing.T) {
 func TestHostPauseSurvivesStorageFailureAndSettlesAfterRecovery(t *testing.T) {
 	t.Parallel()
 
-	fixture := newStoragePauseFixture(t, 99)
+	fixture := newStoragePauseFixture(t)
 	host := fixture.users[0]
 	scripted := fixture.runtime()
 	scripted.throwResult = func(yut.Mode) (domain.YutResult, error) { return domain.YutGae, nil }
@@ -280,6 +290,10 @@ func TestHostPauseSurvivesStorageFailureAndSettlesAfterRecovery(t *testing.T) {
 	if got := fixture.runtime().timerKind; got != matchTimerKindMove {
 		t.Fatalf("armed window = %q, want move", got)
 	}
+
+	// The outage begins exactly here, mid-selection, so the host pause's
+	// own flush fails while the game history stays healthy.
+	fixture.beginStorageOutage(t, 99)
 
 	// The pause command itself hits the failing store: its GAME_PAUSED is
 	// deferred, but the host pause state must survive intact.
@@ -299,25 +313,45 @@ func TestHostPauseSurvivesStorageFailureAndSettlesAfterRecovery(t *testing.T) {
 			rt.preservedTimerKind, rt.preservedRemaining)
 	}
 
-	// Recovering the store lets the deferred marker through, then settles
-	// the surviving host pause without touching the preserved window.
+	// Recovering the store delivers the deferred marker, keeps the surviving
+	// host pause active (only ~1s of its 5 minutes elapsed), and re-arms its
+	// expiry for the remainder - without touching the preserved window.
 	fixture.registry.setEventStoreForTest(&fakeEventStore{})
 	fixture.clock.Advance(storageRetryDelays[0])
 	rt = fixture.runtime()
-	if rt.storagePaused || rt.paused {
-		t.Fatalf("post-recovery pause state = storage=%v user=%v", rt.storagePaused, rt.paused)
+	if rt.storagePaused || !rt.paused {
+		t.Fatalf("post-recovery state = storage=%v user=%v, want storage cleared and host pause intact",
+			rt.storagePaused, rt.paused)
 	}
-	resumed := fixture.recorder.ofTypes("GAME_RESUMED")
-	if len(resumed) < 1 {
-		t.Fatal("no GAME_RESUMED after recovery")
+	// Both pause reasons were deferred and delivered in order: the host's
+	// request first, then the operational storage-failure marker.
+	deferredPaused := fixture.recorder.ofTypes("GAME_PAUSED")
+	if len(deferredPaused) != 2 ||
+		deferredPaused[0].Payload.Reason != "host_request" ||
+		deferredPaused[1].Payload.Reason != "storage_failure" {
+		t.Fatalf("deferred GAME_PAUSED sequence = %+v", deferredPaused)
+	}
+	if rt.preservedTimerKind != matchTimerKindMove || rt.timerKind != "" {
+		t.Fatalf("preserved window disturbed: kind=%q live=%q", rt.preservedTimerKind, rt.timerKind)
 	}
 
-	// The preserved movement window comes back with the expired host pause.
-	if rt.timerKind != matchTimerKindMove || rt.preservedTimerKind != "" {
-		t.Fatalf("restored window = kind %q preserved %q", rt.timerKind, rt.preservedTimerKind)
+	// The remainder elapses: the surviving pause auto-resumes through the
+	// normal persisted path and restores the preserved movement window.
+	fixture.clock.Advance(5 * time.Minute)
+	// Two resumes tell the full story in order: the operational pause
+	// recovered, then the surviving host pause expired.
+	resumed := fixture.recorder.ofTypes("GAME_RESUMED")
+	if len(resumed) != 2 ||
+		resumed[0].Payload.Reason != "storage_recovered" ||
+		resumed[1].Payload.Reason != "pause_expired" {
+		t.Fatalf("GAME_RESUMED sequence = %+v", resumed)
 	}
-	if rt.activeTimer == nil {
-		t.Fatal("restored window has no live timer behind it")
+	rt = fixture.runtime()
+	if rt.paused || rt.storagePaused {
+		t.Fatalf("match did not auto-resume: user=%v storage=%v", rt.paused, rt.storagePaused)
+	}
+	if rt.timerKind != matchTimerKindMove || rt.activeTimer == nil {
+		t.Fatalf("restored window broken: kind=%q live=%v", rt.timerKind, rt.activeTimer)
 	}
 
 	// The game continues normally for the acting player.
