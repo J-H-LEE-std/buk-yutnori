@@ -66,9 +66,18 @@ commit_in_memory_state_and_sequence → broadcast)를 적용하려면 기존
   않기 위해서다. 정지 중 명령은 retriable `EVENT_STORE_UNAVAILABLE`, RECONNECT는
   허용된다.
 - 재시도는 1s→2s→5s 3회(spec retry_delays_seconds)이며 콜백에 시도 번호를
-  스탬프해 낡은 만료를 무시한다. 성공 시 `[보류 이벤트…, GAME_PAUSED,
-  GAME_RESUMED(storage_recovered)]`를 단일 배치로 원자 영속한 뒤 일괄 확정·방송하고
-  보존 창을 복원한다.
+  스탬프해 낡은 만료를 무시한다.
+- **복구는 2단계로만 진행되어 어떤 행도 두 번 삽입되지 않는다**: (1) 보류 배치가
+  성공하면 즉시 커밋·방송하고, (2) `GAME_RESUMED(storage_recovered)` 마커는 그
+  직후 자신만의 최소 append로 영속한다. 두 append 사이 저장소가 다시 끊기면
+  마커만 새 보류 배치가 되어 스케줄을 처음부터 재실행한다. 이 구조는 독립 리뷰에서
+  발견된 "마커 포함 재삽입으로 PK 충돌→영구 고착" 결함(#89 리뷰 Blocker 1)의
+  근본 해소다.
+- 호스트 일시 정지가 진행 중인 채 저장 장애가 겹치면(정지 명령 자체의 flush
+  실패), 운영 정지는 호스트 만료 타이머를 절대 취소하지 않는다(전용 필드로 분리).
+  복구 후 남은 시간이 지났으면 정상 경로의 자동 재개를 수행하고, 아니면 만료
+  타이머를 잔여 시간으로 재암한다 — 턴 창 재무장은 호스트 정지가 끝난 뒤에만
+  일어난다(#89 리뷰 Blocker 2 해소).
 - 재시도 소진 시 경기 무효:`GAME_ENDED(status=invalid, winner=null,
   reason=storage_retry_exhausted)`와 `ROOM_UPDATED(post_match)`를 포함한 터미널
   배치를 **영속 실패 여부와 무관하게** 라이브 통지한다(spec notify_clients). 영속

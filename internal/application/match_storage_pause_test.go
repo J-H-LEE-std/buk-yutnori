@@ -2,7 +2,10 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"testing"
 
 	"buk-yutnori/internal/auth"
@@ -15,6 +18,7 @@ import (
 type flakyStore struct {
 	failuresRemaining int
 	rows              []storage.EventRow
+	seen              map[string]struct{}
 }
 
 func (store *flakyStore) AppendRoomEvents(ctx context.Context, rows []storage.EventRow) error {
@@ -22,7 +26,17 @@ func (store *flakyStore) AppendRoomEvents(ctx context.Context, rows []storage.Ev
 		store.failuresRemaining--
 		return errors.New("injected transient store failure")
 	}
-	store.rows = append(store.rows, rows...)
+	for _, row := range rows {
+		key := string(row.RoomID) + "/" + strconv.FormatUint(row.Sequence, 10)
+		if _, duplicate := store.seen[key]; duplicate {
+			return fmt.Errorf("%w: %s", storage.ErrDuplicateEvent, key)
+		}
+	}
+	for _, row := range rows {
+		key := string(row.RoomID) + "/" + strconv.FormatUint(row.Sequence, 10)
+		store.seen[key] = struct{}{}
+		store.rows = append(store.rows, row)
+	}
 	return nil
 }
 
@@ -40,7 +54,10 @@ func newStoragePauseFixture(t *testing.T, initialFailures int) *matchFixture {
 	t.Helper()
 	fixture := newMatchFixture(t, nil)
 	t.Cleanup(fixture.recorder.close)
-	fixture.registry.setEventStoreForTest(&flakyStore{failuresRemaining: initialFailures})
+	fixture.registry.setEventStoreForTest(&flakyStore{
+		failuresRemaining: initialFailures,
+		seen:              make(map[string]struct{}),
+	})
 	scripted := fixture.runtime()
 	scripted.throwResult = func(yut.Mode) (domain.YutResult, error) { return domain.YutGae, nil }
 	return fixture
@@ -78,6 +95,15 @@ func TestStorageFailureAutoPausesWithoutCommitOrBroadcast(t *testing.T) {
 	if pausedRuntime.preservedTimerKind == "" || pausedRuntime.preservedRemaining <= 0 {
 		t.Fatalf("turn window not preserved: kind=%q remaining=%v",
 			pausedRuntime.preservedTimerKind, pausedRuntime.preservedRemaining)
+	}
+
+	// A pure storage-failure pause has no auto-resume deadline to expose.
+	entrySnapshot, snapErr := fixture.registry.assembleGameSnapshotLocked(entry, boundaryBefore)
+	if snapErr != nil {
+		t.Fatalf("assemble snapshot error = %v", snapErr)
+	}
+	if !entrySnapshot.Pause.Paused || entrySnapshot.Pause.EndsAt != nil {
+		t.Fatalf("pure storage pause leaked ends_at: %+v", entrySnapshot.Pause)
 	}
 
 	// Live commands are rejected; RECONNECT still serves the pre-blip state.
@@ -148,8 +174,30 @@ func TestRecoveryDeliversDeferredBatchAndRestoresWindow(t *testing.T) {
 	if len(cpuEvents) != 1 || cpuEvents[0].Payload.PlayerID != current {
 		t.Fatalf("CPU substitution after recovery = %+v", cpuEvents)
 	}
-	if len(healthy.rows) < 6 {
-		t.Fatalf("healthy store only holds %d rows after recovery", len(healthy.rows))
+	assertNoDuplicateSequences(t, healthy.rows)
+	// Prefix must be exactly the deferred batch (3) + pause marker + resume
+	// marker; later events (restored-window expiry) may follow.
+	deferred := []string{"YUT_RESULT", "RESULT_QUEUE_UPDATED", "MOVE_REQUIRED", "GAME_PAUSED", "GAME_RESUMED"}
+	if len(healthy.rows) < len(deferred) {
+		t.Fatalf("healthy store holds %d rows, want at least the deferred batch", len(healthy.rows))
+	}
+	for index, kind := range deferred {
+		if got := healthy.rows[index].EventType; got != kind {
+			t.Fatalf("recovered row[%d] = %s, want %s", index, got, kind)
+		}
+	}
+	for _, row := range healthy.rows {
+		if row.EventType != "GAME_PAUSED" {
+			continue
+		}
+		var envelope struct {
+			Payload struct {
+				PreservedTimerMS uint64 `json:"preserved_timer_remaining_ms"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(row.PayloadJSON, &envelope) != nil || envelope.Payload.PreservedTimerMS == 0 {
+			t.Fatalf("GAME_PAUSED marker lost the preserved window: %s", row.PayloadJSON)
+		}
 	}
 }
 
@@ -209,5 +257,78 @@ func TestRetryExhaustionInvalidatesMatchAndNotifies(t *testing.T) {
 	if result.Payload.Status != "rejected" || result.Payload.Error == nil ||
 		result.Payload.Error.Code != "RESYNC_REQUIRED" {
 		t.Fatalf("RECONNECT after invalidation = %+v, want RESYNC_REQUIRED", result)
+	}
+}
+
+// A host pause whose own flush fails must survive the operational pause:
+// the expiry timer is never cancelled, recovery leaves the host pause
+// intact, and its expiry still auto-resumes with the preserved window.
+func TestHostPauseSurvivesStorageFailureAndSettlesAfterRecovery(t *testing.T) {
+	t.Parallel()
+
+	fixture := newStoragePauseFixture(t, 99)
+	host := fixture.users[0]
+	scripted := fixture.runtime()
+	scripted.throwResult = func(yut.Mode) (domain.YutResult, error) { return domain.YutGae, nil }
+	firstPlayer := scripted.currentPlayer()
+	fixture.driveUntilPlayerOrEnd(t, firstPlayer)
+
+	current := fixture.runtime().currentPlayer()
+	if err := fixture.registry.ThrowYut(auth.UserID(current), fixture.roomID, fixture.matchID); err != nil {
+		t.Fatalf("THROW_YUT(%s) error = %v", current, err)
+	}
+	if got := fixture.runtime().timerKind; got != matchTimerKindMove {
+		t.Fatalf("armed window = %q, want move", got)
+	}
+
+	// The pause command itself hits the failing store: its GAME_PAUSED is
+	// deferred, but the host pause state must survive intact.
+	err := fixture.registry.PauseGame(auth.UserID(host), fixture.roomID, fixture.matchID, 5)
+	if !errors.Is(err, ErrEventStoreUnavailable) {
+		t.Fatalf("PauseGame under storage failure = %v, want ErrEventStoreUnavailable", err)
+	}
+	rt := fixture.runtime()
+	if !rt.paused || !rt.storagePaused {
+		t.Fatalf("combined pause state = user=%v storage=%v", rt.paused, rt.storagePaused)
+	}
+	if rt.pauseExpiryTimer == nil {
+		t.Fatal("host pause expiry timer was cancelled by the storage pause")
+	}
+	if rt.preservedTimerKind != matchTimerKindMove || rt.preservedRemaining <= 0 {
+		t.Fatalf("preserved window overwritten: kind=%q remaining=%v",
+			rt.preservedTimerKind, rt.preservedRemaining)
+	}
+
+	// Recovering the store lets the deferred marker through, then settles
+	// the surviving host pause without touching the preserved window.
+	fixture.registry.setEventStoreForTest(&fakeEventStore{})
+	fixture.clock.Advance(storageRetryDelays[0])
+	rt = fixture.runtime()
+	if rt.storagePaused || rt.paused {
+		t.Fatalf("post-recovery pause state = storage=%v user=%v", rt.storagePaused, rt.paused)
+	}
+	resumed := fixture.recorder.ofTypes("GAME_RESUMED")
+	if len(resumed) < 1 {
+		t.Fatal("no GAME_RESUMED after recovery")
+	}
+
+	// The preserved movement window comes back with the expired host pause.
+	if rt.timerKind != matchTimerKindMove || rt.preservedTimerKind != "" {
+		t.Fatalf("restored window = kind %q preserved %q", rt.timerKind, rt.preservedTimerKind)
+	}
+	if rt.activeTimer == nil {
+		t.Fatal("restored window has no live timer behind it")
+	}
+
+	// The game continues normally for the acting player.
+	movable, movableErr := rt.movablePieceIDs(rt.machine.Snapshot())
+	if movableErr != nil || len(movable) == 0 {
+		t.Fatalf("no movable pieces after settled resume: %v / %v", movable, movableErr)
+	}
+	if err := fixture.registry.SelectPiece(
+		auth.UserID(current), fixture.roomID, fixture.matchID,
+		rt.machine.Snapshot().SelectedTokenID, movable[0],
+	); err != nil {
+		t.Fatalf("SELECT_PIECE after settled resume error = %v", err)
 	}
 }

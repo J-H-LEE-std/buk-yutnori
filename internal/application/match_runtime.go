@@ -162,6 +162,7 @@ type matchRuntime struct {
 	pauseUsed          bool
 	paused             bool
 	pauseEndsAt        time.Time
+	pauseExpiryTimer   matchTimer
 	preservedTimerKind string
 	preservedRemaining time.Duration
 
@@ -366,7 +367,9 @@ func (registry *RoomRegistry) PauseGame(user auth.UserID, roomID domain.RoomID, 
 	nowCopy := now
 	rt.pauseEndsAt = nowCopy.Add(time.Duration(minutes) * time.Minute)
 	pauseDeadline := rt.pauseEndsAt
-	rt.activeTimer = registry.matchClock.AfterFunc(
+	// The expiry timer lives outside activeTimer so an operational storage
+	// pause entering later cannot cancel the host's auto-resume (#87).
+	rt.pauseExpiryTimer = registry.matchClock.AfterFunc(
 		time.Duration(minutes)*time.Minute,
 		func() { registry.firePauseExpiry(roomID, pauseDeadline) },
 	)
@@ -401,6 +404,10 @@ func (registry *RoomRegistry) ResumeGame(user auth.UserID, roomID domain.RoomID,
 	if !rt.paused {
 		return ErrMatchNotPaused
 	}
+	if rt.pauseExpiryTimer != nil {
+		rt.pauseExpiryTimer.Stop()
+		rt.pauseExpiryTimer = nil
+	}
 	tx := registry.newEventTx(roomID)
 	if err := registry.resumeMatchLocked(tx, rt, protocol.ResumeReasonHostRequest); err != nil {
 		return err
@@ -419,7 +426,19 @@ func (registry *RoomRegistry) firePauseExpiry(roomID domain.RoomID, deadline tim
 		return
 	}
 	rt := entry.runtime
-	if rt == nil || rt.storagePaused || !rt.paused || !rt.pauseEndsAt.Equal(deadline) {
+	if rt == nil {
+		return
+	}
+	if rt.pauseExpiryTimer != nil {
+		rt.pauseExpiryTimer.Stop()
+		rt.pauseExpiryTimer = nil
+	}
+	// While the operational pause fences broadcasts, recovery settles the
+	// expired host pause afterwards (settleUserPauseAfterRecoveryLocked).
+	if rt.storagePaused {
+		return
+	}
+	if !rt.paused || !rt.pauseEndsAt.Equal(deadline) {
 		return
 	}
 	tx := registry.newEventTx(roomID)
@@ -511,6 +530,9 @@ func (registry *RoomRegistry) enterStoragePauseLocked(entry *registeredRoom, rt 
 
 	// Stage the deferred GAME_PAUSED(storage_failure) marker behind the
 	// failed batch; it commits only when recovery persists them together.
+	// The marker reports the preserved window value directly - cancelTimer
+	// has already cleared the live deadline by this point.
+	preservedMS := uint64(rt.preservedRemaining.Milliseconds())
 	boundary, err := registry.sequences.Boundary(rt.roomID)
 	if err != nil {
 		slog.Error("storage pause boundary read failed", "room_id", string(rt.roomID), "error", err)
@@ -519,7 +541,7 @@ func (registry *RoomRegistry) enterStoragePauseLocked(entry *registeredRoom, rt 
 	sequence := boundary + uint64(len(rows)) + 1
 	pausedEvent, buildErr := protocol.NewGamePausedEvent(rt.roomID, rt.matchID, sequence, protocol.GamePausedPayload{
 		Reason:           protocol.PauseReasonStorageFailure,
-		PreservedTimerMS: rt.remainingMS(now),
+		PreservedTimerMS: preservedMS,
 	})
 	if buildErr != nil {
 		slog.Error("storage pause marker build failed", "room_id", string(rt.roomID), "error", buildErr)
@@ -546,7 +568,10 @@ func (registry *RoomRegistry) enterStoragePauseLocked(entry *registeredRoom, rt 
 }
 
 // fireStorageRetry re-attempts the pending batch on the canonical schedule.
-// Success recovers the match; exhausting the schedule invalidates it.
+// Every row in rt.pendingRows is appended exactly once: success commits and
+// delivers them before the resume marker becomes its own minimal operation,
+// so a duplicate-key failure against a healthy store is impossible by
+// construction. Exhausting the schedule invalidates the match.
 func (registry *RoomRegistry) fireStorageRetry(roomID domain.RoomID, expectedAttempt int) {
 	registry.mutex.Lock()
 	defer registry.mutex.Unlock()
@@ -563,51 +588,46 @@ func (registry *RoomRegistry) fireStorageRetry(roomID domain.RoomID, expectedAtt
 	ctx, cancel := eventStoreContext()
 	defer cancel()
 	appendErr := registry.store.AppendRoomEvents(ctx, rt.pendingRows)
-	if appendErr == nil {
-		registry.recoverFromStoragePauseLocked(entry, rt)
+	if appendErr != nil {
+		rt.retryAttempt++
+		next := rt.retryAttempt
+		slog.Error("event store retry failed",
+			"room_id", string(rt.roomID),
+			"attempt", next,
+			"error", appendErr,
+		)
+		if next < len(storageRetryDelays) {
+			roomIDCopy := roomID
+			expected := next
+			delay := storageRetryDelays[next]
+			rt.activeTimer = registry.matchClock.AfterFunc(delay, func() {
+				registry.fireStorageRetry(roomIDCopy, expected)
+			})
+			return
+		}
+		registry.invalidateMatchLocked(entry, rt, appendErr)
 		return
 	}
 
-	rt.retryAttempt++
-	next := rt.retryAttempt
-	slog.Error("event store retry failed",
-		"room_id", string(rt.roomID),
-		"attempt", next,
-		"error", appendErr,
-	)
-	if next < len(storageRetryDelays) {
-		roomIDCopy := roomID
-		expected := next
-		delay := storageRetryDelays[next]
-		rt.activeTimer = registry.matchClock.AfterFunc(delay, func() {
-			registry.fireStorageRetry(roomIDCopy, expected)
-		})
-		return
+	// The pending batch is durably stored; commit and deliver it now so the
+	// resume marker appends after rows that are already canonical.
+	for range rt.pendingRows {
+		if _, err := registry.sequences.CommitNext(rt.roomID); err != nil {
+			slog.Error("storage recovery sequence commit failed", "room_id", string(rt.roomID), "error", err)
+			return
+		}
 	}
-	registry.invalidateMatchLocked(entry, rt, appendErr)
-}
+	registry.publishCommittedLocked(entry, rt.pendingMessages)
+	rt.pendingMessages = nil
+	rt.pendingRows = nil
 
-// recoverFromStoragePauseLocked commits and delivers the recovered batch
-// (missed events plus the deferred pause marker) together with one atomic
-// GAME_RESUMED(storage_recovered) row, then restores the preserved window.
-func (registry *RoomRegistry) recoverFromStoragePauseLocked(entry *registeredRoom, rt *matchRuntime) {
 	resumedEvent, err := protocol.NewGameResumedEvent(
 		rt.roomID, rt.matchID,
-		rt.pendingRows[len(rt.pendingRows)-1].Sequence+1,
+		boundaryOfLocked(registry, rt.roomID)+1,
 		protocol.GameResumedPayload{Reason: protocol.ResumeReasonStorageRecovered},
 	)
 	if err != nil {
 		slog.Error("storage resume marker build failed", "room_id", string(rt.roomID), "error", err)
-		// The pending batch itself persisted fine; deliver it and surface
-		// the resume failure as an invalidation-free fenced state.
-		registry.publishCommittedLocked(entry, rt.pendingMessages)
-		for range rt.pendingRows {
-			if _, err := registry.sequences.CommitNext(rt.roomID); err != nil {
-				slog.Error("storage recovery sequence commit failed", "room_id", string(rt.roomID), "error", err)
-			}
-		}
-		rt.pendingMessages = nil
-		rt.pendingRows = nil
 		entry.poisoned = true
 		return
 	}
@@ -617,53 +637,90 @@ func (registry *RoomRegistry) recoverFromStoragePauseLocked(entry *registeredRoo
 		entry.poisoned = true
 		return
 	}
+
+	ctx2, cancel2 := eventStoreContext()
+	defer cancel2()
 	resumedRow := storage.EventRow{
 		RoomID:      rt.roomID,
 		Sequence:    resumedEvent.Sequence,
 		EventType:   protocol.EventGameResumed,
 		PayloadJSON: encoded,
 	}
-
-	ctx, cancel := eventStoreContext()
-	defer cancel()
-	if err := registry.store.AppendRoomEvents(ctx, append(rt.pendingRows, resumedRow)); err != nil {
-		// The store flapped between the retry success and this append;
-		// keep the pause alive with the resume marker prepended to the
-		// still-pending batch.
-		rt.pendingMessages = append(rt.pendingMessages, resumedEvent)
-		rt.pendingRows = append(rt.pendingRows, resumedRow)
+	if appendErr := registry.store.AppendRoomEvents(ctx2, []storage.EventRow{resumedRow}); appendErr != nil {
+		// The store flapped between the two appends: the resume marker
+		// becomes the whole pending batch and the retry schedule restarts.
+		// Rows already committed are never re-appended, so no duplicate can
+		// occur.
+		slog.Error("storage resume marker append failed", "room_id", string(rt.roomID), "error", appendErr)
+		rt.pendingMessages = []any{resumedEvent}
+		rt.pendingRows = []storage.EventRow{resumedRow}
+		rt.retryAttempt = 0
+		roomIDCopy := roomID
+		rt.activeTimer = registry.matchClock.AfterFunc(storageRetryDelays[0], func() {
+			registry.fireStorageRetry(roomIDCopy, 0)
+		})
 		return
 	}
-
-	messages := append(rt.pendingMessages, resumedEvent)
-	for range messages {
-		if _, err := registry.sequences.CommitNext(rt.roomID); err != nil {
-			slog.Error("storage recovery sequence commit failed", "room_id", string(rt.roomID), "error", err)
-			break
-		}
+	if _, err := registry.sequences.CommitNext(rt.roomID); err != nil {
+		slog.Error("storage resume sequence commit failed", "room_id", string(rt.roomID), "error", err)
+		entry.poisoned = true
+		return
 	}
-	registry.publishCommittedLocked(entry, messages)
-	rt.pendingMessages = nil
-	rt.pendingRows = nil
+	registry.publishCommittedLocked(entry, []any{resumedEvent})
 
 	rt.storagePaused = false
 	rt.retryAttempt = 0
-	if !rt.cpuControlled {
-		switch rt.preservedTimerKind {
-		case matchTimerKindThrow:
-			registry.armTimerLocked(rt, matchTimerKindThrow, rt.preservedRemaining)
-		case matchTimerKindMove:
-			registry.armTimerLocked(rt, matchTimerKindMove, rt.preservedRemaining)
-		}
+
+	// A host pause that was already active when the storage pause entered
+	// survives this recovery untouched: settle its expiry instead of
+	// touching the turn window it is preserving.
+	if rt.paused {
+		registry.settleUserPauseAfterRecoveryLocked(entry, rt)
+		return
+	}
+	switch rt.preservedTimerKind {
+	case matchTimerKindThrow:
+		registry.armTimerLocked(rt, matchTimerKindThrow, rt.preservedRemaining)
+	case matchTimerKindMove:
+		registry.armTimerLocked(rt, matchTimerKindMove, rt.preservedRemaining)
 	}
 	rt.preservedTimerKind = ""
 	rt.preservedRemaining = 0
 }
 
-// invalidateMatchLocked is the retry-exhausted terminal path. It notifies
-// clients regardless of persistence (spec notify_clients), tears the match
-// down into the post_match waiting room, and keeps the room joinable for a
-// rematch; a persist failure here leaves a documented sequence gap.
+// settleUserPauseAfterRecoveryLocked fires or reschedules the surviving host
+// pause once broadcasts work again. An already-elapsed window auto-resumes
+// through the normal persisted path; otherwise only the expiry timer is
+// rearmed for the remainder.
+func (registry *RoomRegistry) settleUserPauseAfterRecoveryLocked(entry *registeredRoom, rt *matchRuntime) {
+	now := registry.matchClock.Now()
+	remaining := rt.pauseEndsAt.Sub(now)
+	if remaining <= 0 {
+		tx := registry.newEventTx(rt.roomID)
+		if err := registry.resumeMatchLocked(tx, rt, protocol.ResumeReasonPauseExpired); err != nil {
+			slog.Error("post-recovery pause expiry failed", "room_id", string(rt.roomID), "error", err)
+			return
+		}
+		if err := tx.flush(); err != nil {
+			slog.Error("post-recovery pause flush failed", "room_id", string(rt.roomID), "error", err)
+		}
+		return
+	}
+	roomIDCopy := rt.roomID
+	deadline := rt.pauseEndsAt
+	rt.pauseExpiryTimer = registry.matchClock.AfterFunc(remaining, func() {
+		registry.firePauseExpiry(roomIDCopy, deadline)
+	})
+}
+
+func boundaryOfLocked(registry *RoomRegistry, roomID domain.RoomID) uint64 {
+	boundary, err := registry.sequences.Boundary(roomID)
+	if err != nil {
+		return 0
+	}
+	return boundary
+}
+
 func (registry *RoomRegistry) invalidateMatchLocked(entry *registeredRoom, rt *matchRuntime, lastErr error) {
 	slog.Error("match invalidated after storage retries exhausted",
 		"room_id", string(rt.roomID),

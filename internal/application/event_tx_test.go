@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -108,6 +109,20 @@ func (store *failingStore) AppendRoomEvents(ctx context.Context, rows []storage.
 
 func (store *failingStore) ReadRoomEventsAfter(ctx context.Context, roomID domain.RoomID, afterSequence uint64) ([]storage.EventRow, error) {
 	return nil, store.err
+}
+
+// assertNoDuplicateSequences fails the test when any stored batch re-uses a
+// (room_id, sequence) key, mirroring the canonical store's primary key.
+func assertNoDuplicateSequences(t *testing.T, rows []storage.EventRow) {
+	t.Helper()
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		key := string(row.RoomID) + "/" + strconv.FormatUint(row.Sequence, 10)
+		if _, duplicate := seen[key]; duplicate {
+			t.Fatalf("duplicate stored event %s", key)
+		}
+		seen[key] = struct{}{}
+	}
 }
 
 // A durable failure in a started room degrades into the operational storage

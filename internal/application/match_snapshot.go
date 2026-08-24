@@ -241,9 +241,13 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 			RemainingMS: uint64(rt.preservedRemaining.Milliseconds()),
 			DeadlineAt:  pauseEndsAtPointer(rt),
 		}
-		endsAt := rt.pauseEndsAt.UTC().Format(time.RFC3339)
 		pauseView.Paused = true
-		pauseView.EndsAt = &endsAt
+		if rt.paused {
+			// Only a host pause carries a scheduled auto-resume instant; a
+			// pure storage-failure pause has no deadline to expose.
+			endsAt := rt.pauseEndsAt.UTC().Format(time.RFC3339)
+			pauseView.EndsAt = &endsAt
+		}
 	}
 
 	return gameSnapshotJSON{
