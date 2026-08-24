@@ -55,6 +55,28 @@ commit_in_memory_state_and_sequence → broadcast)를 적용하려면 기존
   체크포인트(과거 경계) 스냅샷이 도입되면 프로토콜 변경 없이 채워진다. 손상된
   저장소의 비연속 행은 번들로 서비스되지 않는다.
 
+## 구현 결과(#87)
+
+일시 정지 기계(#86)가 착지하면서 차단(poisoned)은 시작된 방에서 자동 운영 정지로
+대체되었다.
+
+- flush 실패 시 실패 배치를 그대로 보류하고 활성 턴 창을 사용자 일시 정지와 동일
+  방식으로 보존한다. `GAME_PAUSED(storage_failure)` 마커는 즉시 방송하지 않고
+  보류 배치 뒤에 스테이징한다 — 방송과 정본 저장의 바이트 동일성 불변식을 깨지
+  않기 위해서다. 정지 중 명령은 retriable `EVENT_STORE_UNAVAILABLE`, RECONNECT는
+  허용된다.
+- 재시도는 1s→2s→5s 3회(spec retry_delays_seconds)이며 콜백에 시도 번호를
+  스탬프해 낡은 만료를 무시한다. 성공 시 `[보류 이벤트…, GAME_PAUSED,
+  GAME_RESUMED(storage_recovered)]`를 단일 배치로 원자 영속한 뒤 일괄 확정·방송하고
+  보존 창을 복원한다.
+- 재시도 소진 시 경기 무효:`GAME_ENDED(status=invalid, winner=null,
+  reason=storage_retry_exhausted)`와 `ROOM_UPDATED(post_match)`를 포함한 터미널
+  배치를 **영속 실패 여부와 무관하게** 라이브 통지한다(spec notify_clients). 영속
+  실패 시 저장소에 sequence 공백이 남을 수 있으며, 현재 스냅샷은 항상 최신 경계라
+  기존 번들 계약에는 영향이 없다 — 공백 문제는 docs/12의 체크포인트 replay 항목과
+  함께 추적한다. 무효 후 방은 post_match 대기실로 돌아가 재대결이 가능하다.
+- poisoned 차단은 런타임이 없는 스코프(방 생성 직후, 로비 전용)로 한정된다.
+
 ## 결과
 
 - 모든 커밋된 방 이벤트가 방송과 동일한 내용으로 영속 저장되고 sequence 공간이

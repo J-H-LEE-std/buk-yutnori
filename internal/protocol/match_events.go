@@ -26,6 +26,8 @@ const (
 	PauseReasonStorageFailure = "storage_failure"
 	ResumeReasonHostRequest   = "host_request"
 	ResumeReasonPauseExpired  = "pause_expired"
+	// ResumeReasonStorageRecovered closes the operational pause from #87.
+	ResumeReasonStorageRecovered = "storage_recovered"
 
 	// MovementBukNoCandidate marks the free-form GAME_ENDED reason recorded
 	// when every piece of one team finished.
@@ -566,13 +568,29 @@ func NewGameResumedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence 
 		return GameResumedEvent{}, err
 	}
 	switch payload.Reason {
-	case ResumeReasonHostRequest, ResumeReasonPauseExpired:
+	case ResumeReasonHostRequest, ResumeReasonPauseExpired, ResumeReasonStorageRecovered:
 	default:
 		return GameResumedEvent{}, fmt.Errorf("%w: reason %q", ErrInvalidServerEvent, payload.Reason)
 	}
 	return GameResumedEvent{
 		Version: Version1, Direction: DirectionServerEvent, Type: EventGameResumed,
 		Sequence: sequence, RoomID: roomID, MatchID: matchID, Payload: payload,
+	}, nil
+}
+
+// NewInvalidGameEndedEvent constructs the terminal GAME_ENDED event for an
+// invalidated match: status=invalid, no winning team, free-form reason.
+func NewInvalidGameEndedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence uint64, reason string) (GameEndedEvent, error) {
+	if err := validateMatchEventScope(roomID, matchID, sequence); err != nil {
+		return GameEndedEvent{}, err
+	}
+	if reason == "" {
+		return GameEndedEvent{}, fmt.Errorf("%w: reason is required", ErrInvalidServerEvent)
+	}
+	return GameEndedEvent{
+		Version: Version1, Direction: DirectionServerEvent, Type: EventGameEnded,
+		Sequence: sequence, RoomID: roomID, MatchID: matchID,
+		Payload: GameEndedPayload{Status: "invalid", WinnerTeamID: nil, Reason: reason},
 	}, nil
 }
 
