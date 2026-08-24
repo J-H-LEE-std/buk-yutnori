@@ -1,12 +1,130 @@
 [
-  {"version":1,"direction":"client_command","type":"SELECT_TEAM","command_id":"cmd-001","room_id":"room-1","payload":{"team_id":"A"}},
-  {"version":1,"direction":"client_command","type":"SET_READY","command_id":"cmd-002","room_id":"room-1","payload":{"ready":true}},
-  {"version":1,"direction":"client_command","type":"START_GAME","request_id":"req-start","command_id":"cmd-003","room_id":"room-1","payload":{}},
-  {"version":1,"direction":"client_command","type":"THROW_YUT","command_id":"cmd-004","room_id":"room-1","match_id":"match-1","payload":{}},
-  {"version":1,"direction":"client_command","type":"SELECT_RESULT","command_id":"cmd-005","room_id":"room-1","match_id":"match-1","payload":{"token_id":"token-1"}},
-  {"version":1,"direction":"client_command","type":"SELECT_PIECE","command_id":"cmd-006","room_id":"room-1","match_id":"match-1","payload":{"token_id":"token-1","piece_id":"A-1"}},
-  {"version":1,"direction":"client_command","type":"SELECT_ROUTE","command_id":"cmd-007","room_id":"room-1","match_id":"match-1","payload":{"token_id":"token-1","piece_id":"A-1","route":"shortcut"}},
-  {"version":1,"direction":"client_command","type":"SEND_CHAT","command_id":"cmd-008","room_id":"room-1","payload":{"text":"안녕하세요"}},
-  {"version":1,"direction":"client_command","type":"RECONNECT","request_id":"req-reconnect","command_id":"cmd-009","room_id":"room-1","match_id":"match-1","payload":{"last_sequence":41}},
-  {"version":1,"direction":"client_command","type":"CONFIRM_GAME_START","request_id":"req-confirm","command_id":"cmd-010","room_id":"room-1","match_id":"match-1","payload":{}}
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "SELECT_TEAM",
+    "command_id": "cmd-001",
+    "room_id": "room-1",
+    "payload": {
+      "team_id": "A"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "SET_READY",
+    "command_id": "cmd-002",
+    "room_id": "room-1",
+    "payload": {
+      "ready": true
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "START_GAME",
+    "request_id": "req-start",
+    "command_id": "cmd-003",
+    "room_id": "room-1",
+    "payload": {}
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "THROW_YUT",
+    "command_id": "cmd-004",
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {}
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "SELECT_RESULT",
+    "command_id": "cmd-005",
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "token_id": "token-1"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "SELECT_PIECE",
+    "command_id": "cmd-006",
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "token_id": "token-1",
+      "piece_id": "A-1"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "SELECT_ROUTE",
+    "command_id": "cmd-007",
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "token_id": "token-1",
+      "piece_id": "A-1",
+      "route": "shortcut"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "SEND_CHAT",
+    "command_id": "cmd-008",
+    "room_id": "room-1",
+    "payload": {
+      "text": "안녕하세요"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "RECONNECT",
+    "request_id": "req-reconnect",
+    "command_id": "cmd-009",
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "last_sequence": 41
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "CONFIRM_GAME_START",
+    "request_id": "req-confirm",
+    "command_id": "cmd-010",
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {}
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "PAUSE_GAME",
+    "command_id": "cmd-pause-1",
+    "request_id": "req-pause-1",
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "duration_minutes": 5
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "RESUME_GAME",
+    "command_id": "cmd-resume-1",
+    "request_id": "req-resume-1",
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {}
+  }
 ]

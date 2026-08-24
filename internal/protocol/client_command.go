@@ -30,6 +30,13 @@ const (
 	CommandSendChat         CommandType = "SEND_CHAT"
 	CommandReconnect        CommandType = "RECONNECT"
 	CommandConfirmGameStart CommandType = "CONFIRM_GAME_START"
+	CommandPauseGame        CommandType = "PAUSE_GAME"
+	CommandResumeGame       CommandType = "RESUME_GAME"
+
+	// MinPauseDurationMinutes and MaxPauseDurationMinutes bound the
+	// canonical per-match host pause window (docs/03 일시 정지).
+	MinPauseDurationMinutes = 1
+	MaxPauseDurationMinutes = 30
 
 	// MaxChatCodePoints is the v1 SEND_CHAT and CHAT_MESSAGE text limit.
 	MaxChatCodePoints = 200
@@ -79,6 +86,10 @@ type SelectRoutePayload struct {
 	TokenID domain.ResultTokenID
 	PieceID domain.PieceID
 	Route   domain.Route
+}
+
+type PauseGamePayload struct {
+	DurationMinutes int
 }
 
 type SendChatPayload struct {
@@ -170,7 +181,9 @@ func requiresMatch(commandType CommandType) bool {
 		CommandSelectPiece,
 		CommandSelectRoute,
 		CommandReconnect,
-		CommandConfirmGameStart:
+		CommandConfirmGameStart,
+		CommandPauseGame,
+		CommandResumeGame:
 		return true
 	default:
 		return false
@@ -196,6 +209,23 @@ func decodePayload(commandType CommandType, raw json.RawMessage) (any, error) {
 			return nil, invalidCommand("invalid SET_READY payload")
 		}
 		return SetReadyPayload{Ready: *payload.Ready}, nil
+
+	case CommandPauseGame:
+		var payload struct {
+			DurationMinutes *int `json:"duration_minutes"`
+		}
+		if err := decodeStrict(raw, &payload); err != nil || payload.DurationMinutes == nil ||
+			*payload.DurationMinutes < MinPauseDurationMinutes || *payload.DurationMinutes > MaxPauseDurationMinutes {
+			return nil, invalidCommand("invalid PAUSE_GAME payload")
+		}
+		return PauseGamePayload{DurationMinutes: *payload.DurationMinutes}, nil
+
+	case CommandResumeGame:
+		var payload EmptyPayload
+		if err := decodeStrict(raw, &payload); err != nil {
+			return nil, invalidCommand("invalid RESUME_GAME payload")
+		}
+		return payload, nil
 
 	case CommandStartGame, CommandThrowYut, CommandConfirmGameStart:
 		var payload EmptyPayload

@@ -14,6 +14,10 @@ import (
 const (
 	eventStoreUnavailableCode = "EVENT_STORE_UNAVAILABLE"
 
+	matchPausedCode    = "MATCH_PAUSED"
+	matchPauseUsedCode = "PAUSE_ALREADY_USED"
+	matchNotPausedCode = "MATCH_NOT_PAUSED"
+
 	matchNotActiveCode    = "MATCH_NOT_ACTIVE"
 	notMemberCode         = "ROOM_NOT_MEMBER"
 	notTurnPlayerCode     = "NOT_YOUR_TURN"
@@ -89,6 +93,25 @@ func (executor *MatchCommandExecutor) Execute(ctx context.Context, user auth.Use
 		}
 		return acceptedLobbyOutcome(), nil
 
+	case protocol.CommandPauseGame:
+		payload, ok := command.Payload.(protocol.PauseGamePayload)
+		if !ok {
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid PAUSE_GAME payload", ErrInvalidCommand)
+		}
+		if err := executor.lobbies.PauseGame(user.ID, command.RoomID, *command.MatchID, payload.DurationMinutes); err != nil {
+			return executor.rejectMatchError(err), nil
+		}
+		return acceptedLobbyOutcome(), nil
+
+	case protocol.CommandResumeGame:
+		if _, ok := command.Payload.(protocol.EmptyPayload); !ok {
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid RESUME_GAME payload", ErrInvalidCommand)
+		}
+		if err := executor.lobbies.ResumeGame(user.ID, command.RoomID, *command.MatchID); err != nil {
+			return executor.rejectMatchError(err), nil
+		}
+		return acceptedLobbyOutcome(), nil
+
 	case protocol.CommandReconnect:
 		payload, ok := command.Payload.(protocol.ReconnectPayload)
 		if !ok {
@@ -128,6 +151,14 @@ func (executor *MatchCommandExecutor) rejectMatchError(err error) protocol.Comma
 		return rejectedLobbyOutcome(matchNotActiveCode, "진행 중인 경기가 없습니다.", true)
 	case errors.Is(err, ErrEventStoreUnavailable):
 		return rejectedLobbyOutcome(eventStoreUnavailableCode, "일시적 저장 장애입니다. 잠시 후 다시 시도하세요.", true)
+	case errors.Is(err, ErrMatchPaused):
+		return rejectedLobbyOutcome(matchPausedCode, "경기가 일시 정지 중입니다.", true)
+	case errors.Is(err, ErrMatchPauseUsed):
+		return rejectedLobbyOutcome(matchPauseUsedCode, "이 경기의 일시 정지는 이미 사용되었습니다.", false)
+	case errors.Is(err, ErrMatchNotPaused):
+		return rejectedLobbyOutcome(matchNotPausedCode, "일시 정지 중인 경기가 아닙니다.", false)
+	case errors.Is(err, ErrNotRoomHost):
+		return rejectedLobbyOutcome(roomHostRequiredCode, "방장만 이 명령을 수행할 수 있습니다.", false)
 	case errors.Is(err, auth.ErrUnauthenticated):
 		return rejectedLobbyOutcome("INVALID_REQUEST", "요청을 처리할 수 없습니다.", false)
 	default:

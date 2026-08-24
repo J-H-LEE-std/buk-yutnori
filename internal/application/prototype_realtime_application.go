@@ -120,6 +120,7 @@ func (router *prototypeRoomRouter) Execute(ctx context.Context, user auth.User, 
 		return router.lobby.Execute(ctx, user, command)
 	case protocol.CommandThrowYut, protocol.CommandSelectResult,
 		protocol.CommandSelectPiece, protocol.CommandSelectRoute,
+		protocol.CommandPauseGame, protocol.CommandResumeGame,
 		protocol.CommandReconnect:
 		return router.match.Execute(ctx, user, command)
 	case protocol.CommandSendChat:

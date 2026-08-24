@@ -45,6 +45,12 @@
           "$ref": "ws_client_command.schema.json#/$defs/throw_yut"
         },
         {
+          "$ref": "ws_client_command.schema.json#/$defs/pause_game"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/resume_game"
+        },
+        {
           "$ref": "ws_client_command.schema.json#/$defs/select_result"
         },
         {
@@ -281,6 +287,45 @@
               "minimum": 0
             }
           }
+        }
+      }
+    },
+    "pause_game": {
+      "required": [
+        "match_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "PAUSE_GAME"
+        },
+        "match_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["duration_minutes"],
+          "properties": {
+            "duration_minutes": { "type": "integer", "minimum": 1, "maximum": 30 }
+          }
+        }
+      }
+    },
+    "resume_game": {
+      "required": [
+        "match_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "RESUME_GAME"
+        },
+        "match_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "$ref": "ws_client_command.schema.json#/$defs/empty_payload"
         }
       }
     },

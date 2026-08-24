@@ -17,7 +17,15 @@ const (
 	EventPiecesCaptured     = "PIECES_CAPTURED"
 	EventBukResolved        = "BUK_RESOLVED"
 	EventCPUControlStarted  = "CPU_CONTROL_STARTED"
+	EventGamePaused         = "GAME_PAUSED"
+	EventGameResumed        = "GAME_RESUMED"
 	EventGameEnded          = "GAME_ENDED"
+
+	// Pause reasons follow schemas/ws_server_event.schema.json enums.
+	PauseReasonHostRequest    = "host_request"
+	PauseReasonStorageFailure = "storage_failure"
+	ResumeReasonHostRequest   = "host_request"
+	ResumeReasonPauseExpired  = "pause_expired"
 
 	// MovementBukNoCandidate marks the free-form GAME_ENDED reason recorded
 	// when every piece of one team finished.
@@ -486,6 +494,102 @@ func NewCPUControlStartedEvent(roomID domain.RoomID, matchID domain.MatchID, seq
 		Version: Version1, Direction: DirectionServerEvent, Type: EventCPUControlStarted,
 		Sequence: sequence, RoomID: roomID, MatchID: matchID, Payload: payload,
 	}, nil
+}
+
+// GamePausedPayload announces one match pause. PreservedTimerMS carries the
+// remaining milliseconds of the active turn window at pause time; EndsAt is
+// the wall-clock auto-resume instant when one is scheduled.
+type GamePausedPayload struct {
+	Reason           string           `json:"reason"`
+	PausedByPlayerID *domain.PlayerID `json:"paused_by_player_id"`
+	EndsAt           *string          `json:"ends_at"`
+	PreservedTimerMS uint64           `json:"preserved_timer_remaining_ms"`
+}
+
+// GamePausedEvent is the typed v1 GAME_PAUSED server event.
+type GamePausedEvent struct {
+	Version   int               `json:"version"`
+	Direction Direction         `json:"direction"`
+	Type      string            `json:"type"`
+	Sequence  uint64            `json:"sequence"`
+	RoomID    domain.RoomID     `json:"room_id"`
+	MatchID   domain.MatchID    `json:"match_id"`
+	Payload   GamePausedPayload `json:"payload"`
+}
+
+// NewGamePausedEvent constructs a validated immutable GAME_PAUSED event.
+func NewGamePausedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence uint64, payload GamePausedPayload) (GamePausedEvent, error) {
+	if err := validateMatchEventScope(roomID, matchID, sequence); err != nil {
+		return GamePausedEvent{}, err
+	}
+	switch payload.Reason {
+	case PauseReasonHostRequest, PauseReasonStorageFailure:
+	default:
+		return GamePausedEvent{}, fmt.Errorf("%w: reason %q", ErrInvalidServerEvent, payload.Reason)
+	}
+	if payload.PausedByPlayerID != nil {
+		if err := payload.PausedByPlayerID.Validate(); err != nil {
+			return GamePausedEvent{}, fmt.Errorf("%w: paused_by_player_id: %v", ErrInvalidServerEvent, err)
+		}
+	}
+	return GamePausedEvent{
+		Version: Version1, Direction: DirectionServerEvent, Type: EventGamePaused,
+		Sequence: sequence, RoomID: roomID, MatchID: matchID,
+		Payload: GamePausedPayload{
+			Reason:           payload.Reason,
+			PausedByPlayerID: cloneOptionalPlayer(payload.PausedByPlayerID),
+			EndsAt:           cloneOptionalString(payload.EndsAt),
+			PreservedTimerMS: payload.PreservedTimerMS,
+		},
+	}, nil
+}
+
+// GameResumedPayload announces the end of one match pause.
+type GameResumedPayload struct {
+	Reason string `json:"reason"`
+}
+
+// GameResumedEvent is the typed v1 GAME_RESUMED server event.
+type GameResumedEvent struct {
+	Version   int                `json:"version"`
+	Direction Direction          `json:"direction"`
+	Type      string             `json:"type"`
+	Sequence  uint64             `json:"sequence"`
+	RoomID    domain.RoomID      `json:"room_id"`
+	MatchID   domain.MatchID     `json:"match_id"`
+	Payload   GameResumedPayload `json:"payload"`
+}
+
+// NewGameResumedEvent constructs a validated immutable GAME_RESUMED event.
+func NewGameResumedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence uint64, payload GameResumedPayload) (GameResumedEvent, error) {
+	if err := validateMatchEventScope(roomID, matchID, sequence); err != nil {
+		return GameResumedEvent{}, err
+	}
+	switch payload.Reason {
+	case ResumeReasonHostRequest, ResumeReasonPauseExpired:
+	default:
+		return GameResumedEvent{}, fmt.Errorf("%w: reason %q", ErrInvalidServerEvent, payload.Reason)
+	}
+	return GameResumedEvent{
+		Version: Version1, Direction: DirectionServerEvent, Type: EventGameResumed,
+		Sequence: sequence, RoomID: roomID, MatchID: matchID, Payload: payload,
+	}, nil
+}
+
+func cloneOptionalPlayer(value *domain.PlayerID) *domain.PlayerID {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 // GameEndedPayload terminates one match scope.

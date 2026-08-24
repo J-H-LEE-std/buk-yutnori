@@ -17,6 +17,7 @@ import (
 	"sort"
 	"time"
 
+	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/board"
 	"buk-yutnori/internal/domain/cpu"
@@ -34,6 +35,14 @@ var (
 	ErrNotTurnPlayer = errors.New("command sender is not the acting turn player")
 	// ErrInvalidTurnAction rejects an action the current phase cannot accept.
 	ErrInvalidTurnAction = errors.New("turn action is not valid in the current phase")
+	// ErrMatchPaused rejects commands while the match is paused; retrying
+	// after resume is meaningful, so the rejection is retriable.
+	ErrMatchPaused = errors.New("the match is paused")
+	// ErrMatchPauseUsed rejects a second host pause in one match (docs/03:
+	// 경기당 1회).
+	ErrMatchPauseUsed = errors.New("the per-match pause was already used")
+	// ErrMatchNotPaused rejects a resume without an active pause.
+	ErrMatchNotPaused = errors.New("the match is not paused")
 )
 
 const (
@@ -133,6 +142,12 @@ type matchRuntime struct {
 	activeTimer      matchTimer
 	cpuControlled    bool
 	pendingMovePiece domain.PieceID
+
+	pauseUsed          bool
+	paused             bool
+	pauseEndsAt        time.Time
+	preservedTimerKind string
+	preservedRemaining time.Duration
 }
 
 func (rt *matchRuntime) currentPlayer() domain.PlayerID {
@@ -289,6 +304,141 @@ func (registry *RoomRegistry) endTurnLocked(entry *registeredRoom, rt *matchRunt
 	registry.cancelTimerLocked(rt)
 	rt.turnIndex = (rt.turnIndex + 1) % len(rt.order)
 	return registry.beginTurnLocked(entry, rt, tx)
+}
+
+// PauseGame starts the canonical per-match host pause: the active turn
+// window is cancelled and its kind plus remaining milliseconds are preserved
+// for resume (docs/03 일시 정지, ADR-0003).
+func (registry *RoomRegistry) PauseGame(user auth.UserID, roomID domain.RoomID, matchID domain.MatchID, minutes int) error {
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+
+	entry, rt, err := registry.liveMatchLocked(user, roomID, matchID)
+	if err != nil {
+		return err
+	}
+	if entry.host != user {
+		return ErrNotRoomHost
+	}
+	if minutes < protocol.MinPauseDurationMinutes || minutes > protocol.MaxPauseDurationMinutes {
+		return fmt.Errorf("%w: pause duration %d", ErrInvalidCommand, minutes)
+	}
+	if rt.paused {
+		return ErrMatchPaused
+	}
+	if rt.pauseUsed {
+		return ErrMatchPauseUsed
+	}
+
+	now := registry.matchClock.Now()
+	preservedKind := rt.timerKind
+	preservedRemaining := time.Duration(rt.remainingMS(now)) * time.Millisecond
+	rt.pauseUsed = true
+	rt.paused = true
+	rt.preservedTimerKind = preservedKind
+	rt.preservedRemaining = preservedRemaining
+	registry.cancelTimerLocked(rt)
+
+	nowCopy := now
+	rt.pauseEndsAt = nowCopy.Add(time.Duration(minutes) * time.Minute)
+	pauseDeadline := rt.pauseEndsAt
+	rt.activeTimer = registry.matchClock.AfterFunc(
+		time.Duration(minutes)*time.Minute,
+		func() { registry.firePauseExpiry(roomID, pauseDeadline) },
+	)
+
+	tx := registry.newEventTx(roomID)
+	endsAt := rt.pauseEndsAt.UTC().Format(time.RFC3339)
+	pausedBy := domain.PlayerID(user)
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewGamePausedEvent(rt.roomID, rt.matchID, sequence, protocol.GamePausedPayload{
+			Reason:           protocol.PauseReasonHostRequest,
+			PausedByPlayerID: &pausedBy,
+			EndsAt:           &endsAt,
+			PreservedTimerMS: uint64(preservedRemaining.Milliseconds()),
+		})
+	})
+	return tx.flush()
+}
+
+// ResumeGame ends an active host pause early, restoring the preserved turn
+// window (docs/03: 재개 시 보존한 남은 시간부터 같은 타이머를 계속 진행).
+func (registry *RoomRegistry) ResumeGame(user auth.UserID, roomID domain.RoomID, matchID domain.MatchID) error {
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+
+	entry, rt, err := registry.liveMatchLocked(user, roomID, matchID)
+	if err != nil {
+		return err
+	}
+	if entry.host != user {
+		return ErrNotRoomHost
+	}
+	if !rt.paused {
+		return ErrMatchNotPaused
+	}
+	tx := registry.newEventTx(roomID)
+	if err := registry.resumeMatchLocked(tx, rt, protocol.ResumeReasonHostRequest); err != nil {
+		return err
+	}
+	return tx.flush()
+}
+
+// firePauseExpiry auto-resumes the match when the scheduled pause window
+// elapses. A stale deadline (resumed and re-paused meanwhile) is ignored.
+func (registry *RoomRegistry) firePauseExpiry(roomID domain.RoomID, deadline time.Time) {
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+
+	entry, exists := registry.rooms[roomID]
+	if !exists || entry.poisoned {
+		return
+	}
+	rt := entry.runtime
+	if rt == nil || !rt.paused || !rt.pauseEndsAt.Equal(deadline) {
+		return
+	}
+	tx := registry.newEventTx(roomID)
+	if err := registry.resumeMatchLocked(tx, rt, protocol.ResumeReasonPauseExpired); err != nil {
+		return
+	}
+	_ = tx.flush()
+}
+
+// resumeMatchLocked restores the preserved turn window and stages the
+// GAME_RESUMED broadcast.
+func (registry *RoomRegistry) resumeMatchLocked(tx *eventTx, rt *matchRuntime, reason string) error {
+	rt.paused = false
+	if rt.activeTimer != nil {
+		rt.activeTimer.Stop()
+		rt.activeTimer = nil
+	}
+	if rt.preservedTimerKind != "" && rt.preservedRemaining > 0 && !rt.cpuControlled {
+		switch rt.preservedTimerKind {
+		case matchTimerKindThrow:
+			registry.armTimerLocked(rt, matchTimerKindThrow, rt.preservedRemaining)
+		case matchTimerKindMove:
+			registry.armTimerLocked(rt, matchTimerKindMove, rt.preservedRemaining)
+		}
+	}
+	rt.preservedTimerKind = ""
+	rt.preservedRemaining = 0
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewGameResumedEvent(rt.roomID, rt.matchID, sequence, protocol.GameResumedPayload{Reason: reason})
+	})
+	return nil
+}
+
+func (registry *RoomRegistry) armTimerLocked(rt *matchRuntime, kind string, duration time.Duration) {
+	rt.timerGeneration++
+	rt.timerKind = kind
+	now := registry.matchClock.Now()
+	rt.timerDeadline = now.Add(duration)
+	generation := rt.timerGeneration
+	roomID := rt.roomID
+	rt.activeTimer = registry.matchClock.AfterFunc(duration, func() {
+		registry.fireTurnTimeout(roomID, generation)
+	})
 }
 
 func (registry *RoomRegistry) finishMatchLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) error {

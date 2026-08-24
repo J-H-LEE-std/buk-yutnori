@@ -83,7 +83,7 @@ func (registry *RoomRegistry) fireTurnTimeout(roomID domain.RoomID, generation u
 	}
 	rt := entry.runtime
 	if rt == nil || entry.poisoned || generation != rt.timerGeneration ||
-		rt.timerKind == "" || rt.cpuControlled {
+		rt.timerKind == "" || rt.cpuControlled || rt.paused {
 		return
 	}
 	player := rt.currentPlayer()
@@ -143,6 +143,9 @@ func (registry *RoomRegistry) ThrowYut(user auth.UserID, roomID domain.RoomID, m
 	if err != nil {
 		return err
 	}
+	if rt.paused {
+		return ErrMatchPaused
+	}
 	if rt.currentPlayer() != domain.PlayerID(user) {
 		return ErrNotTurnPlayer
 	}
@@ -168,6 +171,9 @@ func (registry *RoomRegistry) SelectResult(user auth.UserID, roomID domain.RoomI
 	entry, rt, err := registry.liveMatchLocked(user, roomID, matchID)
 	if err != nil {
 		return err
+	}
+	if rt.paused {
+		return ErrMatchPaused
 	}
 	if rt.currentPlayer() != domain.PlayerID(user) {
 		return ErrNotTurnPlayer
@@ -197,6 +203,9 @@ func (registry *RoomRegistry) SelectPiece(user auth.UserID, roomID domain.RoomID
 	if err != nil {
 		return err
 	}
+	if rt.paused {
+		return ErrMatchPaused
+	}
 	if rt.currentPlayer() != domain.PlayerID(user) {
 		return ErrNotTurnPlayer
 	}
@@ -219,6 +228,9 @@ func (registry *RoomRegistry) SelectRoute(user auth.UserID, roomID domain.RoomID
 	entry, rt, err := registry.liveMatchLocked(user, roomID, matchID)
 	if err != nil {
 		return err
+	}
+	if rt.paused {
+		return ErrMatchPaused
 	}
 	if rt.currentPlayer() != domain.PlayerID(user) {
 		return ErrNotTurnPlayer
