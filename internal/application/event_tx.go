@@ -92,23 +92,40 @@ func (tx *eventTx) flush() error {
 		defer cancel()
 		if err := registry.store.AppendRoomEvents(ctx, rows); err != nil {
 			if entry, exists := registry.rooms[domain.RoomID(tx.roomID)]; exists {
-				entry.poisoned = true
+				// Started rooms degrade into the operational storage pause
+				// with retry schedule and eventual invalidation (#87,
+				// ADR-0017). Rooms without a live runtime (creation,
+				// lobby-only scopes) keep the fail-closed fence because
+				// there is no match to pause.
+				if entry.started && entry.runtime != nil {
+					registry.enterStoragePauseLocked(entry, entry.runtime, messages, rows)
+				} else {
+					entry.poisoned = true
+				}
 			}
 			return fmt.Errorf("%w: append %d events: %v", ErrEventStoreUnavailable, len(rows), err)
 		}
 	}
 
-	entry := registry.rooms[domain.RoomID(tx.roomID)]
+	// Sequences are consumed after a successful durable append - or, in the
+	// memory-only test mode without an attached store, immediately.
 	for range messages {
 		if _, err := registry.sequences.CommitNext(domain.RoomID(tx.roomID)); err != nil {
 			return err
 		}
 	}
-	if entry == nil {
-		// The operation removed the room (prototype cleanup paths); the
-		// events were still persisted but nobody is subscribed anymore.
+
+	entry, exists := registry.rooms[domain.RoomID(tx.roomID)]
+	if !exists {
 		return nil
 	}
+	registry.publishCommittedLocked(entry, messages)
+	return nil
+}
+
+// publishCommittedLocked refreshes hub caches and fans out already-committed
+// messages to member subscribers. The caller holds the registry mutex.
+func (registry *RoomRegistry) publishCommittedLocked(entry *registeredRoom, messages []any) {
 	for _, message := range messages {
 		switch event := message.(type) {
 		case protocol.GameStartingEvent:
@@ -126,7 +143,6 @@ func (tx *eventTx) flush() error {
 			}
 		}
 	}
-	return nil
 }
 
 // serverEventType returns the wire type constant for one staged event via an

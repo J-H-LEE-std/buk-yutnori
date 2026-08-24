@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -99,56 +100,7 @@ func TestMatchEventsPersistBeforeBroadcastWithContiguousSequences(t *testing.T) 
 	}
 }
 
-// A durable append failure must fence the room: nothing committed, nothing
-// broadcast, every subsequent transition refused until restart.
-func TestStorageFailureFencesRoomWithoutCommitOrBroadcast(t *testing.T) {
-	t.Parallel()
-
-	fixture := newMatchFixture(t, nil)
-	defer fixture.recorder.close()
-	rt := fixture.runtime()
-	current := rt.currentPlayer()
-
-	boundaryBefore := boundaryOf(t, fixture.registry, fixture.roomID)
-	recordedBefore := len(fixture.recorder.snapshotEvents())
-
-	injected := errors.New("injected disk failure")
-	fixture.registry.setEventStoreForTest(&failingStore{err: injected})
-
-	err := fixture.registry.ThrowYut(auth.UserID(current), fixture.roomID, fixture.matchID)
-	if !errors.Is(err, ErrEventStoreUnavailable) {
-		t.Fatalf("ThrowYut under storage failure = %v, want ErrEventStoreUnavailable", err)
-	}
-
-	entry := fixture.registry.rooms[fixture.roomID]
-	if !entry.poisoned {
-		t.Fatal("room was not fenced after the durable failure")
-	}
-	if got := boundaryOf(t, fixture.registry, fixture.roomID); got != boundaryBefore {
-		t.Fatalf("sequence boundary advanced during failure: %d -> %d", boundaryBefore, got)
-	}
-	if got := len(fixture.recorder.snapshotEvents()); got != recordedBefore {
-		t.Fatalf("%d events were broadcast despite the failure", got-recordedBefore)
-	}
-
-	if err := fixture.registry.ThrowYut(auth.UserID(current), fixture.roomID, fixture.matchID); !errors.Is(err, ErrEventStoreUnavailable) {
-		t.Fatalf("post-fence ThrowYut = %v, want ErrEventStoreUnavailable", err)
-	}
-	if err := fixture.registry.SetReady(fixture.users[0], fixture.roomID, true); !errors.Is(err, ErrEventStoreUnavailable) {
-		t.Fatalf("post-fence SetReady = %v, want ErrEventStoreUnavailable", err)
-	}
-	for _, summary := range fixture.registry.List() {
-		if summary.RoomID == fixture.roomID {
-			t.Fatal("fenced room must not advertise itself in the open-room list")
-		}
-	}
-	if _, bundleErr := fixture.registry.ReconnectBundle(
-		auth.UserID(current), fixture.roomID, fixture.matchID, 0,
-	); !errors.Is(bundleErr, ErrEventStoreUnavailable) {
-		t.Fatalf("post-fence RECONNECT = %v, want ErrEventStoreUnavailable", bundleErr)
-	}
-}
-
+// failingStore rejects every append with a fixed error.
 type failingStore struct{ err error }
 
 func (store *failingStore) AppendRoomEvents(ctx context.Context, rows []storage.EventRow) error {
@@ -157,6 +109,49 @@ func (store *failingStore) AppendRoomEvents(ctx context.Context, rows []storage.
 
 func (store *failingStore) ReadRoomEventsAfter(ctx context.Context, roomID domain.RoomID, afterSequence uint64) ([]storage.EventRow, error) {
 	return nil, store.err
+}
+
+// assertNoDuplicateSequences fails the test when any stored batch re-uses a
+// (room_id, sequence) key, mirroring the canonical store's primary key.
+func assertNoDuplicateSequences(t *testing.T, rows []storage.EventRow) {
+	t.Helper()
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		key := string(row.RoomID) + "/" + strconv.FormatUint(row.Sequence, 10)
+		if _, duplicate := seen[key]; duplicate {
+			t.Fatalf("duplicate stored event %s", key)
+		}
+		seen[key] = struct{}{}
+	}
+}
+
+// A durable failure in a started room degrades into the operational storage
+// pause (retry schedule + invalidation, #87) instead of the legacy poison
+// fence. Full coverage lives in match_storage_pause_test.go.
+func TestStorageFailureDegradesStartedRoomToOperationalPause(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMatchFixture(t, nil)
+	defer fixture.recorder.close()
+	rt := fixture.runtime()
+	current := rt.currentPlayer()
+	boundaryBefore := boundaryOf(t, fixture.registry, fixture.roomID)
+
+	failing := &failingStore{err: errors.New("injected")}
+	fixture.registry.setEventStoreForTest(failing)
+
+	err := fixture.registry.ThrowYut(auth.UserID(current), fixture.roomID, fixture.matchID)
+	if !errors.Is(err, ErrEventStoreUnavailable) {
+		t.Fatalf("ThrowYut under storage failure = %v", err)
+	}
+	entry := fixture.registry.rooms[fixture.roomID]
+	if entry.poisoned || !entry.runtime.storagePaused {
+		t.Fatalf("started room must degrade to the operational pause: poisoned=%v storagePaused=%v",
+			entry.poisoned, entry.runtime.storagePaused)
+	}
+	if got := boundaryOf(t, fixture.registry, fixture.roomID); got != boundaryBefore {
+		t.Fatalf("boundary advanced during failure: %d -> %d", boundaryBefore, got)
+	}
 }
 
 // The replay read path verifies stored contiguity before serving bundles.

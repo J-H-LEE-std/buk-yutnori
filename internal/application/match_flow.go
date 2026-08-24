@@ -104,7 +104,8 @@ func (registry *RoomRegistry) fireTurnTimeout(roomID domain.RoomID, generation u
 // Public match commands
 
 // liveMatchLocked resolves the caller's live runtime for a started room and
-// validates membership, poison fencing, and match scope in one step.
+// validates membership, fencing, storage-pause rejection, and match scope in
+// one step.
 func (registry *RoomRegistry) liveMatchLocked(
 	user auth.UserID,
 	roomID domain.RoomID,
@@ -119,6 +120,11 @@ func (registry *RoomRegistry) liveMatchLocked(
 		return nil, nil, ErrRoomNotFound
 	}
 	if entry.poisoned {
+		return nil, nil, ErrEventStoreUnavailable
+	}
+	if entry.runtime != nil && entry.runtime.storagePaused {
+		// The operational pause rejects every state-changing command until
+		// recovery or invalidation completes (spec during_storage_pause).
 		return nil, nil, ErrEventStoreUnavailable
 	}
 	if _, member := entry.lobby.Player(playerID); !member {

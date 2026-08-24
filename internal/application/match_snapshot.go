@@ -234,16 +234,20 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 	// Used tracks per-match consumption even after resume so reconnecting
 	// clients see that the one-time host pause is spent (docs/03 경기당 1회).
 	pauseView := snapshotPauseJSON{Used: rt.pauseUsed}
-	if rt.paused {
+	if rt.paused || rt.storagePaused {
 		phase = string(domain.TurnPaused)
 		timer = snapshotTimerJSON{
 			Phase:       "paused",
 			RemainingMS: uint64(rt.preservedRemaining.Milliseconds()),
 			DeadlineAt:  pauseEndsAtPointer(rt),
 		}
-		endsAt := rt.pauseEndsAt.UTC().Format(time.RFC3339)
 		pauseView.Paused = true
-		pauseView.EndsAt = &endsAt
+		if rt.paused {
+			// Only a host pause carries a scheduled auto-resume instant; a
+			// pure storage-failure pause has no deadline to expose.
+			endsAt := rt.pauseEndsAt.UTC().Format(time.RFC3339)
+			pauseView.EndsAt = &endsAt
+		}
 	}
 
 	return gameSnapshotJSON{
