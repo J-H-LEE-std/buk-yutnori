@@ -12,27 +12,32 @@ PROTOCOL_STATE_SOURCE := $(CURDIR)/src/protocol_state.c
 PROTOCOL_STATE_HEADER := $(CURDIR)/include/buk_client/protocol_state.h
 PROTOCOL_BRIDGE_SOURCE := $(CURDIR)/src/protocol_bridge.c
 BRIDGE_HEADER := $(CURDIR)/include/buk_client/bridge.h
+BOARD_LAYOUT_SOURCE := $(CURDIR)/src/board_layout.c
+BOARD_LAYOUT_HEADER := $(CURDIR)/include/buk_client/board_layout.h
+BOARD_GRAPH_DATA := $(CURDIR)/include/buk_client/board_graph_data.def
 STATE_TEST := $(BUILD_DIR)/state_test
 PROTOCOL_STATE_TEST := $(BUILD_DIR)/protocol_state_test
 PROTOCOL_BRIDGE_TEST := $(BUILD_DIR)/protocol_bridge_test
+BOARD_LAYOUT_TEST := $(BUILD_DIR)/board_layout_test
 RAYLIB_WEB_LIB := $(RAYLIB_PATH)/src/libraylib.web.a
 WEB_OUTPUT := $(BUILD_DIR)/web/index.html
-WEB_SOURCES := $(CURDIR)/src/main.c $(STATE_SOURCE) $(PROTOCOL_STATE_SOURCE) $(PROTOCOL_BRIDGE_SOURCE)
+WEB_SOURCES := $(CURDIR)/src/main.c $(STATE_SOURCE) $(PROTOCOL_STATE_SOURCE) $(PROTOCOL_BRIDGE_SOURCE) $(BOARD_LAYOUT_SOURCE)
 WEB_CFLAGS := -std=c11 -Os -Wall -Wextra -Wpedantic -Werror \
 	-Werror=implicit-function-declaration -Wmissing-prototypes -Wstrict-prototypes \
 	-DPLATFORM_WEB
 WEB_LDFLAGS := -sUSE_GLFW=3 -sWASM=1 -sASSERTIONS=1 -sENVIRONMENT=web \
-	-sEXPORTED_FUNCTIONS=_main,_BukClientSetInput,_BukClientGetInput,_BukClientProtocolRuntimeInit,_BukClientBeginSynchronization,_BukClientApplySnapshotSequence,_BukClientApplyEventSequence,_BukClientCompleteSynchronization,_BukClientCanSendStateCommands,_BukClientRequiresResynchronization,_BukClientLastSequence \
+	-sEXPORTED_FUNCTIONS=_main,_BukClientSetInput,_BukClientGetInput,_BukClientRenderedBoardNodeCount,_BukClientRenderedBoardEdgeCount,_BukClientProtocolRuntimeInit,_BukClientBeginSynchronization,_BukClientApplySnapshotSequence,_BukClientApplyEventSequence,_BukClientCompleteSynchronization,_BukClientCanSendStateCommands,_BukClientRequiresResynchronization,_BukClientLastSequence \
 	-sEXPORTED_RUNTIME_METHODS=ccall --shell-file $(CURDIR)/web/shell.html
 
 .PHONY: all check-raylib test wasm
 
 all: test
 
-test: $(STATE_TEST) $(PROTOCOL_STATE_TEST) $(PROTOCOL_BRIDGE_TEST)
+test: $(STATE_TEST) $(PROTOCOL_STATE_TEST) $(PROTOCOL_BRIDGE_TEST) $(BOARD_LAYOUT_TEST)
 	$(STATE_TEST)
 	$(PROTOCOL_STATE_TEST)
 	$(PROTOCOL_BRIDGE_TEST)
+	$(BOARD_LAYOUT_TEST)
 
 wasm: check-raylib $(WEB_OUTPUT)
 
@@ -52,11 +57,15 @@ $(PROTOCOL_BRIDGE_TEST): $(CURDIR)/tests/protocol_bridge_test.c $(PROTOCOL_BRIDG
 	mkdir -p $(dir $@)
 	$(NATIVE_CC) $(NATIVE_CFLAGS) $(INCLUDES) $(CURDIR)/tests/protocol_bridge_test.c $(PROTOCOL_BRIDGE_SOURCE) $(PROTOCOL_STATE_SOURCE) -o $@
 
+$(BOARD_LAYOUT_TEST): $(CURDIR)/tests/board_layout_test.c $(BOARD_LAYOUT_SOURCE) $(BOARD_LAYOUT_HEADER) $(BOARD_GRAPH_DATA)
+	mkdir -p $(dir $@)
+	$(NATIVE_CC) $(NATIVE_CFLAGS) $(INCLUDES) $(CURDIR)/tests/board_layout_test.c $(BOARD_LAYOUT_SOURCE) -o $@
+
 $(RAYLIB_WEB_LIB):
 	$(MAKE) -C $(RAYLIB_PATH)/src PLATFORM=PLATFORM_WEB RAYLIB_BUILD_MODE=RELEASE \
 		RAYLIB_MODULE_AUDIO=FALSE RAYLIB_MODULE_MODELS=FALSE
 
-$(WEB_OUTPUT): $(WEB_SOURCES) $(STATE_HEADER) $(PROTOCOL_STATE_HEADER) $(BRIDGE_HEADER) $(CURDIR)/web/shell.html $(RAYLIB_WEB_LIB)
+$(WEB_OUTPUT): $(WEB_SOURCES) $(STATE_HEADER) $(PROTOCOL_STATE_HEADER) $(BRIDGE_HEADER) $(BOARD_LAYOUT_HEADER) $(BOARD_GRAPH_DATA) $(CURDIR)/web/shell.html $(RAYLIB_WEB_LIB)
 	mkdir -p $(dir $@)
 	$(EMCC) $(WEB_CFLAGS) $(INCLUDES) -I$(RAYLIB_PATH)/src $(WEB_SOURCES) \
 		$(RAYLIB_WEB_LIB) $(WEB_LDFLAGS) -o $@
