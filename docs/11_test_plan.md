@@ -179,6 +179,8 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 스냅샷 sequence와 이후 누락 이벤트의 원자적 경계
 - snapshot보다 오래된 클라이언트 sequence, event 공백·중복·역전 시
   `RESYNC_REQUIRED`와 기존 확정 상태 보존
+- authoritative snapshot의 enum·보드 칸·말 상태 조합이 잘못되거나 아직 reducer가
+  없는 비어 있지 않은 event tail이면 이전 C 표시 상태와 sequence를 함께 보존
 - 재동기화 staging 완료 전 command 전송 차단과 완료 시 sequence 원자 교체
 - 예상하지 못한 WebSocket 종료 뒤 250ms, 500ms, 1초, 2초, 5초의 최대 5회 재연결
 - 연결 성공 시 backoff 초기화, 로그아웃 시 예약 취소, 한도 소진 뒤 자동 재연결 중단

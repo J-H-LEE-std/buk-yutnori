@@ -181,6 +181,23 @@
     const MAX_CHAT_CODE_POINTS = 200;
     const MAX_RENDERED_CHAT_MESSAGES = 100;
     const REALTIME_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 5000];
+    const MATCH_STATUSES = new Set(["starting", "active", "paused", "finished", "invalid"]);
+    const TURN_PHASES = new Set([
+      "turn_start", "wait_throw", "throwing_chain", "resolve_queue",
+      "wait_result_selection", "wait_piece_selection", "wait_route_selection",
+      "apply_move", "resolve_stack_capture_finish", "resolve_buk", "cpu_control",
+      "paused", "turn_end", "match_end",
+    ]);
+    const REQUIRED_INPUTS = new Set([
+      "none", "throw", "select_result", "select_piece", "select_route",
+    ]);
+    const TIMER_PHASES = new Set(["throw", "move", "paused", "none"]);
+    const PIECE_STATES = new Set(["waiting", "on_board", "home_checkpoint", "finished"]);
+    const RESULTS = new Set(["do", "gae", "geol", "yut", "mo", "backdo", "buk"]);
+    const RESULT_ORIGINS = new Set(["initial_throw", "yut_extra", "mo_extra", "capture_extra"]);
+    const PARTICIPANT_ROLES = new Set(["player", "spectator"]);
+    const PERMISSIONS = new Set(["control_game", "chat", "pause_game", "manage_room"]);
+    const CPU_REASONS = new Set(["disconnected", "timeout", null]);
     let composing = false;
     let chatComposing = false;
     let realtimeSocket = null;
@@ -193,6 +210,7 @@
     let wasmRuntimeReady = false;
     const pendingChatCommands = new Set();
     const pendingSynchronizationCommands = new Map();
+    let confirmedSnapshotPieceIds = [];
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
@@ -367,6 +385,163 @@
       return true;
     }
 
+    function isRecord(value) {
+      return value !== null && typeof value === "object" && !Array.isArray(value);
+    }
+
+    function hasExactKeys(value, keys) {
+      if (!isRecord(value)) return false;
+      const actual = Object.keys(value);
+      return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+    }
+
+    function isStringId(value) {
+      return typeof value === "string" && value.length > 0;
+    }
+
+    function isNullableStringId(value) {
+      return value === null || isStringId(value);
+    }
+
+    function isUniqueStringIdArray(value, minimum = 0) {
+      return Array.isArray(value) && value.length >= minimum
+        && value.every(isStringId) && new Set(value).size === value.length;
+    }
+
+    function isCanonicalBoardSpace(value) {
+      return isStringId(value) && Module.ccall(
+        "BukClientIsCanonicalBoardSpace", "number", ["string"], [value],
+      ) === 1;
+    }
+
+    function isNullableBoardSpace(value) {
+      return value === null || isCanonicalBoardSpace(value);
+    }
+
+    function isTeam(value) {
+      return value === "A" || value === "B";
+    }
+
+    function validateTeam(team) {
+      return hasExactKeys(team, ["team_id", "player_ids", "turn_order"])
+        && isTeam(team.team_id) && isUniqueStringIdArray(team.player_ids)
+        && isUniqueStringIdArray(team.turn_order);
+    }
+
+    function validateParticipant(participant) {
+      if (!hasExactKeys(participant, [
+        "user_id", "nickname", "role", "team_id", "permissions", "connected",
+        "cpu_control",
+      ])) return false;
+      const cpu = participant.cpu_control;
+      return isStringId(participant.user_id) && isStringId(participant.nickname)
+        && PARTICIPANT_ROLES.has(participant.role)
+        && (participant.team_id === null || isTeam(participant.team_id))
+        && Array.isArray(participant.permissions)
+        && participant.permissions.every((permission) => PERMISSIONS.has(permission))
+        && new Set(participant.permissions).size === participant.permissions.length
+        && typeof participant.connected === "boolean"
+        && hasExactKeys(cpu, ["active", "reason"])
+        && typeof cpu.active === "boolean" && CPU_REASONS.has(cpu.reason);
+    }
+
+    function validateCurrentTurn(turn) {
+      if (!hasExactKeys(turn, ["player_id", "phase", "required_input", "timer"])
+          || !isNullableStringId(turn.player_id) || !TURN_PHASES.has(turn.phase)
+          || !REQUIRED_INPUTS.has(turn.required_input)) return false;
+      const timer = turn.timer;
+      return hasExactKeys(timer, ["phase", "remaining_ms", "deadline_at"])
+        && TIMER_PHASES.has(timer.phase)
+        && Number.isSafeInteger(timer.remaining_ms) && timer.remaining_ms >= 0
+        && (timer.deadline_at === null || isStringId(timer.deadline_at));
+    }
+
+    function validateResultToken(token) {
+      return hasExactKeys(token, [
+        "token_id", "result", "origin", "generated_by_player_id",
+      ]) && isStringId(token.token_id) && RESULTS.has(token.result)
+        && RESULT_ORIGINS.has(token.origin) && isStringId(token.generated_by_player_id);
+    }
+
+    function validatePiece(piece) {
+      if (!hasExactKeys(piece, [
+        "piece_id", "team_id", "state", "current_space_id", "stack_id",
+        "position_group_id", "actual_previous_space",
+      ]) || !isStringId(piece.piece_id) || !isTeam(piece.team_id)
+          || !PIECE_STATES.has(piece.state) || !isNullableStringId(piece.stack_id)
+          || !isNullableStringId(piece.position_group_id)
+          || !isNullableBoardSpace(piece.actual_previous_space)) return false;
+      if (piece.state === "waiting" || piece.state === "finished") {
+        return piece.current_space_id === null && piece.stack_id === null
+          && piece.position_group_id === null && piece.actual_previous_space === null;
+      }
+      if (!isCanonicalBoardSpace(piece.current_space_id)
+          || !isStringId(piece.position_group_id)) return false;
+      return piece.state !== "home_checkpoint"
+        || (piece.current_space_id === "chammeogi"
+            && isCanonicalBoardSpace(piece.actual_previous_space));
+    }
+
+    function validateStack(stack) {
+      return hasExactKeys(stack, [
+        "stack_id", "team_id", "space_id", "piece_ids", "actual_previous_space",
+      ]) && isStringId(stack.stack_id) && isTeam(stack.team_id)
+        && isCanonicalBoardSpace(stack.space_id)
+        && isUniqueStringIdArray(stack.piece_ids, 2)
+        && isNullableBoardSpace(stack.actual_previous_space);
+    }
+
+    function validatePositionGroup(group) {
+      return hasExactKeys(group, ["group_id", "team_id", "space_id", "piece_ids"])
+        && isStringId(group.group_id) && isTeam(group.team_id)
+        && isCanonicalBoardSpace(group.space_id)
+        && isUniqueStringIdArray(group.piece_ids, 1);
+    }
+
+    function validateGameSnapshot(snapshot) {
+      if (!hasExactKeys(snapshot, [
+        "room_id", "match_id", "sequence", "status", "teams", "participants",
+        "current_turn", "result_queue", "pieces", "stacks", "position_groups",
+        "buk", "pause",
+      ]) || !isStringId(snapshot.room_id) || !isStringId(snapshot.match_id)
+          || !Number.isSafeInteger(snapshot.sequence) || snapshot.sequence < 1
+          || !MATCH_STATUSES.has(snapshot.status)
+          || !Array.isArray(snapshot.teams) || snapshot.teams.length !== 2
+          || !snapshot.teams.every(validateTeam)
+          || new Set(snapshot.teams.map((team) => team.team_id)).size !== 2
+          || !Array.isArray(snapshot.participants)
+          || !snapshot.participants.every(validateParticipant)
+          || !validateCurrentTurn(snapshot.current_turn)
+          || !Array.isArray(snapshot.result_queue)
+          || !snapshot.result_queue.every(validateResultToken)
+          || new Set(snapshot.result_queue.map((token) => token.token_id)).size
+             !== snapshot.result_queue.length
+          || !Array.isArray(snapshot.pieces) || !snapshot.pieces.every(validatePiece)
+          || new Set(snapshot.pieces.map((piece) => piece.piece_id)).size
+             !== snapshot.pieces.length
+          || !Array.isArray(snapshot.stacks) || !snapshot.stacks.every(validateStack)
+          || new Set(snapshot.stacks.map((stack) => stack.stack_id)).size
+             !== snapshot.stacks.length
+          || !Array.isArray(snapshot.position_groups)
+          || !snapshot.position_groups.every(validatePositionGroup)
+          || new Set(snapshot.position_groups.map((group) => group.group_id)).size
+             !== snapshot.position_groups.length
+          || !hasExactKeys(snapshot.buk, ["enabled", "destination_space_id"])
+          || typeof snapshot.buk.enabled !== "boolean"
+          || !isNullableBoardSpace(snapshot.buk.destination_space_id)
+          || !hasExactKeys(snapshot.pause, ["used", "paused", "ends_at"])
+          || typeof snapshot.pause.used !== "boolean"
+          || typeof snapshot.pause.paused !== "boolean"
+          || (snapshot.pause.ends_at !== null && !isStringId(snapshot.pause.ends_at))) {
+        return null;
+      }
+      const playerId = snapshot.current_turn.player_id;
+      const participant = playerId === null ? null
+        : snapshot.participants.find((candidate) => candidate.user_id === playerId);
+      const team = participant && isTeam(participant.team_id) ? participant.team_id : "";
+      return { snapshot, currentTeam: team };
+    }
+
     function synchronizationSequences(message) {
       if (message?.version !== 1 || message.direction !== "server_response"
           || message.type !== "COMMAND_RESULT" || message.payload?.status !== "accepted"
@@ -376,42 +551,57 @@
       const synchronization = message.payload?.synchronization;
       const snapshot = synchronization?.snapshot;
       const events = synchronization?.events;
-      if (!snapshot || !Array.isArray(events)
+      if (!snapshot || !Array.isArray(events) || events.length !== 0
           || snapshot.room_id !== message.room_id
           || snapshot.match_id !== message.match_id
           || !Number.isSafeInteger(snapshot.sequence) || snapshot.sequence < 1) return null;
-      const sequences = [];
-      let expected = snapshot.sequence;
-      for (const serverEvent of events) {
-        expected += 1;
-        if (serverEvent?.version !== 1 || serverEvent.direction !== "server_event"
-            || typeof serverEvent.type !== "string"
-            || !Number.isSafeInteger(serverEvent.sequence) || serverEvent.sequence !== expected
-            || serverEvent.room_id !== message.room_id
-            || (serverEvent.match_id != null && serverEvent.match_id !== message.match_id)) {
-          return null;
-        }
-        sequences.push(serverEvent.sequence);
+      return { snapshot };
+    }
+
+    function failSynchronization() {
+      Module.ccall("BukClientFailSynchronization", "number", [], []);
+      return false;
+    }
+
+    function stageSnapshotPresentation(snapshot) {
+      const validated = validateGameSnapshot(snapshot);
+      if (validated === null) return null;
+      const turn = snapshot.current_turn;
+      if (Module.ccall(
+        "BukClientStageSnapshotMetadata", "number",
+        ["string", "string", "string", "string", "string", "string"],
+        [snapshot.status, turn.phase, turn.required_input, turn.timer.phase,
+          validated.currentTeam, String(turn.timer.remaining_ms)],
+      ) !== 1) return null;
+      for (const piece of snapshot.pieces) {
+        if (Module.ccall(
+          "BukClientStageSnapshotPiece", "number", ["string", "string", "string"],
+          [piece.team_id, piece.state, piece.current_space_id ?? ""],
+        ) !== 1) return null;
       }
-      return { snapshot: snapshot.sequence, events: sequences };
+      for (const token of snapshot.result_queue) {
+        if (Module.ccall(
+          "BukClientStageSnapshotResult", "number", ["string"], [token.result],
+        ) !== 1) return null;
+      }
+      return snapshot.pieces.map((piece) => piece.piece_id);
     }
 
     function applySynchronizationSequenceBundle(message) {
       Module.ccall("BukClientBeginSynchronization", "number", [], []);
       const sequences = synchronizationSequences(message);
-      if (sequences === null) {
-        Module.ccall("BukClientApplySnapshotSequence", "number", ["string"], ["0"]);
-        return false;
-      }
+      if (sequences === null) return failSynchronization();
       if (Module.ccall(
-        "BukClientApplySnapshotSequence", "number", ["string"], [String(sequences.snapshot)],
-      ) !== 1) return false;
-      for (const sequence of sequences.events) {
-        if (Module.ccall(
-          "BukClientApplyEventSequence", "number", ["string"], [String(sequence)],
-        ) !== 1) return false;
+        "BukClientApplySnapshotSequence", "number", ["string"],
+        [String(sequences.snapshot.sequence)],
+      ) !== 1) return failSynchronization();
+      const pendingPieceIds = stageSnapshotPresentation(sequences.snapshot);
+      if (pendingPieceIds === null) return failSynchronization();
+      if (Module.ccall("BukClientCompleteSynchronization", "number", [], []) !== 1) {
+        return failSynchronization();
       }
-      return Module.ccall("BukClientCompleteSynchronization", "number", [], []) === 1;
+      confirmedSnapshotPieceIds = pendingPieceIds;
+      return true;
     }
 
     function setChatAvailable(available) {

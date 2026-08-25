@@ -1,6 +1,7 @@
 #include "buk_client/board_layout.h"
 
 #include <math.h>
+#include <string.h>
 
 static const BukClientBoardNode board_nodes[] = {
 #define BUK_CLIENT_BOARD_NODE(symbol, spec_id_value, x, y) \
@@ -30,6 +31,20 @@ const BukClientBoardEdge *BukClientBoardEdges(size_t *count)
 {
     if (count != NULL) *count = sizeof(board_edges) / sizeof(board_edges[0]);
     return board_edges;
+}
+
+bool BukClientBoardFindNode(const char *spec_id, BukClientBoardNodeId *node_id)
+{
+    size_t index;
+
+    if ((spec_id == NULL) || (node_id == NULL) || (spec_id[0] == '\0')) return false;
+    for (index = 0U; index < sizeof(board_nodes) / sizeof(board_nodes[0]); index++) {
+        if (strcmp(spec_id, board_nodes[index].spec_id) == 0) {
+            *node_id = board_nodes[index].id;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool BukClientBoardMapNode(BukClientRect viewport, BukClientBoardNodeId node_id,

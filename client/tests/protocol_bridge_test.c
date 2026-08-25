@@ -15,19 +15,41 @@ static void Check(int condition, const char *expression, const char *file, int l
     failures++;
 }
 
-static void TestStagesSequencesThroughDecimalStringBoundary(void)
+static void StageMinimalPresentation(const char *status, const char *team)
 {
+    CHECK(BukClientStageSnapshotMetadata(status, "wait_throw", "throw", "throw",
+                                         team, "20000"));
+    CHECK(BukClientStageSnapshotPiece("A", "on_board", "do"));
+    CHECK(BukClientStageSnapshotPiece("B", "waiting", ""));
+    CHECK(BukClientStageSnapshotResult("gae"));
+}
+
+static void TestAtomicallyCommitsSequenceAndPresentation(void)
+{
+    const BukClientPresentationSnapshot *snapshot;
+
     BukClientProtocolRuntimeInit();
 
     CHECK(!BukClientCanSendStateCommands());
     CHECK(strcmp(BukClientLastSequence(), "0") == 0);
     CHECK(BukClientBeginSynchronization());
     CHECK(BukClientApplySnapshotSequence("41"));
-    CHECK(BukClientApplyEventSequence("42"));
+    StageMinimalPresentation("active", "A");
     CHECK(BukClientCompleteSynchronization());
     CHECK(BukClientCanSendStateCommands());
     CHECK(!BukClientRequiresResynchronization());
-    CHECK(strcmp(BukClientLastSequence(), "42") == 0);
+    CHECK(strcmp(BukClientLastSequence(), "41") == 0);
+    CHECK(BukClientHasPresentationSnapshot());
+    CHECK(BukClientPresentationPieceCount() == 2);
+    CHECK(BukClientPresentationResultCount() == 1);
+    CHECK(strcmp(BukClientPresentationStatus(), "active") == 0);
+    CHECK(strcmp(BukClientPresentationTurnPhase(), "wait_throw") == 0);
+    CHECK(strcmp(BukClientPresentationRequiredInput(), "throw") == 0);
+    CHECK(strcmp(BukClientPresentationCurrentTeam(), "A") == 0);
+    CHECK(strcmp(BukClientPresentationRemainingMilliseconds(), "20000") == 0);
+    snapshot = BukClientConfirmedPresentation();
+    CHECK(snapshot != NULL);
+    CHECK(snapshot->pieces[0].node == BUK_CLIENT_BOARD_NODE_DO);
 }
 
 static void TestRejectsInvalidDecimalSequences(void)
@@ -57,15 +79,17 @@ static void TestFailedBundlePreservesConfirmedSequence(void)
     BukClientProtocolRuntimeInit();
     CHECK(BukClientBeginSynchronization());
     CHECK(BukClientApplySnapshotSequence("10"));
+    StageMinimalPresentation("starting", "");
     CHECK(BukClientCompleteSynchronization());
-    CHECK(BukClientApplyEventSequence("11"));
 
     CHECK(BukClientBeginSynchronization());
     CHECK(BukClientApplySnapshotSequence("20"));
+    StageMinimalPresentation("active", "B");
     CHECK(!BukClientApplyEventSequence("22"));
     CHECK(BukClientRequiresResynchronization());
     CHECK(!BukClientCanSendStateCommands());
-    CHECK(strcmp(BukClientLastSequence(), "11") == 0);
+    CHECK(strcmp(BukClientLastSequence(), "10") == 0);
+    CHECK(strcmp(BukClientPresentationStatus(), "starting") == 0);
 }
 
 static void TestInvalidSnapshotLocksGateWithoutExplicitBegin(void)
@@ -73,6 +97,7 @@ static void TestInvalidSnapshotLocksGateWithoutExplicitBegin(void)
     BukClientProtocolRuntimeInit();
     CHECK(BukClientBeginSynchronization());
     CHECK(BukClientApplySnapshotSequence("10"));
+    StageMinimalPresentation("active", "A");
     CHECK(BukClientCompleteSynchronization());
     CHECK(BukClientCanSendStateCommands());
 
@@ -82,12 +107,63 @@ static void TestInvalidSnapshotLocksGateWithoutExplicitBegin(void)
     CHECK(strcmp(BukClientLastSequence(), "10") == 0);
 }
 
+static void TestPresentationFailureLocksGateAndPreservesBothStates(void)
+{
+    BukClientProtocolRuntimeInit();
+    CHECK(BukClientBeginSynchronization());
+    CHECK(BukClientApplySnapshotSequence("10"));
+    StageMinimalPresentation("starting", "");
+    CHECK(BukClientCompleteSynchronization());
+
+    CHECK(BukClientBeginSynchronization());
+    CHECK(BukClientApplySnapshotSequence("11"));
+    CHECK(BukClientStageSnapshotMetadata(
+        "active", "wait_throw", "throw", "throw", "B", "19000"));
+    CHECK(!BukClientStageSnapshotPiece("B", "home_checkpoint", "do"));
+    CHECK(!BukClientCompleteSynchronization());
+    CHECK(BukClientRequiresResynchronization());
+    CHECK(!BukClientCanSendStateCommands());
+    CHECK(strcmp(BukClientLastSequence(), "10") == 0);
+    CHECK(strcmp(BukClientPresentationStatus(), "starting") == 0);
+}
+
+static void TestRejectsValidatedEventTailWithoutPayloadReducer(void)
+{
+    BukClientProtocolRuntimeInit();
+    CHECK(BukClientBeginSynchronization());
+    CHECK(BukClientApplySnapshotSequence("10"));
+    StageMinimalPresentation("active", "A");
+    CHECK(BukClientApplyEventSequence("11"));
+    CHECK(!BukClientCompleteSynchronization());
+    CHECK(BukClientRequiresResynchronization());
+    CHECK(!BukClientHasPresentationSnapshot());
+    CHECK(strcmp(BukClientLastSequence(), "0") == 0);
+}
+
+static void TestRejectsLiveEventSequenceWithoutPresentationReducer(void)
+{
+    BukClientProtocolRuntimeInit();
+    CHECK(BukClientBeginSynchronization());
+    CHECK(BukClientApplySnapshotSequence("10"));
+    StageMinimalPresentation("active", "A");
+    CHECK(BukClientCompleteSynchronization());
+
+    CHECK(!BukClientApplyEventSequence("11"));
+    CHECK(BukClientRequiresResynchronization());
+    CHECK(!BukClientCanSendStateCommands());
+    CHECK(strcmp(BukClientLastSequence(), "10") == 0);
+    CHECK(strcmp(BukClientPresentationStatus(), "active") == 0);
+}
+
 int main(void)
 {
-    TestStagesSequencesThroughDecimalStringBoundary();
+    TestAtomicallyCommitsSequenceAndPresentation();
     TestRejectsInvalidDecimalSequences();
     TestFailedBundlePreservesConfirmedSequence();
     TestInvalidSnapshotLocksGateWithoutExplicitBegin();
+    TestPresentationFailureLocksGateAndPreservesBothStates();
+    TestRejectsValidatedEventTailWithoutPayloadReducer();
+    TestRejectsLiveEventSequenceWithoutPresentationReducer();
 
     if (failures != 0) {
         fprintf(stderr, "%d protocol bridge test(s) failed\n", failures);

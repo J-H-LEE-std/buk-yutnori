@@ -50,6 +50,7 @@ typedef struct BukClientGameLayout {
 
 const BukClientBoardNode *BukClientBoardNodes(size_t *count);
 const BukClientBoardEdge *BukClientBoardEdges(size_t *count);
+bool BukClientBoardFindNode(const char *spec_id, BukClientBoardNodeId *node_id);
 bool BukClientBoardMapNode(BukClientRect viewport, BukClientBoardNodeId node_id,
                            BukClientPoint *point);
 bool BukClientCalculateGameLayout(float screen_width, float screen_height,
