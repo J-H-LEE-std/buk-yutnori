@@ -212,6 +212,7 @@ try {
 
   const initial = await evaluate(`(() => {
     const input = document.getElementById("ime-input");
+    const canvas = document.getElementById("canvas");
     input.focus();
     input.value = "가나다";
     input.setSelectionRange(input.value.length, input.value.length);
@@ -227,12 +228,25 @@ try {
       chatDisabled: document.getElementById("chat-input").disabled,
       chatSendDisabled: document.getElementById("chat-send").disabled,
       chatStatus: document.getElementById("chat-status").textContent,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      canvasAspectRatio: canvas.clientWidth / canvas.clientHeight,
+      renderedBoardNodeCount: Module.ccall(
+        "BukClientRenderedBoardNodeCount", "number", [], [],
+      ),
+      renderedBoardEdgeCount: Module.ccall(
+        "BukClientRenderedBoardEdgeCount", "number", [], [],
+      ),
     };
   })()`);
   if (initial.value !== "가나다" || initial.echo !== "가나다"
       || initial.realtimeStatus !== "로그인 후 실시간 연결"
       || !initial.chatDisabled || !initial.chatSendDisabled
-      || initial.chatStatus !== "로그인 후 채팅할 수 있습니다.") {
+      || initial.chatStatus !== "로그인 후 채팅할 수 있습니다."
+      || initial.canvasWidth !== 1280 || initial.canvasHeight !== 720
+      || Math.abs(initial.canvasAspectRatio - (16 / 9)) > 0.01
+      || initial.renderedBoardNodeCount !== 29
+      || initial.renderedBoardEdgeCount !== 32) {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
   }
 

@@ -3,6 +3,8 @@
 
 int BukClientSetInput(const char *utf8_input);
 const char *BukClientGetInput(void);
+int BukClientRenderedBoardNodeCount(void);
+int BukClientRenderedBoardEdgeCount(void);
 void BukClientProtocolRuntimeInit(void);
 int BukClientBeginSynchronization(void);
 int BukClientApplySnapshotSequence(const char *sequence);

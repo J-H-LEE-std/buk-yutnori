@@ -7,6 +7,7 @@ import argparse
 from copy import deepcopy
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
@@ -295,10 +296,67 @@ def validate_board() -> None:
             f"extra={sorted(coordinates - node_set)}"
         )
 
+    render_data_path = (
+        ROOT / "client" / "include" / "buk_client" / "board_graph_data.def"
+    )
+    render_data = render_data_path.read_text(encoding="utf-8")
+    compiled_nodes = re.findall(
+        r'^BUK_CLIENT_BOARD_NODE\(\s*([A-Z][A-Z0-9_]*)\s*,\s*"([^"]+)"\s*,'
+        r"\s*([+-]?[0-9]+(?:\.[0-9]+)?)F\s*,"
+        r"\s*([+-]?[0-9]+(?:\.[0-9]+)?)F\s*\)$",
+        render_data,
+        re.MULTILINE,
+    )
+    compiled_edges = re.findall(
+        r"^BUK_CLIENT_BOARD_EDGE\(\s*([A-Z][A-Z0-9_]*)\s*,"
+        r"\s*([A-Z][A-Z0-9_]*)\s*\)$",
+        render_data,
+        re.MULTILINE,
+    )
+    compiled_node_ids = [spec_id for _, spec_id, _, _ in compiled_nodes]
+    if compiled_node_ids != node_ids:
+        raise AssertionError(
+            "client board render nodes differ from canonical order: "
+            f"client={compiled_node_ids} spec={node_ids}"
+        )
+
+    symbol_to_spec_id = {
+        symbol: spec_id for symbol, spec_id, _, _ in compiled_nodes
+    }
+    if len(symbol_to_spec_id) != len(compiled_nodes):
+        raise AssertionError("client board render node symbols are not unique")
+
+    canonical_coordinates = board["render_reference"]["coordinates"]
+    for _, spec_id, normalized_x, normalized_y in compiled_nodes:
+        compiled_coordinate = [float(normalized_x), float(normalized_y)]
+        if compiled_coordinate != canonical_coordinates[spec_id]:
+            raise AssertionError(
+                f"client render coordinate differs for {spec_id}: "
+                f"client={compiled_coordinate} "
+                f"spec={canonical_coordinates[spec_id]}"
+            )
+
+    try:
+        compiled_edge_ids = [
+            (symbol_to_spec_id[source], symbol_to_spec_id[destination])
+            for source, destination in compiled_edges
+        ]
+    except KeyError as error:
+        raise AssertionError(
+            f"client board render edge uses unknown node symbol: {error.args[0]}"
+        ) from error
+    if compiled_edge_ids != edges:
+        raise AssertionError(
+            "client board render edges differ from canonical order: "
+            f"client={compiled_edge_ids} spec={edges}"
+        )
+
     print(
         "BOARD_OK "
         f"nodes={len(nodes)} edges={len(edges)} "
-        f"reachable={len(reachable)} buk={len(tagged)}"
+        f"reachable={len(reachable)} buk={len(tagged)} "
+        f"client_render_nodes={len(compiled_nodes)} "
+        f"client_render_edges={len(compiled_edges)}"
     )
 
 

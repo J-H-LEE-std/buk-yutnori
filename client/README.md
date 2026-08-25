@@ -15,6 +15,10 @@ make -C client test
 snapshot/event sequence를 staging한 뒤 원자적으로 확정하는 프로토콜 상태와 10진
 문자열 `uint64` JavaScript/C bridge를 검사한다.
 
+Milestone 4 보드 레이아웃 테스트는 1280×720 논리 화면의 letterbox 계산과
+`spec/board_graph.yaml`의 29개 노드 좌표 매핑을 검사한다. 컴파일되는 노드·간선
+테이블은 `tools/validate_specs.py board`가 정본 YAML과 정확히 같은지도 검사한다.
+
 ## WebAssembly 빌드
 
 검증된 도구 버전은 다음과 같다.
@@ -36,6 +40,11 @@ HTML 입력은 조합 중인 IME 값을 C에 보내지 않고 `compositionend` �
 전달한다. C가 보존한 값을 다시 HTML에 표시하여 양방향 경계를 확인한다. DOM 입력
 중에는 Emscripten GLFW의 전역 키 캡처를 차단하므로 Backspace와 Tab 같은 브라우저
 기본 편집 키가 정상 동작한다.
+
+현재 게임 캔버스는 최종 이미지가 없어도 raylib 프리미티브로 정본 판의 32개 간선과
+29개 노드를 렌더링한다. HTML 셸이 1280×720 캔버스를 16:9로 축소하고, 네이티브
+창은 같은 논리 화면을 유지하면서 창 크기에 맞춰 letterbox한다. 말·결과 큐의 실데이터
+연결과 상호작용은 후속 Milestone 4 슬라이스다.
 
 ## Google 로그인 수직 프로토타입
 
