@@ -25,6 +25,7 @@
 - `12_open_items.md`: 남은 기술·콘텐츠 결정
 - `13_implementation_plan.md`: 단계별 구현 계획
 - `14_glossary.md`: 용어
+- `15_gui_assets.md`: GUI 리소스와 애니메이션 가이드라인
 - `adr/0001_sqlite_v1_and_scale_out.md`: v1 SQLite 선택과 PostgreSQL 전환 조건
 - `adr/0002_command_idempotency_and_event_commit.md`: 멱등 처리와 DB 저장 후 이벤트 확정
 - `adr/0003_start_confirmation_and_pause_timers.md`: 10초 시작 확인과 타이머 보존 일시 정지
