@@ -210,6 +210,81 @@ try {
     waitForRuntime();
   })`, true);
 
+  await evaluate(`(() => {
+    globalThis.makeTestGameSnapshot = (roomId, matchId, sequence) => ({
+      room_id: roomId,
+      match_id: matchId,
+      sequence,
+      status: "active",
+      teams: [
+        { team_id: "A", player_ids: ["user-a"], turn_order: ["user-a"] },
+        { team_id: "B", player_ids: ["user-b"], turn_order: ["user-b"] },
+      ],
+      participants: [
+        {
+          user_id: "user-a",
+          nickname: "가람",
+          role: "player",
+          team_id: "A",
+          permissions: ["control_game", "chat"],
+          connected: true,
+          cpu_control: { active: false, reason: null },
+        },
+        {
+          user_id: "user-b",
+          nickname: "나래",
+          role: "player",
+          team_id: "B",
+          permissions: ["control_game", "chat"],
+          connected: true,
+          cpu_control: { active: false, reason: null },
+        },
+      ],
+      current_turn: {
+        player_id: "user-a",
+        phase: "wait_piece_selection",
+        required_input: "select_piece",
+        timer: { phase: "move", remaining_ms: 52000, deadline_at: null },
+      },
+      result_queue: [{
+        token_id: "token-1",
+        result: "gae",
+        origin: "initial_throw",
+        generated_by_player_id: "user-a",
+      }],
+      pieces: [
+        {
+          piece_id: "A-1",
+          team_id: "A",
+          state: "on_board",
+          current_space_id: "do",
+          stack_id: null,
+          position_group_id: "group-A-do",
+          actual_previous_space: "chammeogi",
+        },
+        {
+          piece_id: "B-1",
+          team_id: "B",
+          state: "waiting",
+          current_space_id: null,
+          stack_id: null,
+          position_group_id: null,
+          actual_previous_space: null,
+        },
+      ],
+      stacks: [],
+      position_groups: [{
+        group_id: "group-A-do",
+        team_id: "A",
+        space_id: "do",
+        piece_ids: ["A-1"],
+      }],
+      buk: { enabled: false, destination_space_id: null },
+      pause: { used: false, paused: false, ends_at: null },
+    });
+    return true;
+  })()`);
+
   const initial = await evaluate(`(() => {
     const input = document.getElementById("ime-input");
     const canvas = document.getElementById("canvas");
@@ -237,6 +312,9 @@ try {
       renderedBoardEdgeCount: Module.ccall(
         "BukClientRenderedBoardEdgeCount", "number", [], [],
       ),
+      renderedPieceCount: Module.ccall(
+        "BukClientRenderedPieceCount", "number", [], [],
+      ),
     };
   })()`);
   if (initial.value !== "가나다" || initial.echo !== "가나다"
@@ -246,7 +324,7 @@ try {
       || initial.canvasWidth !== 1280 || initial.canvasHeight !== 720
       || Math.abs(initial.canvasAspectRatio - (16 / 9)) > 0.01
       || initial.renderedBoardNodeCount !== 29
-      || initial.renderedBoardEdgeCount !== 32) {
+      || initial.renderedBoardEdgeCount !== 32 || initial.renderedPieceCount !== 0) {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
   }
 
@@ -278,8 +356,17 @@ try {
     const snapshot = Module.ccall(
       "BukClientApplySnapshotSequence", "number", ["string"], ["41"],
     );
-    const event = Module.ccall(
-      "BukClientApplyEventSequence", "number", ["string"], ["42"],
+    const metadata = Module.ccall(
+      "BukClientStageSnapshotMetadata", "number",
+      ["string", "string", "string", "string", "string", "string"],
+      ["active", "wait_throw", "throw", "throw", "A", "20000"],
+    );
+    const piece = Module.ccall(
+      "BukClientStageSnapshotPiece", "number", ["string", "string", "string"],
+      ["A", "on_board", "do"],
+    );
+    const resultToken = Module.ccall(
+      "BukClientStageSnapshotResult", "number", ["string"], ["gae"],
     );
     const completed = Module.ccall("BukClientCompleteSynchronization", "number", [], []);
     const confirmed = {
@@ -288,6 +375,11 @@ try {
     };
     Module.ccall("BukClientBeginSynchronization", "number", [], []);
     Module.ccall("BukClientApplySnapshotSequence", "number", ["string"], ["50"]);
+    Module.ccall(
+      "BukClientStageSnapshotMetadata", "number",
+      ["string", "string", "string", "string", "string", "string"],
+      ["active", "wait_throw", "throw", "throw", "B", "19000"],
+    );
     const gapAccepted = Module.ccall(
       "BukClientApplyEventSequence", "number", ["string"], ["52"],
     );
@@ -295,7 +387,9 @@ try {
       initial,
       began,
       snapshot,
-      event,
+      metadata,
+      piece,
+      resultToken,
       completed,
       confirmed,
       gapAccepted,
@@ -306,11 +400,12 @@ try {
   })()`);
   if (reconnectRuntime.initial.canSend !== 0 || reconnectRuntime.initial.lastSequence !== "0"
       || reconnectRuntime.began !== 1 || reconnectRuntime.snapshot !== 1
-      || reconnectRuntime.event !== 1 || reconnectRuntime.completed !== 1
+      || reconnectRuntime.metadata !== 1 || reconnectRuntime.piece !== 1
+      || reconnectRuntime.resultToken !== 1 || reconnectRuntime.completed !== 1
       || reconnectRuntime.confirmed.canSend !== 1
-      || reconnectRuntime.confirmed.lastSequence !== "42"
+      || reconnectRuntime.confirmed.lastSequence !== "41"
       || reconnectRuntime.gapAccepted !== 0 || reconnectRuntime.requiresResync !== 1
-      || reconnectRuntime.preservedSequence !== "42"
+      || reconnectRuntime.preservedSequence !== "41"
       || JSON.stringify(reconnectRuntime.delays) !== "[250,500,1000,2000,5000,null]") {
     throw new Error(`reconnect runtime boundary failed: ${JSON.stringify(reconnectRuntime)}`);
   }
@@ -327,21 +422,44 @@ try {
       payload: {
         status: "accepted",
         synchronization: {
-          snapshot: { room_id: "room-1", match_id: "match-1", sequence: 41 },
-          events: [{
-            version: 1,
-            direction: "server_event",
-            type: "PLAYER_RECONNECTED",
-            sequence: 42,
-            room_id: "room-1",
-            match_id: "match-1",
-            payload: {},
-          }],
+          snapshot: makeTestGameSnapshot("room-1", "match-1", 41),
+          events: [],
         },
       },
     });
     const confirmed = Module.ccall("BukClientLastSequence", "string", [], []);
-    const gap = applySynchronizationSequenceBundle({
+    const presentation = {
+      status: Module.ccall("BukClientPresentationStatus", "string", [], []),
+      phase: Module.ccall("BukClientPresentationTurnPhase", "string", [], []),
+      requiredInput: Module.ccall("BukClientPresentationRequiredInput", "string", [], []),
+      currentTeam: Module.ccall("BukClientPresentationCurrentTeam", "string", [], []),
+      remainingMs: Module.ccall(
+        "BukClientPresentationRemainingMilliseconds", "string", [], [],
+      ),
+      pieceCount: Module.ccall("BukClientPresentationPieceCount", "number", [], []),
+      resultCount: Module.ccall("BukClientPresentationResultCount", "number", [], []),
+      pieceIds: [...confirmedSnapshotPieceIds],
+    };
+    const invalidSnapshot = makeTestGameSnapshot("room-1", "match-1", 42);
+    invalidSnapshot.pieces[0].current_space_id = "not-a-canonical-space";
+    const invalidSpace = applySynchronizationSequenceBundle({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: "sync-invalid-space",
+      room_id: "room-1",
+      match_id: "match-1",
+      payload: {
+        status: "accepted",
+        synchronization: { snapshot: invalidSnapshot, events: [] },
+      },
+    });
+    const preservedAfterInvalid = {
+      sequence: Module.ccall("BukClientLastSequence", "string", [], []),
+      status: Module.ccall("BukClientPresentationStatus", "string", [], []),
+      pieceIds: [...confirmedSnapshotPieceIds],
+    };
+    const eventTail = applySynchronizationSequenceBundle({
       version: 1,
       direction: "server_response",
       type: "COMMAND_RESULT",
@@ -351,12 +469,12 @@ try {
       payload: {
         status: "accepted",
         synchronization: {
-          snapshot: { room_id: "room-1", match_id: "match-1", sequence: 50 },
+          snapshot: makeTestGameSnapshot("room-1", "match-1", 50),
           events: [{
             version: 1,
             direction: "server_event",
             type: "PLAYER_RECONNECTED",
-            sequence: 52,
+            sequence: 51,
             room_id: "room-1",
             match_id: "match-1",
             payload: {},
@@ -367,16 +485,42 @@ try {
     return {
       valid,
       confirmed,
-      gap,
+      presentation,
+      invalidSpace,
+      preservedAfterInvalid,
+      eventTail,
       requiresResync: Module.ccall("BukClientRequiresResynchronization", "number", [], []),
       canSend: Module.ccall("BukClientCanSendStateCommands", "number", [], []),
       preserved: Module.ccall("BukClientLastSequence", "string", [], []),
     };
   })()`);
-  if (!synchronizationBundle.valid || synchronizationBundle.confirmed !== "42"
-      || synchronizationBundle.gap || synchronizationBundle.requiresResync !== 1
-      || synchronizationBundle.canSend !== 0 || synchronizationBundle.preserved !== "42") {
+  if (!synchronizationBundle.valid || synchronizationBundle.confirmed !== "41"
+      || synchronizationBundle.presentation.status !== "active"
+      || synchronizationBundle.presentation.phase !== "wait_piece_selection"
+      || synchronizationBundle.presentation.requiredInput !== "select_piece"
+      || synchronizationBundle.presentation.currentTeam !== "A"
+      || synchronizationBundle.presentation.remainingMs !== "52000"
+      || synchronizationBundle.presentation.pieceCount !== 2
+      || synchronizationBundle.presentation.resultCount !== 1
+      || JSON.stringify(synchronizationBundle.presentation.pieceIds) !== '["A-1","B-1"]'
+      || synchronizationBundle.invalidSpace
+      || synchronizationBundle.preservedAfterInvalid.sequence !== "41"
+      || synchronizationBundle.preservedAfterInvalid.status !== "active"
+      || JSON.stringify(synchronizationBundle.preservedAfterInvalid.pieceIds)
+         !== '["A-1","B-1"]'
+      || synchronizationBundle.eventTail || synchronizationBundle.requiresResync !== 1
+      || synchronizationBundle.canSend !== 0 || synchronizationBundle.preserved !== "41") {
     throw new Error(`synchronization bundle validation failed: ${JSON.stringify(synchronizationBundle)}`);
+  }
+
+  const renderedSnapshot = await evaluate(`new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+      pieces: Module.ccall("BukClientRenderedPieceCount", "number", [], []),
+      hasSnapshot: Module.ccall("BukClientHasPresentationSnapshot", "number", [], []),
+    })));
+  })`, true);
+  if (renderedSnapshot.pieces !== 1 || renderedSnapshot.hasSnapshot !== 1) {
+    throw new Error(`authoritative pieces were not rendered: ${JSON.stringify(renderedSnapshot)}`);
   }
 
   // ADR-0013's fabricated prototype scope is retired: login must not send a
@@ -432,7 +576,7 @@ try {
         event_sequence_end: null,
         error: null,
         synchronization: {
-          snapshot: { room_id: "room-82", match_id: "match-82", sequence: 1 },
+          snapshot: makeTestGameSnapshot("room-82", "match-82", 1),
           events: [],
         },
       },
@@ -599,9 +743,20 @@ try {
     const capture = new CaptureWebSocket();
     realtimeSocket = capture;
     Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
-    Module.ccall("BukClientBeginSynchronization", "number", [], []);
-    Module.ccall("BukClientApplySnapshotSequence", "number", ["string"], ["7"]);
-    Module.ccall("BukClientCompleteSynchronization", "number", [], []);
+    applySynchronizationSequenceBundle({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      room_id: "room-1",
+      match_id: "match-1",
+      payload: {
+        status: "accepted",
+        synchronization: {
+          snapshot: makeTestGameSnapshot("room-1", "match-1", 7),
+          events: [],
+        },
+      },
+    });
     const scopeAccepted = setStateReconnectScope("room-1", "match-1");
     const first = capture.messages[0];
     const blockedBeforeSynchronization = sendStateChangingCommand({
@@ -641,16 +796,8 @@ try {
         event_sequence_end: null,
         error: null,
         synchronization: {
-          snapshot: { room_id: "room-1", match_id: "match-1", sequence: 8 },
-          events: [{
-            version: 1,
-            direction: "server_event",
-            type: "PLAYER_RECONNECTED",
-            sequence: 9,
-            room_id: "room-1",
-            match_id: "match-1",
-            payload: {},
-          }],
+          snapshot: makeTestGameSnapshot("room-1", "match-1", 9),
+          events: [],
         },
       },
     }) });
@@ -719,7 +866,7 @@ try {
         event_sequence_end: null,
         error: null,
         synchronization: {
-          snapshot: { room_id: "room-old", match_id: "match-old", sequence: 1 },
+          snapshot: makeTestGameSnapshot("room-old", "match-old", 1),
           events: [],
         },
       },

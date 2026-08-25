@@ -13,7 +13,9 @@ make -C client test
 
 이 테스트에는 raylib나 Emscripten이 필요하지 않다. UTF-8 표시 상태와 함께 재접속
 snapshot/event sequence를 staging한 뒤 원자적으로 확정하는 프로토콜 상태와 10진
-문자열 `uint64` JavaScript/C bridge를 검사한다.
+문자열 `uint64` JavaScript/C bridge를 검사한다. 표시 상태 테스트는 snapshot
+metadata·말·결과 큐를 동적 staging하고, 잘못된 enum·칸·말 상태 조합이나 불완전한
+bundle이 이전 확정 화면을 바꾸지 않는지도 검사한다.
 
 Milestone 4 보드 레이아웃 테스트는 1280×720 논리 화면의 letterbox 계산과
 `spec/board_graph.yaml`의 29개 노드 좌표 매핑을 검사한다. 컴파일되는 노드·간선
@@ -43,8 +45,11 @@ HTML 입력은 조합 중인 IME 값을 C에 보내지 않고 `compositionend` �
 
 현재 게임 캔버스는 최종 이미지가 없어도 raylib 프리미티브로 정본 판의 32개 간선과
 29개 노드를 렌더링한다. HTML 셸이 1280×720 캔버스를 16:9로 축소하고, 네이티브
-창은 같은 논리 화면을 유지하면서 창 크기에 맞춰 letterbox한다. 말·결과 큐의 실데이터
-연결과 상호작용은 후속 Milestone 4 슬라이스다.
+창은 같은 논리 화면을 유지하면서 창 크기에 맞춰 letterbox한다. 유효한 authoritative
+`game_snapshot`이 확정되면 실제 말 위치, 대기·완주 수, 경기·턴·입력·타이머 상태와
+결과 큐를 같은 캔버스에 표시한다. 말 ID 원문은 JavaScript가 snapshot 순번과 함께
+보관하고 C/WASM에는 길이 제한이 없는 순번 매핑만 전달한다. 지름길 선택 입력과
+업기·겹침 전용 표현, 애니메이션은 후속 Milestone 4 슬라이스다.
 
 ## Google 로그인 수직 프로토타입
 
@@ -76,6 +81,11 @@ processor로 전달한다. 서버가 확정한 `CHAT_MESSAGE`는 같은 방의 �
 정식 방 라비 화면이 시작된 방의 실제 `match_id`(GAME_STARTING 방송)로 scope를 설정하면
 새 연결에서 마지막 확정 sequence로 `RECONNECT`를 보내고 서버가 조립한 실데이터
 snapshot을 적용한다. 적용이 완료되기 전 state-changing command gate는 닫혀 있다.
+셸은 `game_snapshot.schema.json`의 표시 관련 구조와 모든 canonical enum·보드 칸을
+검증하고, C/WASM이 snapshot body와 sequence를 모두 staging한 뒤에만 둘을 함께
+확정한다. 현재 서버는 최신 sequence 경계에서 snapshot을 만들기 때문에 replay event
+tail이 비어 있다. payload reducer가 구현되기 전 비어 있지 않은 tail은 부분 적용하지
+않고 기존 화면을 유지한 채 fail-closed한다.
 예상하지 못한 WebSocket 종료는 최대 5회의 제한된 backoff로 새 연결을 만든다.
 
 `SEND_CHAT` 이외의 현재 셸 경로 명령 중 방·경기 command는 정식 레지스트리 실행기로

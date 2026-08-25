@@ -69,10 +69,12 @@
 - `client/include/buk_client/board_graph_data.def`: 정본 보드 좌표·간선의 C X-macro 렌더 테이블
 - `client/include/buk_client/board_layout.h`: 논리 화면·letterbox·보드 좌표 매핑 계약
 - `client/include/buk_client/bridge.h`: JavaScript에 공개하는 좁은 C ABI
+- `client/include/buk_client/presentation_state.h`: authoritative snapshot 표시 상태 staging 계약
 - `client/include/buk_client/protocol_state.h`: 재접속 sequence staging 계약
 - `client/include/buk_client/state.h`: 브라우저 입력을 받는 표시 상태 계약
 - `client/src/protocol_state.c`: snapshot/event sequence 원자 적용 상태 구현
 - `client/src/protocol_bridge.c`: 10진 sequence C ABI와 protocol state runtime
+- `client/src/presentation_state.c`: 말·턴·결과 큐 snapshot의 원자적 표시 상태 구현
 - `client/src/board_layout.c`: raylib 독립 보드 그래프 조회와 뷰포트 계산 구현
 - `client/src/state.c`: raylib와 분리된 표시 상태 구현
 - `client/src/main.c`: raylib 프레임 콜백과 WASM 공개 함수
@@ -80,6 +82,7 @@
 - `client/tests/board_layout_test.c`: 정본 보드 형태·좌표 매핑·letterbox 단위 테스트
 - `client/tests/protocol_state_test.c`: 재동기화 공백·중복·롤백 방지 테스트
 - `client/tests/protocol_bridge_test.c`: JavaScript/C sequence 문자열 경계 테스트
+- `client/tests/presentation_state_test.c`: snapshot 표시 상태 commit·보존·enum 단위 테스트
 - `client/tests/state_test.c`: UTF-8 입력 및 경계 단위 테스트
 - `client/web/shell.html`: 캔버스와 한글 IME HTML 셸
 

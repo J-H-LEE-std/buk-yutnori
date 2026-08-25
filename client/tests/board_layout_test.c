@@ -66,6 +66,20 @@ static void TestCoordinateMapping(void)
     assert(!BukClientBoardMapNode(viewport, BUK_CLIENT_BOARD_NODE_DO, NULL));
 }
 
+static void TestCanonicalSpecIDLookup(void)
+{
+    BukClientBoardNodeId node_id = BUK_CLIENT_BOARD_NODE_COUNT;
+
+    assert(BukClientBoardFindNode("chammeogi", &node_id));
+    assert(node_id == BUK_CLIENT_BOARD_NODE_CHAMMEOGI);
+    assert(BukClientBoardFindNode("bang", &node_id));
+    assert(node_id == BUK_CLIENT_BOARD_NODE_BANG);
+    assert(!BukClientBoardFindNode("unknown-space", &node_id));
+    assert(!BukClientBoardFindNode("", &node_id));
+    assert(!BukClientBoardFindNode(NULL, &node_id));
+    assert(!BukClientBoardFindNode("do", NULL));
+}
+
 static void TestLogicalLayout(void)
 {
     BukClientGameLayout layout;
@@ -113,6 +127,7 @@ int main(void)
 {
     TestCanonicalGraphShape();
     TestCoordinateMapping();
+    TestCanonicalSpecIDLookup();
     TestLogicalLayout();
     TestInvalidLayoutInputs();
     puts("board_layout_test: ok");

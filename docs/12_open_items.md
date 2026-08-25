@@ -15,6 +15,11 @@
   조합이 준비 화면 동기화를 담당한다.
 - 레지스트리 방 이벤트의 저장과 RECONNECT replay는 여전히 미결이다. ADR-0015 방송은
   live 전달 only며 누락 구간 복구는 ADR-0009/0013/0014 연계 후속 과제다.
+- Milestone 4 클라이언트는 현재 서버처럼 최신 sequence 경계의 snapshot과 빈 replay
+  tail을 원자 적용한다. 체크포인트 기반의 비어 있지 않은 tail이 도입되기 전, 각
+  `server_event` payload를 C 표시 상태에 적용하는 reducer와 원자 staging을 구현해야
+  한다. reducer가 없는 현재 클라이언트는 sequence만 앞당기지 않고 해당 bundle을
+  fail-closed한다.
 - 메인 로비 전체 채팅의 WebSocket 전송 계약. 방 스코프 채팅(docs/08)과 제한·sequence
   공간을 공유할지 여부를 포함해 정의해야 한다. 화면 모델 자체는 docs/09로 확정되었다
   (로그인 스크린→메인 로비→방 로비→게임 화면). Membership 센티널 분리(404/403)는
