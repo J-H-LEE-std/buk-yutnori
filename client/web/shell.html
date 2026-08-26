@@ -215,6 +215,8 @@
     let confirmedSnapshotPieceIds = [];
     let confirmedRouteRequest = null;
     let routeIntentTimer = null;
+    let eventCue = null;
+    let lastGameEventSequence = 0;
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
@@ -226,6 +228,42 @@
       if (realtimeReconnectTimer === null) return;
       clearTimeout(realtimeReconnectTimer);
       realtimeReconnectTimer = null;
+    }
+
+    function clearEventCue() {
+      eventCue = null;
+    }
+
+    function acceptGameEventCue(message) {
+      if (stateReconnectScope === null || message.room_id !== stateReconnectScope.roomId
+          || message.match_id !== stateReconnectScope.matchId
+          || !Number.isSafeInteger(message.sequence) || message.sequence <= lastGameEventSequence) {
+        return false;
+      }
+      let kind = null;
+      if (message.type === "PIECE_MOVED" && message.payload?.movement_kind === "backdo") {
+        kind = "backdo";
+      } else if (message.type === "PIECE_MOVED" && message.payload?.movement_kind === "buk") {
+        kind = "buk";
+      } else if (message.type === "BUK_RESOLVED"
+                 && typeof message.payload?.token_id === "string"
+                 && typeof message.payload?.destination_space_id === "string"
+                 && typeof message.payload?.no_candidate === "boolean") {
+        kind = "buk";
+      }
+      if (kind === null) return false;
+      lastGameEventSequence = message.sequence;
+      eventCue = { kind, sequence: message.sequence, expiresAt: Date.now() + 900 };
+      realtimeStatus.textContent = `${kind === "backdo" ? "백도" : "북"} 결과 확정 — 표시 중…`;
+      window.setTimeout(() => {
+        if (eventCue?.sequence === message.sequence && Date.now() >= eventCue.expiresAt) {
+          clearEventCue();
+          if (realtimeSocket?.readyState === WebSocket.OPEN) {
+            realtimeStatus.textContent = "실시간 서버 연결됨";
+          }
+        }
+      }, 950);
+      return true;
     }
 
     function scheduleRealtimeReconnect() {
@@ -308,6 +346,7 @@
         pendingSynchronizationCommands.clear();
         pendingRouteCommands.clear();
         confirmedRouteRequest = null;
+        clearEventCue();
         if (wasmRuntimeReady) {
           Module.ccall("BukClientSetRouteInteractionEnabled", "number", ["number"], [0]);
         }
@@ -741,6 +780,8 @@
       }
       confirmedSnapshotPieceIds = pendingPresentation.pieceIds;
       confirmedRouteRequest = pendingPresentation.routeRequest;
+      lastGameEventSequence = sequences.snapshot.sequence;
+      clearEventCue();
       refreshRouteInteraction();
       return true;
     }
@@ -853,6 +894,11 @@
           && message.match_id === stateReconnectScope.matchId
           && Number.isSafeInteger(message.sequence) && message.sequence >= 1) {
         requestStateSynchronization(false);
+        return;
+      }
+      if (message.direction === "server_event"
+          && (message.type === "PIECE_MOVED" || message.type === "BUK_RESOLVED")) {
+        acceptGameEventCue(message);
         return;
       }
       if (message.room_id !== PROTOTYPE_ROOM_ID) return;
