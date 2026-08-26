@@ -545,6 +545,26 @@
         && isUniqueStringIdArray(group.piece_ids, 1);
     }
 
+    function validatePieceGrouping(snapshot) {
+      const piecesById = new Map(snapshot.pieces.map((piece) => [piece.piece_id, piece]));
+      const groupIds = new Set(snapshot.position_groups.map((group) => group.group_id));
+      for (const piece of snapshot.pieces) {
+        if (piece.position_group_id !== null && !groupIds.has(piece.position_group_id)) {
+          return false;
+        }
+      }
+      for (const stack of snapshot.stacks) {
+        for (const pieceId of stack.piece_ids) {
+          const piece = piecesById.get(pieceId);
+          if (!piece || piece.team_id !== stack.team_id || piece.current_space_id !== stack.space_id
+              || piece.stack_id !== stack.stack_id || piece.position_group_id === null) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+
     function validateGameSnapshot(snapshot) {
       if (!hasExactKeys(snapshot, [
         "room_id", "match_id", "sequence", "status", "teams", "participants",
@@ -573,6 +593,7 @@
           || !snapshot.position_groups.every(validatePositionGroup)
           || new Set(snapshot.position_groups.map((group) => group.group_id)).size
              !== snapshot.position_groups.length
+          || !validatePieceGrouping(snapshot)
           || !hasExactKeys(snapshot.buk, ["enabled", "destination_space_id"])
           || typeof snapshot.buk.enabled !== "boolean"
           || !isNullableBoardSpace(snapshot.buk.destination_space_id)

@@ -8,6 +8,7 @@ const char *BukClientGetInput(void);
 int BukClientRenderedBoardNodeCount(void);
 int BukClientRenderedBoardEdgeCount(void);
 int BukClientRenderedPieceCount(void);
+int BukClientRenderedStackBadgeCount(void);
 int BukClientRenderedRouteOptionCount(void);
 int BukClientHighlightedRouteEdgeCount(void);
 void BukClientProtocolRuntimeInit(void);

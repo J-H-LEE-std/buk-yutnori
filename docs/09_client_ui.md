@@ -58,6 +58,8 @@ sequence를 먼저 검사한 뒤 10진 문자열 C ABI로 snapshot/event sequenc
 - 현재 턴, 결과 큐, 타이머
 - 게임 내 선택 UI
 - 관전 화면
+- 동일 팀 말의 `stacks`/`position_groups` 정합성을 확인한 뒤 같은 칸의 말 겹침과
+  업기 개수 배지를 코드 드로잉으로 표시한다. 정합성이 깨진 snapshot은 원자 적용하지 않는다.
 
 지름길 선택 UI는 `game_snapshot.current_turn.move_request` 또는 같은 의미의
 `MOVE_REQUIRED`가 제공한 `routes`만 표시한다. C/raylib는 경로 선택 intent만 만들고,
