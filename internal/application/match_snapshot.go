@@ -15,6 +15,8 @@ import (
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/match"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/domain/turn"
+	"buk-yutnori/internal/protocol"
 	"buk-yutnori/internal/storage"
 )
 
@@ -85,10 +87,11 @@ type snapshotTimerJSON struct {
 }
 
 type snapshotCurrentTurnJSON struct {
-	PlayerID      *domain.PlayerID  `json:"player_id"`
-	Phase         string            `json:"phase"`
-	RequiredInput string            `json:"required_input"`
-	Timer         snapshotTimerJSON `json:"timer"`
+	PlayerID      *domain.PlayerID              `json:"player_id"`
+	Phase         string                        `json:"phase"`
+	RequiredInput string                        `json:"required_input"`
+	MoveRequest   *protocol.MoveRequiredPayload `json:"move_request"`
+	Timer         snapshotTimerJSON             `json:"timer"`
 }
 
 type turnTokenJSON struct {
@@ -231,6 +234,10 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 	turnPlayer := currentPlayer
 	timer := buildTimerView(rt, now)
 	phase := string(machine.Phase)
+	moveRequest, err := rt.snapshotMoveRequest(machine)
+	if err != nil {
+		return gameSnapshotJSON{}, err
+	}
 	// Used tracks per-match consumption even after resume so reconnecting
 	// clients see that the one-time host pause is spent (docs/03 경기당 1회).
 	pauseView := snapshotPauseJSON{Used: rt.pauseUsed}
@@ -261,6 +268,7 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 			PlayerID:      &turnPlayer,
 			Phase:         phase,
 			RequiredInput: string(machine.RequiredInput),
+			MoveRequest:   moveRequest,
 			Timer:         timer,
 		},
 		ResultQueue:    queue,
@@ -273,6 +281,38 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 		},
 		Pause: pauseView,
 	}, nil
+}
+
+func (rt *matchRuntime) snapshotMoveRequest(machine turn.Snapshot) (*protocol.MoveRequiredPayload, error) {
+	request := &protocol.MoveRequiredPayload{
+		RequiredInput: machine.RequiredInput,
+		TokenIDs:      []domain.ResultTokenID{},
+		PieceIDs:      []domain.PieceID{},
+		Routes:        []domain.Route{},
+	}
+	switch machine.RequiredInput {
+	case domain.InputSelectResult:
+		request.TokenIDs = availableTokenIDs(
+			availableTokensFor(rt.settings.MovementOrder, machine.ResultQueue),
+		)
+	case domain.InputSelectPiece:
+		request.TokenIDs = []domain.ResultTokenID{machine.SelectedTokenID}
+		movable, err := rt.movablePieceIDs(machine)
+		if err != nil {
+			return nil, fmt.Errorf("assemble move request: %w", err)
+		}
+		request.PieceIDs = movable
+	case domain.InputSelectRoute:
+		if machine.SelectedTokenID == "" || rt.pendingMovePiece == "" {
+			return nil, fmt.Errorf("%w: route request is missing its selected token or piece", ErrInvalidConfiguration)
+		}
+		request.TokenIDs = []domain.ResultTokenID{machine.SelectedTokenID}
+		request.PieceIDs = []domain.PieceID{rt.pendingMovePiece}
+		request.Routes = []domain.Route{domain.RouteNormal, domain.RouteShortcut}
+	default:
+		return nil, nil
+	}
+	return request, nil
 }
 
 func pauseEndsAtPointer(rt *matchRuntime) *string {

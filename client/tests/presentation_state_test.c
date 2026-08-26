@@ -27,6 +27,9 @@ static void TestCommitsAuthoritativeSnapshot(void)
                   BUK_CLIENT_TURN_WAIT_PIECE_SELECTION,
                   BUK_CLIENT_REQUIRED_SELECT_PIECE, BUK_CLIENT_TIMER_MOVE,
                   BUK_CLIENT_TEAM_A, 52000U);
+    assert(BukClientPresentationStageMoveRequest(
+        &state, BUK_CLIENT_REQUIRED_SELECT_PIECE, false, false,
+        BUK_CLIENT_BOARD_NODE_COUNT));
     assert(BukClientPresentationStagePiece(
         &state, BUK_CLIENT_TEAM_A, BUK_CLIENT_PIECE_ON_BOARD,
         BUK_CLIENT_BOARD_NODE_BANG));
@@ -178,6 +181,9 @@ static void TestGrowsSnapshotStorageWithoutProtocolCaps(void)
     StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE, BUK_CLIENT_TURN_RESOLVE_QUEUE,
                   BUK_CLIENT_REQUIRED_SELECT_RESULT, BUK_CLIENT_TIMER_MOVE,
                   BUK_CLIENT_TEAM_A, 5000U);
+    assert(BukClientPresentationStageMoveRequest(
+        &state, BUK_CLIENT_REQUIRED_SELECT_RESULT, false, false,
+        BUK_CLIENT_BOARD_NODE_COUNT));
     for (index = 0U; index < 40U; index++) {
         assert(BukClientPresentationStagePiece(
             &state, index % 2U == 0U ? BUK_CLIENT_TEAM_A : BUK_CLIENT_TEAM_B,
@@ -192,6 +198,43 @@ static void TestGrowsSnapshotStorageWithoutProtocolCaps(void)
     BukClientPresentationStateDestroy(&state);
 }
 
+static void TestCommitsOnlyConsistentAuthoritativeRouteRequest(void)
+{
+    BukClientPresentationState state;
+    const BukClientPresentationSnapshot *snapshot;
+
+    BukClientPresentationStateInit(&state);
+    BukClientPresentationBeginSnapshot(&state);
+    StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE,
+                  BUK_CLIENT_TURN_WAIT_ROUTE_SELECTION,
+                  BUK_CLIENT_REQUIRED_SELECT_ROUTE, BUK_CLIENT_TIMER_MOVE,
+                  BUK_CLIENT_TEAM_A, 30000U);
+    assert(BukClientPresentationStageMoveRequest(
+        &state, BUK_CLIENT_REQUIRED_SELECT_ROUTE, true, true,
+        BUK_CLIENT_BOARD_NODE_MO));
+    assert(BukClientPresentationCommitSnapshot(&state));
+    snapshot = BukClientPresentationConfirmed(&state);
+    assert(snapshot != NULL);
+    assert(snapshot->move_request_set);
+    assert(snapshot->normal_route_available);
+    assert(snapshot->shortcut_route_available);
+    assert(snapshot->route_origin == BUK_CLIENT_BOARD_NODE_MO);
+
+    BukClientPresentationBeginSnapshot(&state);
+    StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE,
+                  BUK_CLIENT_TURN_WAIT_ROUTE_SELECTION,
+                  BUK_CLIENT_REQUIRED_SELECT_ROUTE, BUK_CLIENT_TIMER_MOVE,
+                  BUK_CLIENT_TEAM_A, 29000U);
+    assert(!BukClientPresentationStageMoveRequest(
+        &state, BUK_CLIENT_REQUIRED_SELECT_ROUTE, true, false,
+        BUK_CLIENT_BOARD_NODE_MO));
+    assert(!BukClientPresentationCommitSnapshot(&state));
+    snapshot = BukClientPresentationConfirmed(&state);
+    assert(snapshot != NULL);
+    assert(snapshot->remaining_ms == 30000U);
+    BukClientPresentationStateDestroy(&state);
+}
+
 int main(void)
 {
     TestCommitsAuthoritativeSnapshot();
@@ -200,6 +243,7 @@ int main(void)
     TestRequiresExactlyOneMetadataRecord();
     TestParsesOnlyCanonicalTokens();
     TestGrowsSnapshotStorageWithoutProtocolCaps();
+    TestCommitsOnlyConsistentAuthoritativeRouteRequest();
     puts("presentation_state_test: ok");
     return 0;
 }

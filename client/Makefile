@@ -29,7 +29,7 @@ WEB_CFLAGS := -std=c11 -Os -Wall -Wextra -Wpedantic -Werror \
 	-Werror=implicit-function-declaration -Wmissing-prototypes -Wstrict-prototypes \
 	-DPLATFORM_WEB
 WEB_LDFLAGS := -sUSE_GLFW=3 -sWASM=1 -sASSERTIONS=1 -sENVIRONMENT=web \
-	-sEXPORTED_FUNCTIONS=_main,_BukClientSetInput,_BukClientGetInput,_BukClientRenderedBoardNodeCount,_BukClientRenderedBoardEdgeCount,_BukClientRenderedPieceCount,_BukClientProtocolRuntimeInit,_BukClientBeginSynchronization,_BukClientApplySnapshotSequence,_BukClientApplyEventSequence,_BukClientStageSnapshotMetadata,_BukClientStageSnapshotPiece,_BukClientStageSnapshotResult,_BukClientIsCanonicalBoardSpace,_BukClientFailSynchronization,_BukClientCompleteSynchronization,_BukClientCanSendStateCommands,_BukClientRequiresResynchronization,_BukClientLastSequence,_BukClientHasPresentationSnapshot,_BukClientPresentationPieceCount,_BukClientPresentationResultCount,_BukClientPresentationStatus,_BukClientPresentationTurnPhase,_BukClientPresentationRequiredInput,_BukClientPresentationCurrentTeam,_BukClientPresentationRemainingMilliseconds \
+	-sEXPORTED_FUNCTIONS=_main,_BukClientSetInput,_BukClientGetInput,_BukClientRenderedBoardNodeCount,_BukClientRenderedBoardEdgeCount,_BukClientRenderedPieceCount,_BukClientRenderedRouteOptionCount,_BukClientHighlightedRouteEdgeCount,_BukClientProtocolRuntimeInit,_BukClientBeginSynchronization,_BukClientApplySnapshotSequence,_BukClientApplyEventSequence,_BukClientStageSnapshotMetadata,_BukClientStageSnapshotPiece,_BukClientStageSnapshotResult,_BukClientStageSnapshotMoveRequest,_BukClientIsCanonicalBoardSpace,_BukClientFailSynchronization,_BukClientCompleteSynchronization,_BukClientCanSendStateCommands,_BukClientRequiresResynchronization,_BukClientLastSequence,_BukClientHasPresentationSnapshot,_BukClientPresentationPieceCount,_BukClientPresentationResultCount,_BukClientPresentationStatus,_BukClientPresentationTurnPhase,_BukClientPresentationRequiredInput,_BukClientPresentationCurrentTeam,_BukClientPresentationRemainingMilliseconds,_BukClientSetRouteInteractionEnabled,_BukClientCanSelectRoute,_BukClientRequestRouteSelection,_BukClientConsumeRouteSelection,_BukClientResolveRouteCommand \
 	-sEXPORTED_RUNTIME_METHODS=ccall --shell-file $(CURDIR)/web/shell.html
 
 .PHONY: all check-raylib test wasm
@@ -65,9 +65,9 @@ $(BOARD_LAYOUT_TEST): $(CURDIR)/tests/board_layout_test.c $(BOARD_LAYOUT_SOURCE)
 	mkdir -p $(dir $@)
 	$(NATIVE_CC) $(NATIVE_CFLAGS) $(INCLUDES) $(CURDIR)/tests/board_layout_test.c $(BOARD_LAYOUT_SOURCE) -o $@
 
-$(PRESENTATION_STATE_TEST): $(CURDIR)/tests/presentation_state_test.c $(PRESENTATION_STATE_SOURCE) $(PRESENTATION_STATE_HEADER) $(BOARD_LAYOUT_HEADER)
+$(PRESENTATION_STATE_TEST): $(CURDIR)/tests/presentation_state_test.c $(PRESENTATION_STATE_SOURCE) $(PRESENTATION_STATE_HEADER) $(BOARD_LAYOUT_SOURCE) $(BOARD_LAYOUT_HEADER) $(BOARD_GRAPH_DATA)
 	mkdir -p $(dir $@)
-	$(NATIVE_CC) $(NATIVE_CFLAGS) $(INCLUDES) $(CURDIR)/tests/presentation_state_test.c $(PRESENTATION_STATE_SOURCE) -o $@
+	$(NATIVE_CC) $(NATIVE_CFLAGS) $(INCLUDES) $(CURDIR)/tests/presentation_state_test.c $(PRESENTATION_STATE_SOURCE) $(BOARD_LAYOUT_SOURCE) -o $@
 
 $(RAYLIB_WEB_LIB):
 	$(MAKE) -C $(RAYLIB_PATH)/src PLATFORM=PLATFORM_WEB RAYLIB_BUILD_MODE=RELEASE \

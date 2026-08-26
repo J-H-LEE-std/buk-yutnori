@@ -198,6 +198,7 @@
     const PARTICIPANT_ROLES = new Set(["player", "spectator"]);
     const PERMISSIONS = new Set(["control_game", "chat", "pause_game", "manage_room"]);
     const CPU_REASONS = new Set(["disconnected", "timeout", null]);
+    const ROUTES = new Set(["normal", "shortcut"]);
     let composing = false;
     let chatComposing = false;
     let realtimeSocket = null;
@@ -210,7 +211,10 @@
     let wasmRuntimeReady = false;
     const pendingChatCommands = new Set();
     const pendingSynchronizationCommands = new Map();
+    const pendingRouteCommands = new Map();
     let confirmedSnapshotPieceIds = [];
+    let confirmedRouteRequest = null;
+    let routeIntentTimer = null;
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
@@ -268,6 +272,7 @@
       googleSignin.hidden = true;
       logout.hidden = false;
       authenticatedUserId = userId;
+      refreshRouteInteraction();
       realtimeReconnectEnabled = true;
       realtimeReconnectAttempt = 0;
       connectRealtime();
@@ -301,6 +306,11 @@
         setChatAvailable(false);
         pendingChatCommands.clear();
         pendingSynchronizationCommands.clear();
+        pendingRouteCommands.clear();
+        confirmedRouteRequest = null;
+        if (wasmRuntimeReady) {
+          Module.ccall("BukClientSetRouteInteractionEnabled", "number", ["number"], [0]);
+        }
         chatStatus.textContent = "채팅 연결이 끊겼습니다.";
         scheduleRealtimeReconnect();
       });
@@ -322,6 +332,11 @@
       setChatAvailable(false);
       pendingChatCommands.clear();
       pendingSynchronizationCommands.clear();
+      pendingRouteCommands.clear();
+      confirmedRouteRequest = null;
+      if (wasmRuntimeReady) {
+        Module.ccall("BukClientSetRouteInteractionEnabled", "number", ["number"], [0]);
+      }
       chatStatus.textContent = "로그인 후 채팅할 수 있습니다.";
     }
 
@@ -329,6 +344,8 @@
       if (typeof roomId !== "string" || roomId.length < 1
           || typeof matchId !== "string" || matchId.length < 1) return false;
       pendingSynchronizationCommands.clear();
+      pendingRouteCommands.clear();
+      confirmedRouteRequest = null;
       stateReconnectScope = { roomId, matchId };
       fullResynchronizationAttempted = false;
       Module.ccall("BukClientBeginSynchronization", "number", [], []);
@@ -341,7 +358,12 @@
     function clearStateReconnectScope() {
       stateReconnectScope = null;
       pendingSynchronizationCommands.clear();
+      pendingRouteCommands.clear();
+      confirmedRouteRequest = null;
       fullResynchronizationAttempted = false;
+      if (wasmRuntimeReady) {
+        Module.ccall("BukClientSetRouteInteractionEnabled", "number", ["number"], [0]);
+      }
     }
 
     function canSendStateChangingCommand() {
@@ -362,6 +384,7 @@
       if (stateReconnectScope === null || !socket || socket.readyState !== WebSocket.OPEN) {
         return false;
       }
+      if (pendingSynchronizationCommands.size !== 0) return false;
       const lastSequenceText = full
         ? "0"
         : Module.ccall("BukClientLastSequence", "string", [], []);
@@ -446,14 +469,38 @@
     }
 
     function validateCurrentTurn(turn) {
-      if (!hasExactKeys(turn, ["player_id", "phase", "required_input", "timer"])
+      if (!hasExactKeys(turn, [
+        "player_id", "phase", "required_input", "move_request", "timer",
+      ])
           || !isNullableStringId(turn.player_id) || !TURN_PHASES.has(turn.phase)
-          || !REQUIRED_INPUTS.has(turn.required_input)) return false;
+          || !REQUIRED_INPUTS.has(turn.required_input)
+          || !validateMoveRequest(turn.move_request, turn.required_input)) return false;
       const timer = turn.timer;
       return hasExactKeys(timer, ["phase", "remaining_ms", "deadline_at"])
         && TIMER_PHASES.has(timer.phase)
         && Number.isSafeInteger(timer.remaining_ms) && timer.remaining_ms >= 0
         && (timer.deadline_at === null || isStringId(timer.deadline_at));
+    }
+
+    function validateMoveRequest(request, requiredInput) {
+      if (requiredInput === "none" || requiredInput === "throw") return request === null;
+      if (!hasExactKeys(request, ["required_input", "token_ids", "piece_ids", "routes"])
+          || request.required_input !== requiredInput
+          || !isUniqueStringIdArray(request.token_ids)
+          || !isUniqueStringIdArray(request.piece_ids)
+          || !Array.isArray(request.routes) || !request.routes.every((route) => ROUTES.has(route))
+          || new Set(request.routes).size !== request.routes.length) return false;
+      if (requiredInput === "select_result") {
+        return request.token_ids.length > 0 && request.piece_ids.length === 0
+          && request.routes.length === 0;
+      }
+      if (requiredInput === "select_piece") {
+        return request.token_ids.length === 1 && request.piece_ids.length > 0
+          && request.routes.length === 0;
+      }
+      return requiredInput === "select_route" && request.token_ids.length === 1
+        && request.piece_ids.length === 1 && request.routes.length === 2
+        && request.routes.includes("normal") && request.routes.includes("shortcut");
     }
 
     function validateResultToken(token) {
@@ -535,11 +582,58 @@
           || (snapshot.pause.ends_at !== null && !isStringId(snapshot.pause.ends_at))) {
         return null;
       }
+      const request = snapshot.current_turn.move_request;
+      if (request !== null
+          && (!request.token_ids.every((id) => snapshot.result_queue.some((token) => token.token_id === id))
+              || !request.piece_ids.every((id) => snapshot.pieces.some((piece) => piece.piece_id === id)))) {
+        return null;
+      }
       const playerId = snapshot.current_turn.player_id;
       const participant = playerId === null ? null
         : snapshot.participants.find((candidate) => candidate.user_id === playerId);
       const team = participant && isTeam(participant.team_id) ? participant.team_id : "";
       return { snapshot, currentTeam: team };
+    }
+
+    function routeRequestPresentation(snapshot) {
+      const request = snapshot.current_turn.move_request;
+      if (request?.required_input !== "select_route") return null;
+      const piece = snapshot.pieces.find((candidate) => candidate.piece_id === request.piece_ids[0]);
+      if (!piece || (piece.state !== "on_board" && piece.state !== "home_checkpoint")
+          || !isCanonicalBoardSpace(piece.current_space_id)) return null;
+      const participant = snapshot.participants.find(
+        (candidate) => candidate.user_id === snapshot.current_turn.player_id,
+      );
+      if (!participant || !isTeam(participant.team_id) || piece.team_id !== participant.team_id) {
+        return null;
+      }
+      return {
+        roomId: snapshot.room_id,
+        matchId: snapshot.match_id,
+        tokenId: request.token_ids[0],
+        pieceId: request.piece_ids[0],
+        routes: [...request.routes],
+        originSpaceId: piece.current_space_id,
+        playerId: snapshot.current_turn.player_id,
+        controlPermitted: snapshot.status === "active" && !snapshot.pause.paused
+          && participant?.role === "player"
+          && participant.permissions.includes("control_game")
+          && participant.cpu_control.active === false,
+      };
+    }
+
+    function refreshRouteInteraction() {
+      if (!wasmRuntimeReady) return false;
+      const request = confirmedRouteRequest;
+      const scopeMatches = request !== null && stateReconnectScope !== null
+        && request.roomId === stateReconnectScope.roomId
+        && request.matchId === stateReconnectScope.matchId;
+      const enabled = scopeMatches && request.controlPermitted
+        && request.playerId === authenticatedUserId && pendingRouteCommands.size === 0
+        && realtimeSocket?.readyState === WebSocket.OPEN;
+      return Module.ccall(
+        "BukClientSetRouteInteractionEnabled", "number", ["number"], [enabled ? 1 : 0],
+      ) === 1;
     }
 
     function synchronizationSequences(message) {
@@ -573,6 +667,18 @@
         [snapshot.status, turn.phase, turn.required_input, turn.timer.phase,
           validated.currentTeam, String(turn.timer.remaining_ms)],
       ) !== 1) return null;
+      const request = turn.move_request;
+      if (request !== null) {
+        const routeRequest = routeRequestPresentation(snapshot);
+        const normal = request.routes.includes("normal") ? 1 : 0;
+        const shortcut = request.routes.includes("shortcut") ? 1 : 0;
+        if (request.required_input === "select_route" && routeRequest === null) return null;
+        if (Module.ccall(
+          "BukClientStageSnapshotMoveRequest", "number",
+          ["string", "number", "number", "string"],
+          [request.required_input, normal, shortcut, routeRequest?.originSpaceId ?? ""],
+        ) !== 1) return null;
+      }
       for (const piece of snapshot.pieces) {
         if (Module.ccall(
           "BukClientStageSnapshotPiece", "number", ["string", "string", "string"],
@@ -584,7 +690,10 @@
           "BukClientStageSnapshotResult", "number", ["string"], [token.result],
         ) !== 1) return null;
       }
-      return snapshot.pieces.map((piece) => piece.piece_id);
+      return {
+        pieceIds: snapshot.pieces.map((piece) => piece.piece_id),
+        routeRequest: routeRequestPresentation(snapshot),
+      };
     }
 
     function applySynchronizationSequenceBundle(message) {
@@ -595,12 +704,47 @@
         "BukClientApplySnapshotSequence", "number", ["string"],
         [String(sequences.snapshot.sequence)],
       ) !== 1) return failSynchronization();
-      const pendingPieceIds = stageSnapshotPresentation(sequences.snapshot);
-      if (pendingPieceIds === null) return failSynchronization();
+      const pendingPresentation = stageSnapshotPresentation(sequences.snapshot);
+      if (pendingPresentation === null) return failSynchronization();
       if (Module.ccall("BukClientCompleteSynchronization", "number", [], []) !== 1) {
         return failSynchronization();
       }
-      confirmedSnapshotPieceIds = pendingPieceIds;
+      confirmedSnapshotPieceIds = pendingPresentation.pieceIds;
+      confirmedRouteRequest = pendingPresentation.routeRequest;
+      refreshRouteInteraction();
+      return true;
+    }
+
+    function drainRouteSelectionIntent() {
+      if (!wasmRuntimeReady) return false;
+      const route = Module.ccall("BukClientConsumeRouteSelection", "string", [], []);
+      if (route.length === 0) return false;
+      const request = confirmedRouteRequest;
+      const scope = stateReconnectScope;
+      if (request === null || scope === null || !request.routes.includes(route)
+          || request.roomId !== scope.roomId || request.matchId !== scope.matchId
+          || pendingRouteCommands.size !== 0) {
+        Module.ccall("BukClientResolveRouteCommand", "number", [], []);
+        refreshRouteInteraction();
+        return false;
+      }
+      const commandID = crypto.randomUUID();
+      const command = {
+        version: 1,
+        direction: "client_command",
+        type: "SELECT_ROUTE",
+        command_id: commandID,
+        room_id: request.roomId,
+        match_id: request.matchId,
+        payload: { token_id: request.tokenId, piece_id: request.pieceId, route },
+      };
+      if (!sendStateChangingCommand(command)) {
+        Module.ccall("BukClientResolveRouteCommand", "number", [], []);
+        refreshRouteInteraction();
+        return false;
+      }
+      pendingRouteCommands.set(commandID, { roomId: request.roomId, matchId: request.matchId });
+      realtimeStatus.textContent = "지름길 선택 서버 확인 중…";
       return true;
     }
 
@@ -632,6 +776,24 @@
       }
       if (message.version !== 1) return;
       if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
+          && pendingRouteCommands.has(message.command_id)) {
+        const expectedScope = pendingRouteCommands.get(message.command_id);
+        pendingRouteCommands.delete(message.command_id);
+        const scopeMatches = message.room_id === expectedScope.roomId
+          && message.match_id === expectedScope.matchId;
+        if (scopeMatches && message.payload?.status === "accepted") {
+          realtimeStatus.textContent = "지름길 선택 확정, 상태 동기화 중…";
+          requestStateSynchronization(false);
+        } else {
+          Module.ccall("BukClientResolveRouteCommand", "number", [], []);
+          refreshRouteInteraction();
+          realtimeStatus.textContent = scopeMatches
+            ? (message.payload?.error?.message ?? "지름길 선택이 거부됐습니다.")
+            : "지름길 선택 응답 범위가 일치하지 않습니다.";
+        }
+        return;
+      }
+      if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
           && pendingSynchronizationCommands.has(message.command_id)) {
         const expectedScope = pendingSynchronizationCommands.get(message.command_id);
         pendingSynchronizationCommands.delete(message.command_id);
@@ -653,6 +815,14 @@
         } else {
           realtimeStatus.textContent = "실시간 서버 상태 동기화 실패";
         }
+        return;
+      }
+      if (message.direction === "server_event" && message.type === "MOVE_REQUIRED"
+          && stateReconnectScope !== null
+          && message.room_id === stateReconnectScope.roomId
+          && message.match_id === stateReconnectScope.matchId
+          && Number.isSafeInteger(message.sequence) && message.sequence >= 1) {
+        requestStateSynchronization(false);
         return;
       }
       if (message.room_id !== PROTOTYPE_ROOM_ID) return;
@@ -834,6 +1004,10 @@
       printErr: (...args) => console.error(...args),
       onRuntimeInitialized: () => {
         wasmRuntimeReady = true;
+        if (routeIntentTimer === null) {
+          routeIntentTimer = setInterval(drainRouteSelectionIntent, 50);
+        }
+        refreshRouteInteraction();
         input.disabled = false;
         status.textContent = "WASM 준비 완료";
         input.focus();

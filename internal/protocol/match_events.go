@@ -191,6 +191,7 @@ type MoveRequiredPayload struct {
 	RequiredInput domain.RequiredInput   `json:"required_input"`
 	TokenIDs      []domain.ResultTokenID `json:"token_ids"`
 	PieceIDs      []domain.PieceID       `json:"piece_ids"`
+	Routes        []domain.Route         `json:"routes"`
 }
 
 // MoveRequiredEvent is the typed v1 MOVE_REQUIRED server event.
@@ -238,6 +239,38 @@ func NewMoveRequiredEvent(roomID domain.RoomID, matchID domain.MatchID, sequence
 		seenPieces[pieceID] = struct{}{}
 		pieceIDs = append(pieceIDs, pieceID)
 	}
+	routes := make([]domain.Route, 0, len(payload.Routes))
+	seenRoutes := make(map[domain.Route]struct{}, len(payload.Routes))
+	for index, route := range payload.Routes {
+		if err := route.Validate(); err != nil {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: routes[%d]: %v", ErrInvalidServerEvent, index, err)
+		}
+		if _, duplicate := seenRoutes[route]; duplicate {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: duplicate routes[%d]", ErrInvalidServerEvent, index)
+		}
+		seenRoutes[route] = struct{}{}
+		routes = append(routes, route)
+	}
+	switch payload.RequiredInput {
+	case domain.InputSelectResult:
+		if len(tokenIDs) == 0 || len(pieceIDs) != 0 || len(routes) != 0 {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: select_result requires tokens only", ErrInvalidServerEvent)
+		}
+	case domain.InputSelectPiece:
+		if len(tokenIDs) != 1 || len(pieceIDs) == 0 || len(routes) != 0 {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: select_piece requires one token and at least one piece", ErrInvalidServerEvent)
+		}
+	case domain.InputSelectRoute:
+		if len(tokenIDs) != 1 || len(pieceIDs) != 1 || len(routes) != 2 {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: select_route requires one token, one piece, and two routes", ErrInvalidServerEvent)
+		}
+		if _, normal := seenRoutes[domain.RouteNormal]; !normal {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: select_route normal route is required", ErrInvalidServerEvent)
+		}
+		if _, shortcut := seenRoutes[domain.RouteShortcut]; !shortcut {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: select_route shortcut route is required", ErrInvalidServerEvent)
+		}
+	}
 	return MoveRequiredEvent{
 		Version: Version1, Direction: DirectionServerEvent, Type: EventMoveRequired,
 		Sequence: sequence, RoomID: roomID, MatchID: matchID,
@@ -245,6 +278,7 @@ func NewMoveRequiredEvent(roomID domain.RoomID, matchID domain.MatchID, sequence
 			RequiredInput: payload.RequiredInput,
 			TokenIDs:      tokenIDs,
 			PieceIDs:      pieceIDs,
+			Routes:        routes,
 		},
 	}, nil
 }

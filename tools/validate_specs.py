@@ -110,6 +110,21 @@ def validate_contracts() -> None:
     if server_event_validator.is_valid(match_scoped_chat_event):
         raise AssertionError("CHAT_MESSAGE must remain room-scoped")
 
+    move_required = next(
+        deepcopy(event)
+        for event in load_json(SCHEMAS / "examples" / "server_events.json")
+        if event["type"] == "MOVE_REQUIRED"
+    )
+    move_required["payload"]["required_input"] = "select_route"
+    move_required["payload"]["token_ids"] = ["token-1"]
+    move_required["payload"]["piece_ids"] = ["A-1"]
+    move_required["payload"]["routes"] = ["normal", "shortcut"]
+    if not server_event_validator.is_valid(move_required):
+        raise AssertionError("authoritative route MOVE_REQUIRED must validate")
+    move_required["payload"]["routes"] = ["shortcut"]
+    if server_event_validator.is_valid(move_required):
+        raise AssertionError("select_route must expose both authoritative routes")
+
     server_response_validator = validator_for(SCHEMAS / "ws_server_response.schema.json")
     reconnect_response = deepcopy(load_json(SCHEMAS / "examples" / "server_responses.json")[0])
     reconnect_response["request_id"] = "req-reconnect"
@@ -159,6 +174,14 @@ def validate_contracts() -> None:
     snapshot_with_chat["recent_chat"] = []
     if snapshot_validator.is_valid(snapshot_with_chat):
         raise AssertionError("game snapshot must not restore chat history")
+
+    mismatched_move_request = load_json(SCHEMAS / "examples" / "game_snapshot.json")
+    mismatched_move_request["current_turn"]["move_request"]["required_input"] = (
+        "select_result"
+    )
+    mismatched_move_request["current_turn"]["move_request"]["piece_ids"] = []
+    if snapshot_validator.is_valid(mismatched_move_request):
+        raise AssertionError("snapshot move_request must match current_turn.required_input")
 
     room_validator = validator_for(SCHEMAS / "room_settings.schema.json")
     room_settings = load_yaml(ROOT / "spec" / "room_settings.yaml")
@@ -313,6 +336,12 @@ def validate_board() -> None:
         render_data,
         re.MULTILINE,
     )
+    compiled_route_choices = re.findall(
+        r"^BUK_CLIENT_BOARD_ROUTE_CHOICE\(\s*([A-Z][A-Z0-9_]*)\s*,"
+        r"\s*([A-Z][A-Z0-9_]*)\s*,\s*([A-Z][A-Z0-9_]*)\s*\)$",
+        render_data,
+        re.MULTILINE,
+    )
     compiled_node_ids = [spec_id for _, spec_id, _, _ in compiled_nodes]
     if compiled_node_ids != node_ids:
         raise AssertionError(
@@ -351,12 +380,36 @@ def validate_board() -> None:
             f"client={compiled_edge_ids} spec={edges}"
         )
 
+    try:
+        compiled_route_choice_ids = [
+            (
+                symbol_to_spec_id[source],
+                symbol_to_spec_id[normal],
+                symbol_to_spec_id[shortcut],
+            )
+            for source, normal, shortcut in compiled_route_choices
+        ]
+    except KeyError as error:
+        raise AssertionError(
+            f"client board route choice uses unknown node symbol: {error.args[0]}"
+        ) from error
+    canonical_route_choice_ids = [
+        (source, choices["normal"], choices["shortcut"])
+        for source, choices in board["route_choices"].items()
+    ]
+    if compiled_route_choice_ids != canonical_route_choice_ids:
+        raise AssertionError(
+            "client board route choices differ from canonical order: "
+            f"client={compiled_route_choice_ids} spec={canonical_route_choice_ids}"
+        )
+
     print(
         "BOARD_OK "
         f"nodes={len(nodes)} edges={len(edges)} "
         f"reachable={len(reachable)} buk={len(tagged)} "
         f"client_render_nodes={len(compiled_nodes)} "
         f"client_render_edges={len(compiled_edges)}"
+        f" client_route_choices={len(compiled_route_choices)}"
     )
 
 

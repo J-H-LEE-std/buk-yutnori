@@ -42,6 +42,12 @@ typedef struct BukClientBoardEdge {
     BukClientBoardNodeId to;
 } BukClientBoardEdge;
 
+typedef struct BukClientBoardRouteChoice {
+    BukClientBoardNodeId origin;
+    BukClientBoardNodeId normal;
+    BukClientBoardNodeId shortcut;
+} BukClientBoardRouteChoice;
+
 typedef struct BukClientGameLayout {
     BukClientRect content;
     BukClientRect board;
@@ -50,7 +56,11 @@ typedef struct BukClientGameLayout {
 
 const BukClientBoardNode *BukClientBoardNodes(size_t *count);
 const BukClientBoardEdge *BukClientBoardEdges(size_t *count);
+const BukClientBoardRouteChoice *BukClientBoardRouteChoices(size_t *count);
 bool BukClientBoardFindNode(const char *spec_id, BukClientBoardNodeId *node_id);
+bool BukClientBoardRouteTargets(BukClientBoardNodeId origin,
+                                BukClientBoardNodeId *normal,
+                                BukClientBoardNodeId *shortcut);
 bool BukClientBoardMapNode(BukClientRect viewport, BukClientBoardNodeId node_id,
                            BukClientPoint *point);
 bool BukClientCalculateGameLayout(float screen_width, float screen_height,

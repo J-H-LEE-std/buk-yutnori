@@ -333,6 +333,7 @@ func (registry *RoomRegistry) stepResolutionLocked(entry *registeredRoom, rt *ma
 		return stepAwaitInput, stageMoveRequired(tx, rt, protocol.MoveRequiredPayload{
 			RequiredInput: domain.InputSelectResult,
 			TokenIDs:      availableTokenIDs(available),
+			Routes:        []domain.Route{},
 		})
 	case domain.TurnEnd:
 		return stepStopped, registry.endTurnLocked(entry, rt, tx)
@@ -422,6 +423,7 @@ func (registry *RoomRegistry) enterPieceSelectionLocked(entry *registeredRoom, r
 			RequiredInput: domain.InputSelectPiece,
 			TokenIDs:      []domain.ResultTokenID{tokenID},
 			PieceIDs:      movable,
+			Routes:        []domain.Route{},
 		})
 	}
 	if err := rt.machine.DiscardUnusableResult(tokenID); err != nil {
@@ -471,6 +473,7 @@ func (registry *RoomRegistry) selectPieceInternalLocked(
 			RequiredInput: domain.InputSelectRoute,
 			TokenIDs:      []domain.ResultTokenID{tokenID},
 			PieceIDs:      []domain.PieceID{pieceID},
+			Routes:        []domain.Route{domain.RouteNormal, domain.RouteShortcut},
 		})
 	}
 	return registry.applySelectedMoveLocked(entry, rt, tx, tokenID, pieceID, "")

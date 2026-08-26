@@ -17,6 +17,8 @@ static BukClientState client_state;
 static int rendered_board_node_count;
 static int rendered_board_edge_count;
 static int rendered_piece_count;
+static int rendered_route_option_count;
+static int highlighted_route_edge_count;
 
 static Rectangle RaylibRectangle(BukClientRect rectangle)
 {
@@ -88,6 +90,39 @@ static void DrawCanonicalBoard(const BukClientGameLayout *layout)
                     board_ink);
         DrawCircleV((Vector2){ point.x, point.y }, radius, fill);
         rendered_board_node_count++;
+    }
+}
+
+static void DrawAuthoritativeRouteHighlights(const BukClientGameLayout *layout)
+{
+    const BukClientPresentationSnapshot *snapshot = BukClientConfirmedPresentation();
+    BukClientBoardNodeId normal;
+    BukClientBoardNodeId shortcut;
+    BukClientPoint origin_point;
+    BukClientPoint normal_point;
+    BukClientPoint shortcut_point;
+    float width = 10.0F * layout->scale;
+
+    highlighted_route_edge_count = 0;
+    if (snapshot == NULL || !snapshot->move_request_set ||
+        snapshot->move_request_input != BUK_CLIENT_REQUIRED_SELECT_ROUTE ||
+        !BukClientBoardRouteTargets(snapshot->route_origin, &normal, &shortcut) ||
+        !BukClientBoardMapNode(layout->board, snapshot->route_origin, &origin_point) ||
+        !BukClientBoardMapNode(layout->board, normal, &normal_point) ||
+        !BukClientBoardMapNode(layout->board, shortcut, &shortcut_point)) {
+        return;
+    }
+    if (snapshot->normal_route_available) {
+        DrawLineEx((Vector2){ origin_point.x, origin_point.y },
+                   (Vector2){ normal_point.x, normal_point.y }, width,
+                   (Color){ 221, 156, 48, 210 });
+        highlighted_route_edge_count++;
+    }
+    if (snapshot->shortcut_route_available) {
+        DrawLineEx((Vector2){ origin_point.x, origin_point.y },
+                   (Vector2){ shortcut_point.x, shortcut_point.y }, width,
+                   (Color){ 29, 154, 119, 220 });
+        highlighted_route_edge_count++;
     }
 }
 
@@ -178,6 +213,8 @@ static void DrawGameHud(const BukClientGameLayout *layout)
     int body_size = (int)(20.0F * layout->scale);
     int heading_size = (int)(30.0F * layout->scale);
 
+    rendered_route_option_count = 0;
+
     if (body_size < 8) body_size = 8;
     if (heading_size < 10) heading_size = 10;
 
@@ -242,26 +279,79 @@ static void DrawGameHud(const BukClientGameLayout *layout)
 
     DrawRectangleRounded(RaylibRectangle(command), 0.06F, 8,
                          (Color){ 67, 50, 38, 255 });
-    DrawText("PIECES", (int)(command.x + (24.0F * layout->scale)),
-             (int)(command.y + (22.0F * layout->scale)), body_size,
-             (Color){ 255, 249, 231, 255 });
-    if (snapshot == NULL) {
-        DrawText("A --  |  B --", (int)(command.x + (24.0F * layout->scale)),
-                 (int)(command.y + (62.0F * layout->scale)), body_size,
-                 (Color){ 213, 232, 222, 255 });
+    if (snapshot != NULL && snapshot->move_request_set &&
+        snapshot->move_request_input == BUK_CLIENT_REQUIRED_SELECT_ROUTE) {
+        const BukClientRect normal = LogicalRectangle(layout, 768.0F, 542.0F,
+                                                       200.0F, 70.0F);
+        const BukClientRect shortcut = LogicalRectangle(layout, 992.0F, 542.0F,
+                                                         200.0F, 70.0F);
+        const bool enabled = BukClientCanSelectRoute() == 1;
+        const Color disabled = { 116, 108, 99, 255 };
+        int button_text_size = (int)(22.0F * layout->scale);
+
+        if (button_text_size < 8) button_text_size = 8;
+        if (snapshot->normal_route_available) {
+            DrawRectangleRounded(RaylibRectangle(normal), 0.16F, 8,
+                                 enabled ? (Color){ 221, 156, 48, 255 } : disabled);
+            DrawText("NORMAL", (int)(normal.x + (48.0F * layout->scale)),
+                     (int)(normal.y + (23.0F * layout->scale)), button_text_size,
+                     (Color){ 255, 249, 231, 255 });
+            rendered_route_option_count++;
+        }
+        if (snapshot->shortcut_route_available) {
+            DrawRectangleRounded(RaylibRectangle(shortcut), 0.16F, 8,
+                                 enabled ? (Color){ 29, 154, 119, 255 } : disabled);
+            DrawText("SHORTCUT", (int)(shortcut.x + (32.0F * layout->scale)),
+                     (int)(shortcut.y + (23.0F * layout->scale)), button_text_size,
+                     (Color){ 255, 249, 231, 255 });
+            rendered_route_option_count++;
+        }
     } else {
-        DrawText(TextFormat("A wait %i / finish %i | B wait %i / finish %i",
-                            (int)CountPieces(snapshot, BUK_CLIENT_TEAM_A,
-                                             BUK_CLIENT_PIECE_WAITING),
-                            (int)CountPieces(snapshot, BUK_CLIENT_TEAM_A,
-                                             BUK_CLIENT_PIECE_FINISHED),
-                            (int)CountPieces(snapshot, BUK_CLIENT_TEAM_B,
-                                             BUK_CLIENT_PIECE_WAITING),
-                            (int)CountPieces(snapshot, BUK_CLIENT_TEAM_B,
-                                             BUK_CLIENT_PIECE_FINISHED)),
-                 (int)(command.x + (24.0F * layout->scale)),
-                 (int)(command.y + (62.0F * layout->scale)), body_size,
-                 (Color){ 213, 232, 222, 255 });
+        DrawText("PIECES", (int)(command.x + (24.0F * layout->scale)),
+                 (int)(command.y + (22.0F * layout->scale)), body_size,
+                 (Color){ 255, 249, 231, 255 });
+        if (snapshot == NULL) {
+            DrawText("A --  |  B --", (int)(command.x + (24.0F * layout->scale)),
+                     (int)(command.y + (62.0F * layout->scale)), body_size,
+                     (Color){ 213, 232, 222, 255 });
+        } else {
+            DrawText(TextFormat("A wait %i / finish %i | B wait %i / finish %i",
+                                (int)CountPieces(snapshot, BUK_CLIENT_TEAM_A,
+                                                 BUK_CLIENT_PIECE_WAITING),
+                                (int)CountPieces(snapshot, BUK_CLIENT_TEAM_A,
+                                                 BUK_CLIENT_PIECE_FINISHED),
+                                (int)CountPieces(snapshot, BUK_CLIENT_TEAM_B,
+                                                 BUK_CLIENT_PIECE_WAITING),
+                                (int)CountPieces(snapshot, BUK_CLIENT_TEAM_B,
+                                                 BUK_CLIENT_PIECE_FINISHED)),
+                     (int)(command.x + (24.0F * layout->scale)),
+                     (int)(command.y + (62.0F * layout->scale)), body_size,
+                     (Color){ 213, 232, 222, 255 });
+        }
+    }
+}
+
+static void UpdateRouteSelectionInput(const BukClientGameLayout *layout)
+{
+    const BukClientPresentationSnapshot *snapshot = BukClientConfirmedPresentation();
+    const BukClientRect normal = LogicalRectangle(layout, 768.0F, 542.0F,
+                                                   200.0F, 70.0F);
+    const BukClientRect shortcut = LogicalRectangle(layout, 992.0F, 542.0F,
+                                                     200.0F, 70.0F);
+    Vector2 mouse;
+
+    if (snapshot == NULL || !snapshot->move_request_set ||
+        snapshot->move_request_input != BUK_CLIENT_REQUIRED_SELECT_ROUTE ||
+        BukClientCanSelectRoute() != 1 || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        return;
+    }
+    mouse = GetMousePosition();
+    if (snapshot->normal_route_available &&
+        CheckCollisionPointRec(mouse, RaylibRectangle(normal))) {
+        (void)BukClientRequestRouteSelection("normal");
+    } else if (snapshot->shortcut_route_available &&
+               CheckCollisionPointRec(mouse, RaylibRectangle(shortcut))) {
+        (void)BukClientRequestRouteSelection("shortcut");
     }
 }
 
@@ -273,9 +363,11 @@ static void UpdateDrawFrame(void)
     ClearBackground((Color){ 36, 29, 25, 255 });
     if (BukClientCalculateGameLayout((float)GetScreenWidth(), (float)GetScreenHeight(),
                                      &layout)) {
+        UpdateRouteSelectionInput(&layout);
         DrawRectangleRec(RaylibRectangle(layout.content),
                          (Color){ 245, 239, 225, 255 });
         DrawCanonicalBoard(&layout);
+        DrawAuthoritativeRouteHighlights(&layout);
         DrawAuthoritativePieces(&layout);
         DrawGameHud(&layout);
     }
@@ -321,6 +413,22 @@ EMSCRIPTEN_KEEPALIVE
 int BukClientRenderedPieceCount(void)
 {
     return rendered_piece_count;
+}
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientRenderedRouteOptionCount(void)
+{
+    return rendered_route_option_count;
+}
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientHighlightedRouteEdgeCount(void)
+{
+    return highlighted_route_edge_count;
 }
 
 int main(void)

@@ -9,9 +9,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 enum {
     SEQUENCE_TEXT_CAPACITY = 21,
+    ROUTE_INTENT_NONE = 0,
+    ROUTE_INTENT_NORMAL = 1,
+    ROUTE_INTENT_SHORTCUT = 2,
 };
 
 static BukClientProtocolState protocol_state;
@@ -19,8 +23,20 @@ static BukClientPresentationState presentation_state;
 static bool presentation_runtime_initialized;
 static bool pending_event_tail;
 static bool snapshot_sequence_staged;
+static bool route_interaction_enabled;
+static bool route_command_pending;
+static int route_intent;
+static bool route_intent_set;
 static char last_sequence_text[SEQUENCE_TEXT_CAPACITY];
 static char remaining_ms_text[SEQUENCE_TEXT_CAPACITY];
+
+static void ResetRouteInteraction(void)
+{
+    route_interaction_enabled = false;
+    route_command_pending = false;
+    route_intent = ROUTE_INTENT_NONE;
+    route_intent_set = false;
+}
 
 static void FailRuntimeSynchronization(void)
 {
@@ -29,6 +45,7 @@ static void FailRuntimeSynchronization(void)
     BukClientPresentationAbortSnapshot(&presentation_state);
     pending_event_tail = false;
     snapshot_sequence_staged = false;
+    ResetRouteInteraction();
 }
 
 static bool ParseSequence(const char *text, uint64_t *sequence)
@@ -60,6 +77,7 @@ void BukClientProtocolRuntimeInit(void)
     presentation_runtime_initialized = true;
     pending_event_tail = false;
     snapshot_sequence_staged = false;
+    ResetRouteInteraction();
 }
 
 int BukClientBeginSynchronization(void)
@@ -68,6 +86,7 @@ int BukClientBeginSynchronization(void)
     BukClientPresentationBeginSnapshot(&presentation_state);
     pending_event_tail = false;
     snapshot_sequence_staged = false;
+    ResetRouteInteraction();
     return 1;
 }
 
@@ -162,6 +181,30 @@ int BukClientStageSnapshotResult(const char *result)
     return 1;
 }
 
+int BukClientStageSnapshotMoveRequest(const char *required_input,
+                                      int normal_route_available,
+                                      int shortcut_route_available,
+                                      const char *route_origin_space_id)
+{
+    BukClientRequiredInput parsed_required_input;
+    BukClientBoardNodeId route_origin = BUK_CLIENT_BOARD_NODE_COUNT;
+
+    if (!BukClientParseRequiredInput(required_input, &parsed_required_input) ||
+        (normal_route_available != 0 && normal_route_available != 1) ||
+        (shortcut_route_available != 0 && shortcut_route_available != 1) ||
+        (route_origin_space_id == NULL) ||
+        (route_origin_space_id[0] != '\0' &&
+         !BukClientBoardFindNode(route_origin_space_id, &route_origin)) ||
+        !BukClientPresentationStageMoveRequest(
+            &presentation_state, parsed_required_input,
+            normal_route_available == 1, shortcut_route_available == 1,
+            route_origin)) {
+        FailRuntimeSynchronization();
+        return 0;
+    }
+    return 1;
+}
+
 int BukClientIsCanonicalBoardSpace(const char *space_id)
 {
     BukClientBoardNodeId node;
@@ -196,6 +239,7 @@ int BukClientCompleteSynchronization(void)
     }
     pending_event_tail = false;
     snapshot_sequence_staged = false;
+    ResetRouteInteraction();
     return 1;
 }
 
@@ -280,4 +324,71 @@ const char *BukClientPresentationRemainingMilliseconds(void)
     (void)snprintf(remaining_ms_text, sizeof(remaining_ms_text), "%" PRIu64,
                    snapshot == NULL ? 0U : snapshot->remaining_ms);
     return remaining_ms_text;
+}
+
+int BukClientSetRouteInteractionEnabled(int enabled)
+{
+    const BukClientPresentationSnapshot *snapshot = BukClientConfirmedPresentation();
+
+    if (enabled != 0 && enabled != 1) return 0;
+    if (enabled == 1 &&
+        (snapshot == NULL || !snapshot->move_request_set ||
+         snapshot->move_request_input != BUK_CLIENT_REQUIRED_SELECT_ROUTE ||
+         !snapshot->normal_route_available ||
+         !snapshot->shortcut_route_available)) {
+        return 0;
+    }
+    route_interaction_enabled = enabled == 1;
+    if (!route_interaction_enabled) {
+        route_command_pending = false;
+        route_intent_set = false;
+    }
+    return 1;
+}
+
+int BukClientCanSelectRoute(void)
+{
+    return route_interaction_enabled && !route_command_pending &&
+                   BukClientCanSendStateCommands()
+               ? 1
+               : 0;
+}
+
+int BukClientRequestRouteSelection(const char *route)
+{
+    const BukClientPresentationSnapshot *snapshot = BukClientConfirmedPresentation();
+    int intent;
+
+    if (!BukClientCanSelectRoute() || route == NULL || snapshot == NULL) return 0;
+    if (strcmp(route, "normal") == 0 && snapshot->normal_route_available) {
+        intent = ROUTE_INTENT_NORMAL;
+    } else if (strcmp(route, "shortcut") == 0 &&
+               snapshot->shortcut_route_available) {
+        intent = ROUTE_INTENT_SHORTCUT;
+    } else {
+        return 0;
+    }
+    route_intent = intent;
+    route_intent_set = true;
+    route_command_pending = true;
+    return 1;
+}
+
+const char *BukClientConsumeRouteSelection(void)
+{
+    const char *route;
+
+    if (!route_intent_set) return "";
+    route = route_intent == ROUTE_INTENT_NORMAL ? "normal" : "shortcut";
+    route_intent = ROUTE_INTENT_NONE;
+    route_intent_set = false;
+    return route;
+}
+
+int BukClientResolveRouteCommand(void)
+{
+    if (!route_command_pending) return 0;
+    route_command_pending = false;
+    route_intent_set = false;
+    return 1;
 }

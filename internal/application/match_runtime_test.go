@@ -108,6 +108,7 @@ type matchEventFields struct {
 	PieceIDs           []domain.PieceID       `json:"piece_ids,omitempty"`
 	CapturedPieceIDs   []domain.PieceID       `json:"captured_piece_ids,omitempty"`
 	TokenIDs           []domain.ResultTokenID `json:"token_ids,omitempty"`
+	Routes             []domain.Route         `json:"routes,omitempty"`
 	SpaceID            domain.SpaceID         `json:"space_id,omitempty"`
 	StackID            string                 `json:"stack_id,omitempty"`
 	NoCandidate        bool                   `json:"no_candidate,omitempty"`
