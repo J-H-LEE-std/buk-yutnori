@@ -8,6 +8,8 @@ const char *BukClientGetInput(void);
 int BukClientRenderedBoardNodeCount(void);
 int BukClientRenderedBoardEdgeCount(void);
 int BukClientRenderedPieceCount(void);
+int BukClientRenderedRouteOptionCount(void);
+int BukClientHighlightedRouteEdgeCount(void);
 void BukClientProtocolRuntimeInit(void);
 int BukClientBeginSynchronization(void);
 int BukClientApplySnapshotSequence(const char *sequence);
@@ -20,6 +22,10 @@ int BukClientStageSnapshotMetadata(const char *status, const char *phase,
 int BukClientStageSnapshotPiece(const char *team, const char *piece_state,
                                 const char *space_id);
 int BukClientStageSnapshotResult(const char *result);
+int BukClientStageSnapshotMoveRequest(const char *required_input,
+                                      int normal_route_available,
+                                      int shortcut_route_available,
+                                      const char *route_origin_space_id);
 int BukClientIsCanonicalBoardSpace(const char *space_id);
 int BukClientFailSynchronization(void);
 int BukClientCompleteSynchronization(void);
@@ -35,5 +41,10 @@ const char *BukClientPresentationTurnPhase(void);
 const char *BukClientPresentationRequiredInput(void);
 const char *BukClientPresentationCurrentTeam(void);
 const char *BukClientPresentationRemainingMilliseconds(void);
+int BukClientSetRouteInteractionEnabled(int enabled);
+int BukClientCanSelectRoute(void);
+int BukClientRequestRouteSelection(const char *route);
+const char *BukClientConsumeRouteSelection(void);
+int BukClientResolveRouteCommand(void);
 
 #endif

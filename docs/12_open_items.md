@@ -20,6 +20,11 @@
   `server_event` payload를 C 표시 상태에 적용하는 reducer와 원자 staging을 구현해야
   한다. reducer가 없는 현재 클라이언트는 sequence만 앞당기지 않고 해당 bundle을
   fail-closed한다.
+- Milestone 4 지름길 UI 구현에서 `MOVE_REQUIRED`에 허용 경로가 없고 snapshot에는
+  선택 중인 토큰·말 ID가 없어 재접속 클라이언트가 후보를 복원할 수 없는 빈칸이
+  확인되었다. #96에서 `MOVE_REQUIRED.payload`와
+  `game_snapshot.current_turn.move_request`를 같은 서버 권위형 선택 요청으로 맞추고,
+  `select_route`의 `normal`/`shortcut` 후보를 명시해 이 빈칸을 닫는다.
 - 메인 로비 전체 채팅의 WebSocket 전송 계약. 방 스코프 채팅(docs/08)과 제한·sequence
   공간을 공유할지 여부를 포함해 정의해야 한다. 화면 모델 자체는 docs/09로 확정되었다
   (로그인 스크린→메인 로비→방 로비→게임 화면). Membership 센티널 분리(404/403)는

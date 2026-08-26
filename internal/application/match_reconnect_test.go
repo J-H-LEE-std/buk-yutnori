@@ -98,6 +98,9 @@ func TestReconnectReturnsRealAssembledSnapshotForStartedRoom(t *testing.T) {
 	if turn.PlayerID == nil || *turn.PlayerID != currentPlayer || turn.Timer.Phase != "throw" {
 		t.Fatalf("current turn = %+v, want acting player with armed throw window", turn)
 	}
+	if turn.MoveRequest != nil {
+		t.Fatalf("throw input exposed move request: %+v", turn.MoveRequest)
+	}
 	if len(snapshot.ResultQueue) != 0 || len(snapshot.Pieces) != 4 {
 		t.Fatalf("fresh match snapshot queue/pieces = %+v / %d", snapshot.ResultQueue, len(snapshot.Pieces))
 	}

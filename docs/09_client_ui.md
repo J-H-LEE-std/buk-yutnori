@@ -59,6 +59,12 @@ sequence를 먼저 검사한 뒤 10진 문자열 C ABI로 snapshot/event sequenc
 - 게임 내 선택 UI
 - 관전 화면
 
+지름길 선택 UI는 `game_snapshot.current_turn.move_request` 또는 같은 의미의
+`MOVE_REQUIRED`가 제공한 `routes`만 표시한다. C/raylib는 경로 선택 intent만 만들고,
+HTML/JavaScript 셸이 확정 snapshot의 opaque `token_id`·`piece_id`와 실제
+room/match scope를 결합해 `SELECT_ROUTE`를 전송한다. 관전자, 상대 턴, CPU 제어,
+재동기화 중과 응답 대기 중에는 선택을 잠근다.
+
 ## 서버 판정과 애니메이션
 
 - 서버는 애니메이션과 무관하게 결과를 즉시 확정

@@ -244,6 +244,12 @@ try {
         player_id: "user-a",
         phase: "wait_piece_selection",
         required_input: "select_piece",
+        move_request: {
+          required_input: "select_piece",
+          token_ids: ["token-1"],
+          piece_ids: ["A-1"],
+          routes: [],
+        },
         timer: { phase: "move", remaining_ms: 52000, deadline_at: null },
       },
       result_queue: [{
@@ -282,6 +288,27 @@ try {
       buk: { enabled: false, destination_space_id: null },
       pause: { used: false, paused: false, ends_at: null },
     });
+    globalThis.makeTestRouteSnapshot = (roomId, matchId, sequence) => {
+      const snapshot = makeTestGameSnapshot(roomId, matchId, sequence);
+      snapshot.current_turn.phase = "wait_route_selection";
+      snapshot.current_turn.required_input = "select_route";
+      snapshot.current_turn.move_request = {
+        required_input: "select_route",
+        token_ids: ["token-1"],
+        piece_ids: ["A-1"],
+        routes: ["normal", "shortcut"],
+      };
+      snapshot.pieces[0].current_space_id = "mo";
+      snapshot.pieces[0].position_group_id = "group-A-mo";
+      snapshot.pieces[0].actual_previous_space = "yut";
+      snapshot.position_groups[0] = {
+        group_id: "group-A-mo",
+        team_id: "A",
+        space_id: "mo",
+        piece_ids: ["A-1"],
+      };
+      return snapshot;
+    };
     return true;
   })()`);
 
@@ -459,6 +486,20 @@ try {
       status: Module.ccall("BukClientPresentationStatus", "string", [], []),
       pieceIds: [...confirmedSnapshotPieceIds],
     };
+    const invalidRouteSnapshot = makeTestRouteSnapshot("room-1", "match-1", 43);
+    invalidRouteSnapshot.current_turn.move_request.routes = ["shortcut"];
+    const invalidRouteRequest = applySynchronizationSequenceBundle({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: "sync-invalid-route",
+      room_id: "room-1",
+      match_id: "match-1",
+      payload: {
+        status: "accepted",
+        synchronization: { snapshot: invalidRouteSnapshot, events: [] },
+      },
+    });
     const eventTail = applySynchronizationSequenceBundle({
       version: 1,
       direction: "server_response",
@@ -487,6 +528,7 @@ try {
       confirmed,
       presentation,
       invalidSpace,
+      invalidRouteRequest,
       preservedAfterInvalid,
       eventTail,
       requiresResync: Module.ccall("BukClientRequiresResynchronization", "number", [], []),
@@ -504,6 +546,7 @@ try {
       || synchronizationBundle.presentation.resultCount !== 1
       || JSON.stringify(synchronizationBundle.presentation.pieceIds) !== '["A-1","B-1"]'
       || synchronizationBundle.invalidSpace
+      || synchronizationBundle.invalidRouteRequest
       || synchronizationBundle.preservedAfterInvalid.sequence !== "41"
       || synchronizationBundle.preservedAfterInvalid.status !== "active"
       || JSON.stringify(synchronizationBundle.preservedAfterInvalid.pieceIds)
@@ -521,6 +564,125 @@ try {
   })`, true);
   if (renderedSnapshot.pieces !== 1 || renderedSnapshot.hasSnapshot !== 1) {
     throw new Error(`authoritative pieces were not rendered: ${JSON.stringify(renderedSnapshot)}`);
+  }
+
+  const routeSelection = await evaluate(`new Promise((resolve) => {
+    class RouteWebSocket {
+      static OPEN = 1;
+      constructor() { this.readyState = RouteWebSocket.OPEN; this.messages = []; }
+      send(text) { this.messages.push(JSON.parse(text)); }
+      close() {}
+    }
+    const originalWebSocket = globalThis.WebSocket;
+    const capture = new RouteWebSocket();
+    globalThis.WebSocket = RouteWebSocket;
+    realtimeSocket = capture;
+    authenticatedUserId = "user-a";
+    stateReconnectScope = { roomId: "room-route", matchId: "match-route" };
+    pendingSynchronizationCommands.clear();
+    pendingRouteCommands.clear();
+    Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    const applied = applySynchronizationSequenceBundle({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      room_id: "room-route",
+      match_id: "match-route",
+      payload: {
+        status: "accepted",
+        synchronization: {
+          snapshot: makeTestRouteSnapshot("room-route", "match-route", 60),
+          events: [],
+        },
+      },
+    });
+    const opponentLocked = (() => {
+      authenticatedUserId = "user-b";
+      refreshRouteInteraction();
+      const locked = Module.ccall("BukClientCanSelectRoute", "number", [], []) === 0;
+      authenticatedUserId = "user-a";
+      refreshRouteInteraction();
+      return locked;
+    })();
+    const requested = Module.ccall(
+      "BukClientRequestRouteSelection", "number", ["string"], ["shortcut"],
+    );
+    const drained = drainRouteSelectionIntent();
+    const first = capture.messages[0];
+    const duplicateBlocked = Module.ccall(
+      "BukClientRequestRouteSelection", "number", ["string"], ["normal"],
+    ) === 0;
+    handleRealtimeMessage(capture, { data: JSON.stringify({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: first.command_id,
+      room_id: "room-route",
+      match_id: "match-route",
+      payload: {
+        status: "rejected",
+        error: { code: "INVALID_TURN_ACTION", message: "retry", retriable: false },
+      },
+    }) });
+    const retryEnabled = Module.ccall("BukClientCanSelectRoute", "number", [], []) === 1;
+    const retryRequested = Module.ccall(
+      "BukClientRequestRouteSelection", "number", ["string"], ["normal"],
+    );
+    const retryDrained = drainRouteSelectionIntent();
+    const second = capture.messages[1];
+    handleRealtimeMessage(capture, { data: JSON.stringify({
+      version: 1,
+      direction: "server_response",
+      type: "COMMAND_RESULT",
+      command_id: second.command_id,
+      room_id: "room-route",
+      match_id: "match-route",
+      payload: { status: "accepted", error: null },
+    }) });
+    const reconnect = capture.messages[2];
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const result = {
+        applied,
+        opponentLocked,
+        requested,
+        drained,
+        duplicateBlocked,
+        retryEnabled,
+        retryRequested,
+        retryDrained,
+        first,
+        second,
+        reconnect,
+        routeOptions: Module.ccall("BukClientRenderedRouteOptionCount", "number", [], []),
+        highlightedEdges: Module.ccall("BukClientHighlightedRouteEdgeCount", "number", [], []),
+        lockedDuringSync: Module.ccall("BukClientCanSelectRoute", "number", [], []) === 0,
+      };
+      pendingSynchronizationCommands.clear();
+      pendingRouteCommands.clear();
+      stateReconnectScope = null;
+      confirmedRouteRequest = null;
+      realtimeSocket = null;
+      authenticatedUserId = null;
+      globalThis.WebSocket = originalWebSocket;
+      resolve(result);
+    }));
+  })`, true);
+  if (!routeSelection.applied || !routeSelection.opponentLocked
+      || routeSelection.requested !== 1 || !routeSelection.drained
+      || !routeSelection.duplicateBlocked || !routeSelection.retryEnabled
+      || routeSelection.retryRequested !== 1 || !routeSelection.retryDrained
+      || routeSelection.first?.type !== "SELECT_ROUTE"
+      || routeSelection.first?.room_id !== "room-route"
+      || routeSelection.first?.match_id !== "match-route"
+      || routeSelection.first?.payload?.token_id !== "token-1"
+      || routeSelection.first?.payload?.piece_id !== "A-1"
+      || routeSelection.first?.payload?.route !== "shortcut"
+      || routeSelection.second?.payload?.route !== "normal"
+      || routeSelection.reconnect?.type !== "RECONNECT"
+      || routeSelection.reconnect?.payload?.last_sequence !== 60
+      || routeSelection.routeOptions !== 2 || routeSelection.highlightedEdges !== 2
+      || !routeSelection.lockedDuringSync) {
+    throw new Error(`authoritative route selection failed: ${JSON.stringify(routeSelection)}`);
   }
 
   // ADR-0013's fabricated prototype scope is retired: login must not send a
@@ -911,7 +1073,7 @@ try {
     throw new Error(`Backspace did not update DOM and C/WASM state: ${JSON.stringify(result)}`);
   }
 
-  console.log("BROWSER_INPUT_OK backspace=DOM->C/WASM->DOM reconnect=prototype-scope->JS->C/WASM");
+  console.log("BROWSER_INPUT_OK backspace=DOM->C/WASM->DOM reconnect=prototype-scope->JS->C/WASM route=authoritative-snapshot->SELECT_ROUTE");
 } finally {
   socket.close();
 }

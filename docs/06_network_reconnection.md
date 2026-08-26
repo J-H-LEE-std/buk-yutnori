@@ -177,6 +177,13 @@ event source(ADR-0014)도 후속 구현이다.
 - 경기 관련 메시지는 `room_id`와 `match_id`가 모두 필수다.
 - 명령, 명령 처리 응답, 이벤트의 `type` 및 payload는 각각 `schemas/ws_client_command.schema.json`, `schemas/ws_server_response.schema.json`, `schemas/ws_server_event.schema.json`으로 검증한다.
 
+`MOVE_REQUIRED.payload`와 `game_snapshot.current_turn.move_request`는 같은 서버 권위형
+선택 요청을 표현한다. 둘은 `required_input`, `token_ids`, `piece_ids`, `routes`를 가지며,
+재접속 직후에도 클라이언트가 보드 규칙으로 후보를 재계산하지 않고 명령을 만들 수
+있어야 한다. `select_route` 요청은 토큰과 말이 각각 정확히 하나이고 `routes`는
+`normal`, `shortcut` 두 값이다. `none`과 `throw` 입력에는 snapshot의
+`move_request`가 `null`이다.
+
 ### 최소 클라이언트 명령
 
 - `SELECT_TEAM`

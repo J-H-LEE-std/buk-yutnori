@@ -17,6 +17,14 @@ static const BukClientBoardEdge board_edges[] = {
 #undef BUK_CLIENT_BOARD_EDGE
 };
 
+static const BukClientBoardRouteChoice board_route_choices[] = {
+#define BUK_CLIENT_BOARD_ROUTE_CHOICE(origin_symbol, normal_symbol, shortcut_symbol) \
+    { BUK_CLIENT_BOARD_NODE_##origin_symbol, BUK_CLIENT_BOARD_NODE_##normal_symbol, \
+      BUK_CLIENT_BOARD_NODE_##shortcut_symbol },
+#include "buk_client/board_graph_data.def"
+#undef BUK_CLIENT_BOARD_ROUTE_CHOICE
+};
+
 _Static_assert(
     (sizeof(board_nodes) / sizeof(board_nodes[0])) == BUK_CLIENT_BOARD_NODE_COUNT,
     "board node table must contain every node enum");
@@ -33,6 +41,14 @@ const BukClientBoardEdge *BukClientBoardEdges(size_t *count)
     return board_edges;
 }
 
+const BukClientBoardRouteChoice *BukClientBoardRouteChoices(size_t *count)
+{
+    if (count != NULL) {
+        *count = sizeof(board_route_choices) / sizeof(board_route_choices[0]);
+    }
+    return board_route_choices;
+}
+
 bool BukClientBoardFindNode(const char *spec_id, BukClientBoardNodeId *node_id)
 {
     size_t index;
@@ -41,6 +57,25 @@ bool BukClientBoardFindNode(const char *spec_id, BukClientBoardNodeId *node_id)
     for (index = 0U; index < sizeof(board_nodes) / sizeof(board_nodes[0]); index++) {
         if (strcmp(spec_id, board_nodes[index].spec_id) == 0) {
             *node_id = board_nodes[index].id;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool BukClientBoardRouteTargets(BukClientBoardNodeId origin,
+                                BukClientBoardNodeId *normal,
+                                BukClientBoardNodeId *shortcut)
+{
+    size_t index;
+
+    if ((normal == NULL) || (shortcut == NULL)) return false;
+    for (index = 0U;
+         index < sizeof(board_route_choices) / sizeof(board_route_choices[0]);
+         index++) {
+        if (board_route_choices[index].origin == origin) {
+            *normal = board_route_choices[index].normal;
+            *shortcut = board_route_choices[index].shortcut;
             return true;
         }
     }

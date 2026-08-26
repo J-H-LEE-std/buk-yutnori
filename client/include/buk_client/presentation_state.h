@@ -90,6 +90,11 @@ typedef struct BukClientPresentationSnapshot {
     BukClientTimerPhase timer_phase;
     BukClientTeam current_team;
     uint64_t remaining_ms;
+    bool move_request_set;
+    BukClientRequiredInput move_request_input;
+    bool normal_route_available;
+    bool shortcut_route_available;
+    BukClientBoardNodeId route_origin;
     BukClientPresentationPiece *pieces;
     size_t piece_count;
     size_t piece_capacity;
@@ -124,6 +129,10 @@ bool BukClientPresentationStagePiece(BukClientPresentationState *state,
                                      BukClientBoardNodeId node);
 bool BukClientPresentationStageResult(BukClientPresentationState *state,
                                       BukClientResult result);
+bool BukClientPresentationStageMoveRequest(
+    BukClientPresentationState *state, BukClientRequiredInput required_input,
+    bool normal_route_available, bool shortcut_route_available,
+    BukClientBoardNodeId route_origin);
 bool BukClientPresentationCanCommit(const BukClientPresentationState *state);
 bool BukClientPresentationCommitSnapshot(BukClientPresentationState *state);
 const BukClientPresentationSnapshot *BukClientPresentationConfirmed(

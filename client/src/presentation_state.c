@@ -257,10 +257,51 @@ bool BukClientPresentationStageResult(BukClientPresentationState *state,
     return true;
 }
 
+bool BukClientPresentationStageMoveRequest(
+    BukClientPresentationState *state, BukClientRequiredInput required_input,
+    bool normal_route_available, bool shortcut_route_available,
+    BukClientBoardNodeId route_origin)
+{
+    BukClientBoardNodeId normal;
+    BukClientBoardNodeId shortcut;
+    bool route_request = required_input == BUK_CLIENT_REQUIRED_SELECT_ROUTE;
+
+    if ((state == NULL) || !state->staging || state->pending_failed ||
+        state->pending.move_request_set || !state->pending_metadata_set ||
+        (required_input != BUK_CLIENT_REQUIRED_SELECT_RESULT &&
+         required_input != BUK_CLIENT_REQUIRED_SELECT_PIECE &&
+         required_input != BUK_CLIENT_REQUIRED_SELECT_ROUTE) ||
+        state->pending.required_input != required_input ||
+        (route_request &&
+         (!normal_route_available || !shortcut_route_available ||
+          !BukClientBoardRouteTargets(route_origin, &normal, &shortcut))) ||
+        (!route_request &&
+         (normal_route_available || shortcut_route_available ||
+          route_origin != BUK_CLIENT_BOARD_NODE_COUNT))) {
+        if (state != NULL) state->pending_failed = true;
+        return false;
+    }
+    state->pending.move_request_set = true;
+    state->pending.move_request_input = required_input;
+    state->pending.normal_route_available = normal_route_available;
+    state->pending.shortcut_route_available = shortcut_route_available;
+    state->pending.route_origin = route_origin;
+    return true;
+}
+
 bool BukClientPresentationCanCommit(const BukClientPresentationState *state)
 {
-    return (state != NULL) && state->staging && state->pending_metadata_set &&
-           !state->pending_failed;
+    bool selection_input;
+
+    if ((state == NULL) || !state->staging || !state->pending_metadata_set ||
+        state->pending_failed) {
+        return false;
+    }
+    selection_input =
+        state->pending.required_input == BUK_CLIENT_REQUIRED_SELECT_RESULT ||
+        state->pending.required_input == BUK_CLIENT_REQUIRED_SELECT_PIECE ||
+        state->pending.required_input == BUK_CLIENT_REQUIRED_SELECT_ROUTE;
+    return selection_input == state->pending.move_request_set;
 }
 
 bool BukClientPresentationCommitSnapshot(BukClientPresentationState *state)

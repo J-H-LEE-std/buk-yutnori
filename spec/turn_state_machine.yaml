@@ -35,6 +35,18 @@ queue:
   unusable_ordinary_token: discard_only_that_token
   buk_no_candidate: discard_buk_and_end_turn
 
+move_request:
+  source: server_authoritative
+  snapshot_field: current_turn.move_request
+  event_field: MOVE_REQUIRED.payload
+  fields: [required_input, token_ids, piece_ids, routes]
+  route_selection:
+    token_count: 1
+    piece_count: 1
+    routes: [normal, shortcut]
+  inactive_inputs: [none, throw]
+  inactive_value: null
+
 extra_throw:
   on_yut_or_mo: immediate_when_enabled
   on_capture: immediate_when_policy_allows

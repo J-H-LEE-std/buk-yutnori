@@ -142,7 +142,7 @@
     "current_turn": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["player_id", "phase", "required_input", "timer"],
+      "required": ["player_id", "phase", "required_input", "move_request", "timer"],
       "properties": {
         "player_id": { "$ref": "#/$defs/nullable_string_id" },
         "phase": {
@@ -156,8 +156,135 @@
         "required_input": {
           "enum": ["none", "throw", "select_result", "select_piece", "select_route"]
         },
+        "move_request": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/move_request" }
+          ]
+        },
         "timer": { "$ref": "#/$defs/timer" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "required_input": { "enum": ["none", "throw"] } },
+            "required": ["required_input"]
+          },
+          "then": { "properties": { "move_request": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "properties": { "required_input": { "const": "select_result" } },
+            "required": ["required_input"]
+          },
+          "then": {
+            "properties": {
+              "move_request": {
+                "allOf": [
+                  { "$ref": "#/$defs/move_request" },
+                  { "properties": { "required_input": { "const": "select_result" } } }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "required_input": { "const": "select_piece" } },
+            "required": ["required_input"]
+          },
+          "then": {
+            "properties": {
+              "move_request": {
+                "allOf": [
+                  { "$ref": "#/$defs/move_request" },
+                  { "properties": { "required_input": { "const": "select_piece" } } }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "required_input": { "const": "select_route" } },
+            "required": ["required_input"]
+          },
+          "then": {
+            "properties": {
+              "move_request": {
+                "allOf": [
+                  { "$ref": "#/$defs/move_request" },
+                  { "properties": { "required_input": { "const": "select_route" } } }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "move_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_input", "token_ids", "piece_ids", "routes"],
+      "properties": {
+        "required_input": { "enum": ["select_result", "select_piece", "select_route"] },
+        "token_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/string_id" },
+          "uniqueItems": true
+        },
+        "piece_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/string_id" },
+          "uniqueItems": true
+        },
+        "routes": {
+          "type": "array",
+          "items": { "enum": ["normal", "shortcut"] },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "required_input": { "const": "select_result" } },
+            "required": ["required_input"]
+          },
+          "then": {
+            "properties": {
+              "token_ids": { "minItems": 1 },
+              "piece_ids": { "maxItems": 0 },
+              "routes": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "required_input": { "const": "select_piece" } },
+            "required": ["required_input"]
+          },
+          "then": {
+            "properties": {
+              "token_ids": { "minItems": 1, "maxItems": 1 },
+              "piece_ids": { "minItems": 1 },
+              "routes": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "required_input": { "const": "select_route" } },
+            "required": ["required_input"]
+          },
+          "then": {
+            "properties": {
+              "token_ids": { "minItems": 1, "maxItems": 1 },
+              "piece_ids": { "minItems": 1, "maxItems": 1 },
+              "routes": { "minItems": 2, "maxItems": 2 }
+            }
+          }
+        }
+      ]
     },
     "result_token": {
       "type": "object",

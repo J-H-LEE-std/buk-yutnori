@@ -155,6 +155,32 @@ static void TestRejectsLiveEventSequenceWithoutPresentationReducer(void)
     CHECK(strcmp(BukClientPresentationStatus(), "active") == 0);
 }
 
+static void TestRouteIntentRequiresConfirmedInteractiveRequest(void)
+{
+    BukClientProtocolRuntimeInit();
+    CHECK(BukClientBeginSynchronization());
+    CHECK(BukClientApplySnapshotSequence("30"));
+    CHECK(BukClientStageSnapshotMetadata(
+        "active", "wait_route_selection", "select_route", "move", "A", "30000"));
+    CHECK(BukClientStageSnapshotMoveRequest("select_route", 1, 1, "mo"));
+    CHECK(BukClientCompleteSynchronization());
+
+    CHECK(!BukClientCanSelectRoute());
+    CHECK(BukClientSetRouteInteractionEnabled(1));
+    CHECK(BukClientCanSelectRoute());
+    CHECK(BukClientRequestRouteSelection("shortcut"));
+    CHECK(!BukClientCanSelectRoute());
+    CHECK(strcmp(BukClientConsumeRouteSelection(), "shortcut") == 0);
+    CHECK(strcmp(BukClientConsumeRouteSelection(), "") == 0);
+    CHECK(!BukClientRequestRouteSelection("normal"));
+    CHECK(BukClientResolveRouteCommand());
+    CHECK(BukClientCanSelectRoute());
+    CHECK(!BukClientRequestRouteSelection("invalid"));
+
+    CHECK(BukClientBeginSynchronization());
+    CHECK(!BukClientCanSelectRoute());
+}
+
 int main(void)
 {
     TestAtomicallyCommitsSequenceAndPresentation();
@@ -164,6 +190,7 @@ int main(void)
     TestPresentationFailureLocksGateAndPreservesBothStates();
     TestRejectsValidatedEventTailWithoutPayloadReducer();
     TestRejectsLiveEventSequenceWithoutPresentationReducer();
+    TestRouteIntentRequiresConfirmedInteractiveRequest();
 
     if (failures != 0) {
         fprintf(stderr, "%d protocol bridge test(s) failed\n", failures);

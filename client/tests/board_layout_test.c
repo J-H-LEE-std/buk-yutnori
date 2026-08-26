@@ -80,6 +80,25 @@ static void TestCanonicalSpecIDLookup(void)
     assert(!BukClientBoardFindNode("do", NULL));
 }
 
+static void TestCanonicalRouteChoiceTargets(void)
+{
+    BukClientBoardNodeId normal = BUK_CLIENT_BOARD_NODE_COUNT;
+    BukClientBoardNodeId shortcut = BUK_CLIENT_BOARD_NODE_COUNT;
+
+    assert(BukClientBoardRouteTargets(BUK_CLIENT_BOARD_NODE_MO, &normal, &shortcut));
+    assert(normal == BUK_CLIENT_BOARD_NODE_BACK_DO);
+    assert(shortcut == BUK_CLIENT_BOARD_NODE_MO_DO);
+    assert(BukClientBoardRouteTargets(BUK_CLIENT_BOARD_NODE_BACK_MO, &normal,
+                                      &shortcut));
+    assert(normal == BUK_CLIENT_BOARD_NODE_JJI_DO);
+    assert(shortcut == BUK_CLIENT_BOARD_NODE_BACK_MO_DO);
+    assert(BukClientBoardRouteTargets(BUK_CLIENT_BOARD_NODE_BANG, &normal, &shortcut));
+    assert(normal == BUK_CLIENT_BOARD_NODE_SOK_YUT);
+    assert(shortcut == BUK_CLIENT_BOARD_NODE_BANGSUGI);
+    assert(!BukClientBoardRouteTargets(BUK_CLIENT_BOARD_NODE_DO, &normal, &shortcut));
+    assert(!BukClientBoardRouteTargets(BUK_CLIENT_BOARD_NODE_MO, NULL, &shortcut));
+}
+
 static void TestLogicalLayout(void)
 {
     BukClientGameLayout layout;
@@ -128,6 +147,7 @@ int main(void)
     TestCanonicalGraphShape();
     TestCoordinateMapping();
     TestCanonicalSpecIDLookup();
+    TestCanonicalRouteChoiceTargets();
     TestLogicalLayout();
     TestInvalidLayoutInputs();
     puts("board_layout_test: ok");

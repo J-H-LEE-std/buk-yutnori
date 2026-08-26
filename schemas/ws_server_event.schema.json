@@ -224,12 +224,54 @@
             "payload": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["required_input", "token_ids", "piece_ids"],
+              "required": ["required_input", "token_ids", "piece_ids", "routes"],
               "properties": {
                 "required_input": { "enum": ["select_result", "select_piece", "select_route"] },
                 "token_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-                "piece_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
-              }
+                "piece_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                "routes": { "type": "array", "items": { "enum": ["normal", "shortcut"] }, "uniqueItems": true }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": { "required_input": { "const": "select_result" } },
+                    "required": ["required_input"]
+                  },
+                  "then": {
+                    "properties": {
+                      "token_ids": { "minItems": 1 },
+                      "piece_ids": { "maxItems": 0 },
+                      "routes": { "maxItems": 0 }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": { "required_input": { "const": "select_piece" } },
+                    "required": ["required_input"]
+                  },
+                  "then": {
+                    "properties": {
+                      "token_ids": { "minItems": 1, "maxItems": 1 },
+                      "piece_ids": { "minItems": 1 },
+                      "routes": { "maxItems": 0 }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": { "required_input": { "const": "select_route" } },
+                    "required": ["required_input"]
+                  },
+                  "then": {
+                    "properties": {
+                      "token_ids": { "minItems": 1, "maxItems": 1 },
+                      "piece_ids": { "minItems": 1, "maxItems": 1 },
+                      "routes": { "minItems": 2, "maxItems": 2 }
+                    }
+                  }
+                }
+              ]
             }
           }
         }

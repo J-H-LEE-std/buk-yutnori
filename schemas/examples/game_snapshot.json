@@ -16,6 +16,12 @@
     "player_id": "user-a",
     "phase": "wait_piece_selection",
     "required_input": "select_piece",
+    "move_request": {
+      "required_input": "select_piece",
+      "token_ids": ["token-1"],
+      "piece_ids": ["A-1", "A-2"],
+      "routes": []
+    },
     "timer": {"phase":"move","remaining_ms":52000,"deadline_at":"2026-07-22T08:01:00Z"}
   },
   "result_queue": [
