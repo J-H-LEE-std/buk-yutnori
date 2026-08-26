@@ -254,10 +254,14 @@
       if (kind === null) return false;
       lastGameEventSequence = message.sequence;
       eventCue = { kind, sequence: message.sequence, expiresAt: Date.now() + 900 };
+      if (wasmRuntimeReady) {
+        Module.ccall("BukClientSetEventCue", "number", ["string"], [kind]);
+      }
       realtimeStatus.textContent = `${kind === "backdo" ? "백도" : "북"} 결과 확정 — 표시 중…`;
       window.setTimeout(() => {
         if (eventCue?.sequence === message.sequence && Date.now() >= eventCue.expiresAt) {
           clearEventCue();
+          if (wasmRuntimeReady) Module.ccall("BukClientClearEventCue", "number", [], []);
           if (realtimeSocket?.readyState === WebSocket.OPEN) {
             realtimeStatus.textContent = "실시간 서버 연결됨";
           }
@@ -782,6 +786,7 @@
       confirmedRouteRequest = pendingPresentation.routeRequest;
       lastGameEventSequence = sequences.snapshot.sequence;
       clearEventCue();
+      if (wasmRuntimeReady) Module.ccall("BukClientClearEventCue", "number", [], []);
       refreshRouteInteraction();
       return true;
     }

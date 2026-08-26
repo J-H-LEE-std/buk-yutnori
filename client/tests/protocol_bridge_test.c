@@ -155,6 +155,20 @@ static void TestRejectsLiveEventSequenceWithoutPresentationReducer(void)
     CHECK(strcmp(BukClientPresentationStatus(), "active") == 0);
 }
 
+static void TestEventCueAcceptsOnlyCanonicalKinds(void)
+{
+    BukClientProtocolRuntimeInit();
+    CHECK(strcmp(BukClientEventCueName(), "none") == 0);
+    CHECK(BukClientSetEventCue("backdo"));
+    CHECK(strcmp(BukClientEventCueName(), "backdo") == 0);
+    CHECK(BukClientSetEventCue("buk"));
+    CHECK(strcmp(BukClientEventCueName(), "buk") == 0);
+    CHECK(!BukClientSetEventCue("yut"));
+    CHECK(strcmp(BukClientEventCueName(), "buk") == 0);
+    CHECK(BukClientClearEventCue());
+    CHECK(strcmp(BukClientEventCueName(), "none") == 0);
+}
+
 static void TestRouteIntentRequiresConfirmedInteractiveRequest(void)
 {
     BukClientProtocolRuntimeInit();
@@ -190,6 +204,7 @@ int main(void)
     TestPresentationFailureLocksGateAndPreservesBothStates();
     TestRejectsValidatedEventTailWithoutPayloadReducer();
     TestRejectsLiveEventSequenceWithoutPresentationReducer();
+    TestEventCueAcceptsOnlyCanonicalKinds();
     TestRouteIntentRequiresConfirmedInteractiveRequest();
 
     if (failures != 0) {

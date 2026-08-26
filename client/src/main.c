@@ -4,6 +4,8 @@
 
 #include "raylib.h"
 
+#include <string.h>
+
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
 #endif
@@ -248,6 +250,17 @@ static void DrawGameHud(const BukClientGameLayout *layout)
     DrawText("authoritative snapshot presentation",
              (int)(hud.x + (32.0F * layout->scale)),
              (int)(hud.y + (70.0F * layout->scale)), body_size, muted);
+    if (strcmp(BukClientEventCueName(), "none") != 0) {
+        const BukClientRect cue = LogicalRectangle(layout, 752.0F, 106.0F,
+                                                    456.0F, 32.0F);
+        const char *label = strcmp(BukClientEventCueName(), "backdo") == 0
+                                ? "BACKDO CONFIRMED" : "BUK RESOLVED";
+        DrawRectangleRounded(RaylibRectangle(cue), 0.18F, 8,
+                             (Color){ 221, 156, 48, 255 });
+        DrawText(label, (int)(cue.x + (18.0F * layout->scale)),
+                 (int)(cue.y + (6.0F * layout->scale)), body_size,
+                 (Color){ 67, 50, 38, 255 });
+    }
 
     DrawRectangleRounded(RaylibRectangle(status), 0.06F, 8,
                          (Color){ 236, 244, 239, 255 });
