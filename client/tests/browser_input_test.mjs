@@ -390,7 +390,7 @@ try {
     );
     const piece = Module.ccall(
       "BukClientStageSnapshotPiece", "number", ["string", "string", "string", "number", "number"],
-      ["A", "on_board", "do"],
+      ["A", "on_board", "do", 0, 0],
     );
     const resultToken = Module.ccall(
       "BukClientStageSnapshotResult", "number", ["string"], ["gae"],
