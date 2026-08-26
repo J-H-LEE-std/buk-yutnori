@@ -8,6 +8,7 @@ const char *BukClientGetInput(void);
 int BukClientRenderedBoardNodeCount(void);
 int BukClientRenderedBoardEdgeCount(void);
 int BukClientRenderedPieceCount(void);
+int BukClientRenderedStackBadgeCount(void);
 int BukClientRenderedRouteOptionCount(void);
 int BukClientHighlightedRouteEdgeCount(void);
 void BukClientProtocolRuntimeInit(void);
@@ -20,7 +21,8 @@ int BukClientStageSnapshotMetadata(const char *status, const char *phase,
                                    const char *current_team,
                                    const char *remaining_ms);
 int BukClientStageSnapshotPiece(const char *team, const char *piece_state,
-                                const char *space_id);
+                                const char *space_id, int stacked,
+                                int stack_size);
 int BukClientStageSnapshotResult(const char *result);
 int BukClientStageSnapshotMoveRequest(const char *required_input,
                                       int normal_route_available,

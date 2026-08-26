@@ -389,8 +389,8 @@ try {
       ["active", "wait_throw", "throw", "throw", "A", "20000"],
     );
     const piece = Module.ccall(
-      "BukClientStageSnapshotPiece", "number", ["string", "string", "string"],
-      ["A", "on_board", "do"],
+      "BukClientStageSnapshotPiece", "number", ["string", "string", "string", "number", "number"],
+      ["A", "on_board", "do", 0, 0],
     );
     const resultToken = Module.ccall(
       "BukClientStageSnapshotResult", "number", ["string"], ["gae"],
@@ -500,6 +500,26 @@ try {
         synchronization: { snapshot: invalidRouteSnapshot, events: [] },
       },
     });
+    const invalidStackSnapshot = makeTestGameSnapshot("room-1", "match-1", 44);
+    invalidStackSnapshot.stacks = [{
+      stack_id: "stack-A-do",
+      team_id: "A",
+      space_id: "do",
+      piece_ids: ["missing-piece", "A-1"],
+      actual_previous_space: "chammeogi",
+    }];
+    invalidStackSnapshot.pieces[0].stack_id = "stack-A-do";
+    const invalidStack = applySynchronizationSequenceBundle({
+      type: "COMMAND_RESULT",
+      direction: "server_response",
+      version: 1,
+      room_id: "room-1",
+      match_id: "match-1",
+      payload: {
+        status: "accepted",
+        synchronization: { snapshot: invalidStackSnapshot, events: [] },
+      },
+    });
     const eventTail = applySynchronizationSequenceBundle({
       version: 1,
       direction: "server_response",
@@ -529,6 +549,7 @@ try {
       presentation,
       invalidSpace,
       invalidRouteRequest,
+      invalidStack,
       preservedAfterInvalid,
       eventTail,
       requiresResync: Module.ccall("BukClientRequiresResynchronization", "number", [], []),
@@ -547,6 +568,7 @@ try {
       || JSON.stringify(synchronizationBundle.presentation.pieceIds) !== '["A-1","B-1"]'
       || synchronizationBundle.invalidSpace
       || synchronizationBundle.invalidRouteRequest
+      || synchronizationBundle.invalidStack
       || synchronizationBundle.preservedAfterInvalid.sequence !== "41"
       || synchronizationBundle.preservedAfterInvalid.status !== "active"
       || JSON.stringify(synchronizationBundle.preservedAfterInvalid.pieceIds)

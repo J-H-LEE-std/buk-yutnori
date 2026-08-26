@@ -216,7 +216,9 @@ bool BukClientPresentationStageMetadata(BukClientPresentationState *state,
 bool BukClientPresentationStagePiece(BukClientPresentationState *state,
                                      BukClientTeam team,
                                      BukClientPieceState piece_state,
-                                     BukClientBoardNodeId node)
+                                     BukClientBoardNodeId node,
+                                     bool stacked,
+                                     size_t stack_size)
 {
     bool has_board_node;
 
@@ -224,6 +226,13 @@ bool BukClientPresentationStagePiece(BukClientPresentationState *state,
         (team != BUK_CLIENT_TEAM_A && team != BUK_CLIENT_TEAM_B) ||
         (piece_state < 0) || (piece_state >= BUK_CLIENT_PIECE_STATE_COUNT)) {
         if (state != NULL) state->pending_failed = true;
+        return false;
+    }
+    if ((!stacked && stack_size != 0U) ||
+        (stacked && stack_size < 2U) ||
+        (stacked && (piece_state == BUK_CLIENT_PIECE_WAITING ||
+                     piece_state == BUK_CLIENT_PIECE_FINISHED))) {
+        state->pending_failed = true;
         return false;
     }
     has_board_node = (node >= 0) && (node < BUK_CLIENT_BOARD_NODE_COUNT);
@@ -238,7 +247,7 @@ bool BukClientPresentationStagePiece(BukClientPresentationState *state,
     }
     if (!EnsurePieceCapacity(state)) return false;
     state->pending.pieces[state->pending.piece_count] =
-        (BukClientPresentationPiece){ team, piece_state, node };
+        (BukClientPresentationPiece){ team, piece_state, node, stacked, stack_size };
     state->pending.piece_count++;
     return true;
 }

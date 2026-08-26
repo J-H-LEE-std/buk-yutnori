@@ -17,6 +17,7 @@ static BukClientState client_state;
 static int rendered_board_node_count;
 static int rendered_board_edge_count;
 static int rendered_piece_count;
+static int rendered_stack_badge_count;
 static int rendered_route_option_count;
 static int highlighted_route_edge_count;
 
@@ -156,11 +157,13 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
     size_t piece_index;
 
     rendered_piece_count = 0;
+    rendered_stack_badge_count = 0;
     if (snapshot == NULL) return;
     for (piece_index = 0U; piece_index < snapshot->piece_count; piece_index++) {
         const BukClientPresentationPiece piece = snapshot->pieces[piece_index];
         BukClientPoint point;
         size_t previous_at_node = 0U;
+        size_t previous_stack_at_node = 0U;
         size_t previous_index;
         size_t offset_index;
         float ring;
@@ -178,8 +181,17 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
 
             if ((previous.state == BUK_CLIENT_PIECE_ON_BOARD ||
                  previous.state == BUK_CLIENT_PIECE_HOME_CHECKPOINT) &&
-                previous.node == piece.node) {
+                previous.node == piece.node && previous.team == piece.team &&
+                previous.state == piece.state) {
                 previous_at_node++;
+            }
+        }
+        for (previous_index = 0U; previous_index < piece_index; previous_index++) {
+            const BukClientPresentationPiece grouped = snapshot->pieces[previous_index];
+
+            if (grouped.stacked && grouped.node == piece.node &&
+                grouped.team == piece.team && grouped.state == piece.state) {
+                previous_stack_at_node++;
             }
         }
         offset_index = previous_at_node % (sizeof(offset_x) / sizeof(offset_x[0]));
@@ -195,6 +207,18 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
         DrawText(TextFormat("%i", (int)piece_index + 1),
                  (int)(point.x - (4.0F * layout->scale)),
                  (int)(point.y - (6.0F * layout->scale)), label_size, label);
+        if (piece.stacked && piece.stack_size >= 2U &&
+            previous_stack_at_node + 1U == piece.stack_size) {
+            const float badge_radius = 9.0F * layout->scale;
+            DrawCircleV((Vector2){ point.x + (radius * 0.8F),
+                                   point.y - (radius * 0.8F) },
+                        badge_radius, (Color){ 45, 35, 32, 255 });
+            DrawText(TextFormat("%i", (int)piece.stack_size),
+                     (int)(point.x + (radius * 0.8F) - (4.0F * layout->scale)),
+                     (int)(point.y - (radius * 0.8F) - (6.0F * layout->scale)),
+                     label_size, label);
+            rendered_stack_badge_count++;
+        }
         rendered_piece_count++;
     }
 }
@@ -413,6 +437,14 @@ EMSCRIPTEN_KEEPALIVE
 int BukClientRenderedPieceCount(void)
 {
     return rendered_piece_count;
+}
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientRenderedStackBadgeCount(void)
+{
+    return rendered_stack_badge_count;
 }
 
 #if defined(PLATFORM_WEB)

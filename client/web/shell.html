@@ -545,6 +545,28 @@
         && isUniqueStringIdArray(group.piece_ids, 1);
     }
 
+    function validatePieceGrouping(snapshot) {
+      const piecesById = new Map(snapshot.pieces.map((piece) => [piece.piece_id, piece]));
+      const groupIds = new Set(snapshot.position_groups.map((group) => group.group_id));
+      const stackIds = new Set(snapshot.stacks.map((stack) => stack.stack_id));
+      for (const piece of snapshot.pieces) {
+        if (piece.position_group_id !== null && !groupIds.has(piece.position_group_id)) {
+          return false;
+        }
+        if (piece.stack_id !== null && !stackIds.has(piece.stack_id)) return false;
+      }
+      for (const stack of snapshot.stacks) {
+        for (const pieceId of stack.piece_ids) {
+          const piece = piecesById.get(pieceId);
+          if (!piece || piece.team_id !== stack.team_id || piece.current_space_id !== stack.space_id
+              || piece.stack_id !== stack.stack_id || piece.position_group_id === null) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+
     function validateGameSnapshot(snapshot) {
       if (!hasExactKeys(snapshot, [
         "room_id", "match_id", "sequence", "status", "teams", "participants",
@@ -573,6 +595,7 @@
           || !snapshot.position_groups.every(validatePositionGroup)
           || new Set(snapshot.position_groups.map((group) => group.group_id)).size
              !== snapshot.position_groups.length
+          || !validatePieceGrouping(snapshot)
           || !hasExactKeys(snapshot.buk, ["enabled", "destination_space_id"])
           || typeof snapshot.buk.enabled !== "boolean"
           || !isNullableBoardSpace(snapshot.buk.destination_space_id)
@@ -679,10 +702,17 @@
           [request.required_input, normal, shortcut, routeRequest?.originSpaceId ?? ""],
         ) !== 1) return null;
       }
+      const stackSizeByPieceId = new Map();
+      for (const stack of snapshot.stacks) {
+        for (const pieceId of stack.piece_ids) stackSizeByPieceId.set(pieceId, stack.piece_ids.length);
+      }
       for (const piece of snapshot.pieces) {
+        const stackSize = stackSizeByPieceId.get(piece.piece_id) ?? 0;
         if (Module.ccall(
-          "BukClientStageSnapshotPiece", "number", ["string", "string", "string"],
-          [piece.team_id, piece.state, piece.current_space_id ?? ""],
+          "BukClientStageSnapshotPiece", "number",
+          ["string", "string", "string", "number", "number"],
+          [piece.team_id, piece.state, piece.current_space_id ?? "",
+            stackSize > 0 ? 1 : 0, stackSize],
         ) !== 1) return null;
       }
       for (const token of snapshot.result_queue) {

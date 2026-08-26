@@ -151,7 +151,7 @@ int BukClientStageSnapshotMetadata(const char *status, const char *phase,
 }
 
 int BukClientStageSnapshotPiece(const char *team, const char *piece_state,
-                                const char *space_id)
+                                const char *space_id, int stacked, int stack_size)
 {
     BukClientTeam parsed_team;
     BukClientPieceState parsed_piece_state;
@@ -159,10 +159,12 @@ int BukClientStageSnapshotPiece(const char *team, const char *piece_state,
 
     if (!BukClientParseTeam(team, &parsed_team) ||
         !BukClientParsePieceState(piece_state, &parsed_piece_state) ||
+        (stacked != 0 && stacked != 1) || stack_size < 0 ||
         (space_id == NULL) ||
         (space_id[0] != '\0' && !BukClientBoardFindNode(space_id, &node)) ||
         !BukClientPresentationStagePiece(&presentation_state, parsed_team,
-                                         parsed_piece_state, node)) {
+                                         parsed_piece_state, node, stacked == 1,
+                                         (size_t)stack_size)) {
         FailRuntimeSynchronization();
         return 0;
     }

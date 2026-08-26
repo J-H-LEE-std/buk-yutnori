@@ -81,6 +81,8 @@ typedef struct BukClientPresentationPiece {
     BukClientTeam team;
     BukClientPieceState state;
     BukClientBoardNodeId node;
+    bool stacked;
+    size_t stack_size;
 } BukClientPresentationPiece;
 
 typedef struct BukClientPresentationSnapshot {
@@ -126,7 +128,9 @@ bool BukClientPresentationStageMetadata(BukClientPresentationState *state,
 bool BukClientPresentationStagePiece(BukClientPresentationState *state,
                                      BukClientTeam team,
                                      BukClientPieceState piece_state,
-                                     BukClientBoardNodeId node);
+                                     BukClientBoardNodeId node,
+                                     bool stacked,
+                                     size_t stack_size);
 bool BukClientPresentationStageResult(BukClientPresentationState *state,
                                       BukClientResult result);
 bool BukClientPresentationStageMoveRequest(
