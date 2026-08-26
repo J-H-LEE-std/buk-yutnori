@@ -32,10 +32,10 @@ static void TestCommitsAuthoritativeSnapshot(void)
         BUK_CLIENT_BOARD_NODE_COUNT));
     assert(BukClientPresentationStagePiece(
         &state, BUK_CLIENT_TEAM_A, BUK_CLIENT_PIECE_ON_BOARD,
-        BUK_CLIENT_BOARD_NODE_BANG));
+        BUK_CLIENT_BOARD_NODE_BANG, false, 0U));
     assert(BukClientPresentationStagePiece(
         &state, BUK_CLIENT_TEAM_B, BUK_CLIENT_PIECE_WAITING,
-        BUK_CLIENT_BOARD_NODE_COUNT));
+        BUK_CLIENT_BOARD_NODE_COUNT, false, 0U));
     assert(BukClientPresentationStageResult(&state, BUK_CLIENT_RESULT_GAE));
     assert(BukClientPresentationStageResult(&state, BUK_CLIENT_RESULT_BUK));
     assert(BukClientPresentationCanCommit(&state));
@@ -71,7 +71,7 @@ static void TestFailedSnapshotPreservesConfirmedState(void)
                   BUK_CLIENT_TEAM_NONE, 0U);
     assert(BukClientPresentationStagePiece(
         &state, BUK_CLIENT_TEAM_A, BUK_CLIENT_PIECE_WAITING,
-        BUK_CLIENT_BOARD_NODE_COUNT));
+        BUK_CLIENT_BOARD_NODE_COUNT, false, 0U));
     assert(BukClientPresentationCommitSnapshot(&state));
 
     BukClientPresentationBeginSnapshot(&state);
@@ -80,7 +80,7 @@ static void TestFailedSnapshotPreservesConfirmedState(void)
                   BUK_CLIENT_TEAM_B, 20000U);
     assert(!BukClientPresentationStagePiece(
         &state, BUK_CLIENT_TEAM_B, BUK_CLIENT_PIECE_ON_BOARD,
-        BUK_CLIENT_BOARD_NODE_COUNT));
+        BUK_CLIENT_BOARD_NODE_COUNT, false, 0U));
     assert(!BukClientPresentationCanCommit(&state));
     assert(!BukClientPresentationCommitSnapshot(&state));
 
@@ -103,7 +103,7 @@ static void TestRejectsInvalidPieceStateCombinations(void)
                   BUK_CLIENT_TEAM_A, 1000U);
     assert(!BukClientPresentationStagePiece(
         &state, BUK_CLIENT_TEAM_A, BUK_CLIENT_PIECE_WAITING,
-        BUK_CLIENT_BOARD_NODE_DO));
+        BUK_CLIENT_BOARD_NODE_DO, false, 0U));
     assert(!BukClientPresentationCommitSnapshot(&state));
 
     BukClientPresentationBeginSnapshot(&state);
@@ -112,8 +112,43 @@ static void TestRejectsInvalidPieceStateCombinations(void)
                   BUK_CLIENT_TEAM_A, 1000U);
     assert(!BukClientPresentationStagePiece(
         &state, BUK_CLIENT_TEAM_B, BUK_CLIENT_PIECE_HOME_CHECKPOINT,
-        BUK_CLIENT_BOARD_NODE_DO));
+        BUK_CLIENT_BOARD_NODE_DO, false, 0U));
     assert(!BukClientPresentationCommitSnapshot(&state));
+    BukClientPresentationStateDestroy(&state);
+}
+
+static void TestCarriesAuthoritativeStackMembership(void)
+{
+    BukClientPresentationState state;
+    const BukClientPresentationSnapshot *snapshot;
+
+    BukClientPresentationStateInit(&state);
+    BukClientPresentationBeginSnapshot(&state);
+    StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE, BUK_CLIENT_TURN_WAIT_THROW,
+                  BUK_CLIENT_REQUIRED_THROW, BUK_CLIENT_TIMER_THROW,
+                  BUK_CLIENT_TEAM_A, 1000U);
+    assert(BukClientPresentationStagePiece(
+        &state, BUK_CLIENT_TEAM_A, BUK_CLIENT_PIECE_ON_BOARD,
+        BUK_CLIENT_BOARD_NODE_DO, true, 2U));
+    assert(!BukClientPresentationStagePiece(
+        &state, BUK_CLIENT_TEAM_A, BUK_CLIENT_PIECE_ON_BOARD,
+        BUK_CLIENT_BOARD_NODE_DO, true, 1U));
+    assert(!BukClientPresentationCanCommit(&state));
+
+    BukClientPresentationBeginSnapshot(&state);
+    StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE, BUK_CLIENT_TURN_WAIT_THROW,
+                  BUK_CLIENT_REQUIRED_THROW, BUK_CLIENT_TIMER_THROW,
+                  BUK_CLIENT_TEAM_A, 1000U);
+    assert(BukClientPresentationStagePiece(
+        &state, BUK_CLIENT_TEAM_A, BUK_CLIENT_PIECE_ON_BOARD,
+        BUK_CLIENT_BOARD_NODE_DO, true, 2U));
+    assert(BukClientPresentationStagePiece(
+        &state, BUK_CLIENT_TEAM_A, BUK_CLIENT_PIECE_ON_BOARD,
+        BUK_CLIENT_BOARD_NODE_DO, true, 2U));
+    assert(BukClientPresentationCommitSnapshot(&state));
+    snapshot = BukClientPresentationConfirmed(&state);
+    assert(snapshot != NULL && snapshot->pieces[0].stacked &&
+           snapshot->pieces[0].stack_size == 2U);
     BukClientPresentationStateDestroy(&state);
 }
 
@@ -187,7 +222,7 @@ static void TestGrowsSnapshotStorageWithoutProtocolCaps(void)
     for (index = 0U; index < 40U; index++) {
         assert(BukClientPresentationStagePiece(
             &state, index % 2U == 0U ? BUK_CLIENT_TEAM_A : BUK_CLIENT_TEAM_B,
-            BUK_CLIENT_PIECE_WAITING, BUK_CLIENT_BOARD_NODE_COUNT));
+            BUK_CLIENT_PIECE_WAITING, BUK_CLIENT_BOARD_NODE_COUNT, false, 0U));
         assert(BukClientPresentationStageResult(&state, BUK_CLIENT_RESULT_YUT));
     }
     assert(BukClientPresentationCommitSnapshot(&state));
@@ -240,6 +275,7 @@ int main(void)
     TestCommitsAuthoritativeSnapshot();
     TestFailedSnapshotPreservesConfirmedState();
     TestRejectsInvalidPieceStateCombinations();
+    TestCarriesAuthoritativeStackMembership();
     TestRequiresExactlyOneMetadataRecord();
     TestParsesOnlyCanonicalTokens();
     TestGrowsSnapshotStorageWithoutProtocolCaps();

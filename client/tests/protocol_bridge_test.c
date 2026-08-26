@@ -19,8 +19,8 @@ static void StageMinimalPresentation(const char *status, const char *team)
 {
     CHECK(BukClientStageSnapshotMetadata(status, "wait_throw", "throw", "throw",
                                          team, "20000"));
-    CHECK(BukClientStageSnapshotPiece("A", "on_board", "do"));
-    CHECK(BukClientStageSnapshotPiece("B", "waiting", ""));
+    CHECK(BukClientStageSnapshotPiece("A", "on_board", "do", 0, 0));
+    CHECK(BukClientStageSnapshotPiece("B", "waiting", "", 0, 0));
     CHECK(BukClientStageSnapshotResult("gae"));
 }
 
@@ -119,7 +119,7 @@ static void TestPresentationFailureLocksGateAndPreservesBothStates(void)
     CHECK(BukClientApplySnapshotSequence("11"));
     CHECK(BukClientStageSnapshotMetadata(
         "active", "wait_throw", "throw", "throw", "B", "19000"));
-    CHECK(!BukClientStageSnapshotPiece("B", "home_checkpoint", "do"));
+    CHECK(!BukClientStageSnapshotPiece("B", "home_checkpoint", "do", 0, 0));
     CHECK(!BukClientCompleteSynchronization());
     CHECK(BukClientRequiresResynchronization());
     CHECK(!BukClientCanSendStateCommands());

@@ -163,7 +163,7 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
         const BukClientPresentationPiece piece = snapshot->pieces[piece_index];
         BukClientPoint point;
         size_t previous_at_node = 0U;
-        size_t group_count = 0U;
+        size_t previous_stack_at_node = 0U;
         size_t previous_index;
         size_t offset_index;
         float ring;
@@ -186,15 +186,12 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
                 previous_at_node++;
             }
         }
-        for (previous_index = 0U; previous_index < snapshot->piece_count;
-             previous_index++) {
+        for (previous_index = 0U; previous_index < piece_index; previous_index++) {
             const BukClientPresentationPiece grouped = snapshot->pieces[previous_index];
 
-            if ((grouped.state == BUK_CLIENT_PIECE_ON_BOARD ||
-                 grouped.state == BUK_CLIENT_PIECE_HOME_CHECKPOINT) &&
-                grouped.node == piece.node && grouped.team == piece.team &&
-                grouped.state == piece.state) {
-                group_count++;
+            if (grouped.stacked && grouped.node == piece.node &&
+                grouped.team == piece.team && grouped.state == piece.state) {
+                previous_stack_at_node++;
             }
         }
         offset_index = previous_at_node % (sizeof(offset_x) / sizeof(offset_x[0]));
@@ -210,12 +207,13 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
         DrawText(TextFormat("%i", (int)piece_index + 1),
                  (int)(point.x - (4.0F * layout->scale)),
                  (int)(point.y - (6.0F * layout->scale)), label_size, label);
-        if (group_count >= 2U && previous_at_node + 1U == group_count) {
+        if (piece.stacked && piece.stack_size >= 2U &&
+            previous_stack_at_node + 1U == piece.stack_size) {
             const float badge_radius = 9.0F * layout->scale;
             DrawCircleV((Vector2){ point.x + (radius * 0.8F),
                                    point.y - (radius * 0.8F) },
                         badge_radius, (Color){ 45, 35, 32, 255 });
-            DrawText(TextFormat("%i", (int)group_count),
+            DrawText(TextFormat("%i", (int)piece.stack_size),
                      (int)(point.x + (radius * 0.8F) - (4.0F * layout->scale)),
                      (int)(point.y - (radius * 0.8F) - (6.0F * layout->scale)),
                      label_size, label);

@@ -389,7 +389,7 @@ try {
       ["active", "wait_throw", "throw", "throw", "A", "20000"],
     );
     const piece = Module.ccall(
-      "BukClientStageSnapshotPiece", "number", ["string", "string", "string"],
+      "BukClientStageSnapshotPiece", "number", ["string", "string", "string", "number", "number"],
       ["A", "on_board", "do"],
     );
     const resultToken = Module.ccall(

@@ -700,10 +700,17 @@
           [request.required_input, normal, shortcut, routeRequest?.originSpaceId ?? ""],
         ) !== 1) return null;
       }
+      const stackSizeByPieceId = new Map();
+      for (const stack of snapshot.stacks) {
+        for (const pieceId of stack.piece_ids) stackSizeByPieceId.set(pieceId, stack.piece_ids.length);
+      }
       for (const piece of snapshot.pieces) {
+        const stackSize = stackSizeByPieceId.get(piece.piece_id) ?? 0;
         if (Module.ccall(
-          "BukClientStageSnapshotPiece", "number", ["string", "string", "string"],
-          [piece.team_id, piece.state, piece.current_space_id ?? ""],
+          "BukClientStageSnapshotPiece", "number",
+          ["string", "string", "string", "number", "number"],
+          [piece.team_id, piece.state, piece.current_space_id ?? "",
+            stackSize > 0 ? 1 : 0, stackSize],
         ) !== 1) return null;
       }
       for (const token of snapshot.result_queue) {
