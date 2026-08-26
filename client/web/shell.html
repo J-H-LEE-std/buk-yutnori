@@ -548,10 +548,12 @@
     function validatePieceGrouping(snapshot) {
       const piecesById = new Map(snapshot.pieces.map((piece) => [piece.piece_id, piece]));
       const groupIds = new Set(snapshot.position_groups.map((group) => group.group_id));
+      const stackIds = new Set(snapshot.stacks.map((stack) => stack.stack_id));
       for (const piece of snapshot.pieces) {
         if (piece.position_group_id !== null && !groupIds.has(piece.position_group_id)) {
           return false;
         }
+        if (piece.stack_id !== null && !stackIds.has(piece.stack_id)) return false;
       }
       for (const stack of snapshot.stacks) {
         for (const pieceId of stack.piece_ids) {
