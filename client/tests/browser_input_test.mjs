@@ -1110,6 +1110,28 @@ try {
     throw new Error(`authoritative backdo/buk cue validation failed: ${JSON.stringify(eventCue)}`);
   }
 
+  const replayTail = await evaluate(`(() => {
+    const snapshot = makeTestGameSnapshot("room-replay", "match-replay", 50);
+    const applied = applySynchronizationSequenceBundle({
+      version: 1, direction: "server_response", type: "COMMAND_RESULT",
+      room_id: "room-replay", match_id: "match-replay",
+      payload: { status: "accepted", synchronization: { snapshot, events: [{
+        version: 1, direction: "server_event", type: "TURN_STARTED", sequence: 51,
+        room_id: "room-replay", match_id: "match-replay",
+        payload: { player_id: "user-a", phase: "wait_throw", required_input: "throw", remaining_ms: 19000 },
+      }] } },
+    });
+    return {
+      applied,
+      lastSequence: Module.ccall("BukClientLastSequence", "string", [], []),
+      phase: Module.ccall("BukClientPresentationTurnPhase", "string", [], []),
+    };
+  })()`);
+  if (!replayTail.applied || replayTail.lastSequence !== "51"
+      || replayTail.phase !== "wait_throw") {
+    throw new Error(`authoritative replay tail failed: ${JSON.stringify(replayTail)}`);
+  }
+
   await command("Input.dispatchKeyEvent", {
     type: "keyDown",
     key: "Backspace",

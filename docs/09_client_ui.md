@@ -49,6 +49,9 @@ C 프로토콜 상태 모듈이 event sequence와 재접속 snapshot의 원자�
 로그아웃에서는 재연결을 예약하지 않는다. JavaScript는 room/match routing과 bundle
 sequence를 먼저 검사한 뒤 10진 문자열 C ABI로 snapshot/event sequence를 staging한다.
 실패하면 기존 확정 표시 상태를 유지하고 상태 변경 UI를 잠근다.
+재접속 bundle에 event tail이 있으면 셸 reducer가 snapshot 복사본에 sequence 순서대로
+표시용 변경만 적용한 뒤 C/WASM에 한 번에 staging한다. 지원하지 않는 이벤트나
+payload 불일치는 전체 bundle을 거부하고 기존 확정 상태를 유지한다.
 
 ## raylib/WASM 역할
 

@@ -702,6 +702,125 @@
       ) === 1;
     }
 
+    function cloneSnapshot(snapshot) {
+      return JSON.parse(JSON.stringify(snapshot));
+    }
+
+    function rebuildReplayGroups(snapshot) {
+      const groups = new Map();
+      const stacks = new Map();
+      for (const stack of snapshot.stacks) stacks.set(stack.stack_id, stack);
+      for (const piece of snapshot.pieces) {
+        piece.stack_id = null;
+        piece.position_group_id = null;
+        if ((piece.state !== "on_board" && piece.state !== "home_checkpoint")
+            || piece.current_space_id === null) {
+          piece.current_space_id = null;
+          piece.actual_previous_space = null;
+          continue;
+        }
+        const key = `${piece.team_id}:${piece.state}:${piece.current_space_id}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(piece.piece_id);
+        piece.position_group_id = `pos:${piece.team_id}:${piece.state}:${piece.current_space_id}`;
+      }
+      snapshot.position_groups = [...groups.entries()].map(([key, pieceIds]) => {
+        const [teamId, state, spaceId] = key.split(":");
+        return { group_id: `pos:${teamId}:${state}:${spaceId}`, team_id: teamId,
+          space_id: spaceId, piece_ids: pieceIds };
+      });
+      snapshot.stacks = [...stacks.values()].map((stack) => {
+        const ids = stack.piece_ids.filter((id) => snapshot.pieces.some((piece) => piece.piece_id === id));
+        return { ...stack, piece_ids: ids };
+      }).filter((stack) => stack.piece_ids.length >= 2);
+      for (const stack of snapshot.stacks) {
+        for (const id of stack.piece_ids) {
+          const piece = snapshot.pieces.find((candidate) => candidate.piece_id === id);
+          if (piece) piece.stack_id = stack.stack_id;
+        }
+      }
+      return snapshot;
+    }
+
+    function reduceReplayEvents(snapshot, events) {
+      const next = cloneSnapshot(snapshot);
+      let expected = snapshot.sequence + 1;
+      for (const event of events) {
+        if (!event || event.direction !== "server_event" || event.room_id !== next.room_id
+            || event.match_id !== next.match_id || event.sequence !== expected
+            || !event.payload || typeof event.type !== "string") return null;
+        const payload = event.payload;
+        if (event.type === "YUT_RESULT" && payload.token && typeof payload.player_id === "string") {
+          if (!next.result_queue.some((token) => token.token_id === payload.token.token_id)) {
+            next.result_queue.push(payload.token);
+          }
+        } else if (event.type === "RESULT_QUEUE_UPDATED" && Array.isArray(payload.result_queue)) {
+          next.result_queue = payload.result_queue;
+        } else if (event.type === "TURN_STARTED" && typeof payload.player_id === "string"
+                   && REQUIRED_INPUTS.has(payload.required_input) && TURN_PHASES.has(payload.phase)
+                   && Number.isSafeInteger(payload.remaining_ms) && payload.remaining_ms >= 0) {
+          next.current_turn.player_id = payload.player_id;
+          next.current_turn.phase = payload.phase;
+          next.current_turn.required_input = payload.required_input;
+          next.current_turn.move_request = null;
+          next.current_turn.timer.remaining_ms = payload.remaining_ms;
+          next.current_turn.timer.phase = payload.required_input === "throw" ? "throw" : "move";
+        } else if (event.type === "MOVE_REQUIRED" && REQUIRED_INPUTS.has(payload.required_input)
+                   && Array.isArray(payload.token_ids) && Array.isArray(payload.piece_ids)
+                   && Array.isArray(payload.routes)) {
+          next.current_turn.required_input = payload.required_input;
+          next.current_turn.phase = payload.required_input === "select_route" ? "wait_route_selection"
+            : payload.required_input === "select_piece" ? "wait_piece_selection" : "wait_result_selection";
+          next.current_turn.move_request = {
+            required_input: payload.required_input, token_ids: payload.token_ids,
+            piece_ids: payload.piece_ids, routes: payload.routes,
+          };
+        } else if (event.type === "PIECE_MOVED" && Array.isArray(payload.piece_ids)
+                   && payload.piece_ids.length > 0 && isNullableBoardSpace(payload.from_space_id)
+                   && isNullableBoardSpace(payload.to_space_id)
+                   && ["forward", "backdo", "buk", "finish"].includes(payload.movement_kind)) {
+          for (const id of payload.piece_ids) {
+            const piece = next.pieces.find((candidate) => candidate.piece_id === id);
+            if (!piece) return null;
+            piece.actual_previous_space = piece.current_space_id;
+            piece.current_space_id = payload.to_space_id;
+            piece.state = payload.movement_kind === "finish" ? "finished"
+              : payload.to_space_id === "chammeogi" ? "home_checkpoint" : "on_board";
+          }
+          rebuildReplayGroups(next);
+        } else if (event.type === "PIECES_CAPTURED" && Array.isArray(payload.captured_piece_ids)
+                   && isCanonicalBoardSpace(payload.space_id)) {
+          for (const id of payload.captured_piece_ids) {
+            const piece = next.pieces.find((candidate) => candidate.piece_id === id);
+            if (!piece) return null;
+            piece.state = "waiting";
+            piece.current_space_id = null;
+            piece.stack_id = null;
+            piece.position_group_id = null;
+            piece.actual_previous_space = null;
+          }
+          rebuildReplayGroups(next);
+        } else if (event.type === "PIECES_STACKED" && typeof payload.stack_id === "string"
+                   && Array.isArray(payload.piece_ids) && payload.piece_ids.length >= 2
+                   && isCanonicalBoardSpace(payload.space_id)) {
+          next.stacks = next.stacks.filter((stack) => stack.stack_id !== payload.stack_id);
+          next.stacks.push({ stack_id: payload.stack_id, team_id: next.pieces.find((piece) => piece.piece_id === payload.piece_ids[0])?.team_id,
+            space_id: payload.space_id, piece_ids: payload.piece_ids,
+            actual_previous_space: payload.actual_previous_space ?? null });
+          rebuildReplayGroups(next);
+        } else if (event.type === "BUK_RESOLVED" && typeof payload.token_id === "string"
+                   && isCanonicalBoardSpace(payload.destination_space_id)
+                   && Array.isArray(payload.moved_piece_ids)) {
+          // PIECE_MOVED carries the authoritative position mutation; this event is a cue-only marker.
+        } else {
+          return null;
+        }
+        next.sequence = event.sequence;
+        expected++;
+      }
+      return next;
+    }
+
     function synchronizationSequences(message) {
       if (message?.version !== 1 || message.direction !== "server_response"
           || message.type !== "COMMAND_RESULT" || message.payload?.status !== "accepted"
@@ -711,11 +830,12 @@
       const synchronization = message.payload?.synchronization;
       const snapshot = synchronization?.snapshot;
       const events = synchronization?.events;
-      if (!snapshot || !Array.isArray(events) || events.length !== 0
+      if (!snapshot || !Array.isArray(events)
           || snapshot.room_id !== message.room_id
           || snapshot.match_id !== message.match_id
           || !Number.isSafeInteger(snapshot.sequence) || snapshot.sequence < 1) return null;
-      return { snapshot };
+      const reduced = events.length === 0 ? snapshot : reduceReplayEvents(snapshot, events);
+      return reduced === null ? null : { snapshot: reduced, baseSnapshot: snapshot, events };
     }
 
     function failSynchronization() {
@@ -775,8 +895,14 @@
       if (sequences === null) return failSynchronization();
       if (Module.ccall(
         "BukClientApplySnapshotSequence", "number", ["string"],
-        [String(sequences.snapshot.sequence)],
+        [String(sequences.baseSnapshot.sequence)],
       ) !== 1) return failSynchronization();
+      for (const event of sequences.events) {
+        if (Module.ccall(
+          "BukClientApplyReducedEventSequence", "number", ["string"],
+          [String(event.sequence)],
+        ) !== 1) return failSynchronization();
+      }
       const pendingPresentation = stageSnapshotPresentation(sequences.snapshot);
       if (pendingPresentation === null) return failSynchronization();
       if (Module.ccall("BukClientCompleteSynchronization", "number", [], []) !== 1) {

@@ -18,6 +18,7 @@ void BukClientProtocolRuntimeInit(void);
 int BukClientBeginSynchronization(void);
 int BukClientApplySnapshotSequence(const char *sequence);
 int BukClientApplyEventSequence(const char *sequence);
+int BukClientApplyReducedEventSequence(const char *sequence);
 int BukClientStageSnapshotMetadata(const char *status, const char *phase,
                                    const char *required_input,
                                    const char *timer_phase,
