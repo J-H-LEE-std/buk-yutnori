@@ -1071,6 +1071,45 @@ try {
     throw new Error(`stale reconnect scope response was applied: ${JSON.stringify(staleScopeResponse)}`);
   }
 
+  const eventCue = await evaluate(`(() => {
+    stateReconnectScope = { roomId: "room-cue", matchId: "match-cue" };
+    lastGameEventSequence = 10;
+    const backdo = acceptGameEventCue({
+      direction: "server_event", room_id: "room-cue", match_id: "match-cue",
+      sequence: 11, type: "PIECE_MOVED",
+      payload: { movement_kind: "backdo" },
+    });
+    const wrongScope = acceptGameEventCue({
+      direction: "server_event", room_id: "other", match_id: "match-cue",
+      sequence: 12, type: "PIECE_MOVED", payload: { movement_kind: "buk" },
+    });
+    const duplicate = acceptGameEventCue({
+      direction: "server_event", room_id: "room-cue", match_id: "match-cue",
+      sequence: 11, type: "PIECE_MOVED", payload: { movement_kind: "buk" },
+    });
+    const malformed = acceptGameEventCue({
+      direction: "server_event", room_id: "room-cue", match_id: "match-cue",
+      sequence: 12, type: "BUK_RESOLVED", payload: { no_candidate: false },
+    });
+    const buk = acceptGameEventCue({
+      direction: "server_event", room_id: "room-cue", match_id: "match-cue",
+      sequence: 12, type: "BUK_RESOLVED", payload: {
+        token_id: "token-1", destination_space_id: "do", no_candidate: false,
+      },
+    });
+    const result = { backdo, wrongScope, duplicate, malformed, buk,
+      cue: eventCue?.kind, sequence: eventCue?.sequence };
+    Module.ccall("BukClientClearEventCue", "number", [], []);
+    clearEventCue();
+    clearStateReconnectScope();
+    return result;
+  })()`);
+  if (!eventCue.backdo || eventCue.wrongScope || eventCue.duplicate
+      || eventCue.malformed || !eventCue.buk || eventCue.cue !== "buk"
+      || eventCue.sequence !== 12) {
+    throw new Error(`authoritative backdo/buk cue validation failed: ${JSON.stringify(eventCue)}`);
+  }
+
   await command("Input.dispatchKeyEvent", {
     type: "keyDown",
     key: "Backspace",
@@ -1095,7 +1134,7 @@ try {
     throw new Error(`Backspace did not update DOM and C/WASM state: ${JSON.stringify(result)}`);
   }
 
-  console.log("BROWSER_INPUT_OK backspace=DOM->C/WASM->DOM reconnect=prototype-scope->JS->C/WASM route=authoritative-snapshot->SELECT_ROUTE");
+  console.log("BROWSER_INPUT_OK backspace=DOM->C/WASM->DOM reconnect=prototype-scope->JS->C/WASM route=authoritative-snapshot->SELECT_ROUTE cue=PIECE_MOVED/BUK_RESOLVED->HUD");
 } finally {
   socket.close();
 }
