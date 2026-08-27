@@ -140,6 +140,18 @@ static void TestRejectsValidatedEventTailWithoutPayloadReducer(void)
     CHECK(strcmp(BukClientLastSequence(), "0") == 0);
 }
 
+static void TestCommitsReducedEventTailSequence(void)
+{
+    BukClientProtocolRuntimeInit();
+    CHECK(BukClientBeginSynchronization());
+    CHECK(BukClientApplySnapshotSequence("10"));
+    StageMinimalPresentation("active", "A");
+    CHECK(BukClientApplyReducedEventSequence("11"));
+    CHECK(BukClientCompleteSynchronization());
+    CHECK(BukClientCanSendStateCommands());
+    CHECK(strcmp(BukClientLastSequence(), "11") == 0);
+}
+
 static void TestRejectsLiveEventSequenceWithoutPresentationReducer(void)
 {
     BukClientProtocolRuntimeInit();
@@ -203,6 +215,7 @@ int main(void)
     TestInvalidSnapshotLocksGateWithoutExplicitBegin();
     TestPresentationFailureLocksGateAndPreservesBothStates();
     TestRejectsValidatedEventTailWithoutPayloadReducer();
+    TestCommitsReducedEventTailSequence();
     TestRejectsLiveEventSequenceWithoutPresentationReducer();
     TestEventCueAcceptsOnlyCanonicalKinds();
     TestRouteIntentRequiresConfirmedInteractiveRequest();

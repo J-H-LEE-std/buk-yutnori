@@ -131,6 +131,18 @@ int BukClientApplyEventSequence(const char *sequence)
     return 1;
 }
 
+int BukClientApplyReducedEventSequence(const char *sequence)
+{
+    uint64_t parsed;
+
+    if (!snapshot_sequence_staged || !ParseSequence(sequence, &parsed) ||
+        !BukClientProtocolApplyEvent(&protocol_state, parsed)) {
+        FailRuntimeSynchronization();
+        return 0;
+    }
+    return 1;
+}
+
 int BukClientStageSnapshotMetadata(const char *status, const char *phase,
                                    const char *required_input,
                                    const char *timer_phase,

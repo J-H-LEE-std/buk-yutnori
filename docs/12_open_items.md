@@ -15,11 +15,13 @@
   조합이 준비 화면 동기화를 담당한다.
 - 레지스트리 방 이벤트의 저장과 RECONNECT replay는 여전히 미결이다. ADR-0015 방송은
   live 전달 only며 누락 구간 복구는 ADR-0009/0013/0014 연계 후속 과제다.
-- Milestone 4 클라이언트는 현재 서버처럼 최신 sequence 경계의 snapshot과 빈 replay
-  tail을 원자 적용한다. 체크포인트 기반의 비어 있지 않은 tail이 도입되기 전, 각
-  `server_event` payload를 C 표시 상태에 적용하는 reducer와 원자 staging을 구현해야
-  한다. reducer가 없는 현재 클라이언트는 sequence만 앞당기지 않고 해당 bundle을
-  fail-closed한다.
+- Milestone 4 클라이언트의 비어 있지 않은 replay tail은 #102에서 지원 이벤트를
+  검증·표시 상태에 원자 적용한다. 지원하지 않는 이벤트와 payload 불일치는 여전히
+  fail-closed하며, 서버 판정을 재계산하지 않는다. 남는 후속은 새 이벤트 타입이
+  추가될 때 reducer 표와 계약 테스트를 함께 확장하는 것이다. 특히
+  `RESULT_QUEUE_UPDATED`는 이벤트 토큰에 `generated_by_player_id`가 없어
+  `game_snapshot` 토큰으로 완전하게 투영할 수 없으므로, 비어 있지 않은 큐는
+  현재 fail-closed 처리하고 서버·스냅샷 스키마 통합 시 재검토한다.
 - Milestone 4 지름길 UI 구현에서 `MOVE_REQUIRED`에 허용 경로가 없고 snapshot에는
   선택 중인 토큰·말 ID가 없어 재접속 클라이언트가 후보를 복원할 수 없는 빈칸이
   확인되었다. #96에서 `MOVE_REQUIRED.payload`와
