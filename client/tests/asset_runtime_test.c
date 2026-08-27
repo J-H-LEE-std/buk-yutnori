@@ -19,6 +19,7 @@ static int ExistsBoardOnly(const char *path, void *userdata)
 int main(void)
 {
     BukClientAssetRuntime runtime;
+    char long_root[BUK_CLIENT_ASSET_PATH_MAX + 32];
 
     BukClientAssetRuntimeInit(&runtime, "assets", ExistsAll, NULL);
     assert(BukClientAssetRuntimeInitialized(&runtime));
@@ -32,6 +33,12 @@ int main(void)
     assert(BukClientAssetRuntimeLoadedCount(&runtime) == 4U);
     assert(BukClientAssetRuntimeFallbackCount(&runtime) == BUK_CLIENT_ASSET_COUNT - 4U);
     assert(BukClientAssetRuntimeInitialized(&runtime));
+
+    memset(long_root, 'x', sizeof(long_root) - 1U);
+    long_root[sizeof(long_root) - 1U] = '\0';
+    BukClientAssetRuntimeInit(&runtime, long_root, ExistsAll, NULL);
+    assert(BukClientAssetRuntimeLoadedCount(&runtime) == 0U);
+    assert(BukClientAssetRuntimeFallbackCount(&runtime) == BUK_CLIENT_ASSET_COUNT);
 
     BukClientAssetRuntimeInit(&runtime, NULL, ExistsAll, NULL);
     assert(!BukClientAssetRuntimeInitialized(&runtime));

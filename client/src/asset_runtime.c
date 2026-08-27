@@ -36,7 +36,10 @@ void BukClientAssetRuntimeInit(BukClientAssetRuntime *runtime,
     if (root == NULL || root[0] == '\0' || exists == NULL) return;
     for (index = 0U; index < BUK_CLIENT_ASSET_COUNT; index++) {
         int written = snprintf(path, sizeof(path), "%s/%s", root, asset_paths[index]);
-        if (written < 0 || (size_t)written >= sizeof(path)) continue;
+        if (written < 0 || (size_t)written >= sizeof(path)) {
+            runtime->fallback_count++;
+            continue;
+        }
         runtime->available[index] = exists(path, userdata) ? 1 : 0;
         if (runtime->available[index] != 0) runtime->loaded_count++;
         else runtime->fallback_count++;
