@@ -803,8 +803,14 @@
         } else if (event.type === "PIECES_STACKED" && typeof payload.stack_id === "string"
                    && Array.isArray(payload.piece_ids) && payload.piece_ids.length >= 2
                    && isCanonicalBoardSpace(payload.space_id)) {
+          const stackedPieces = payload.piece_ids.map((id) =>
+            next.pieces.find((piece) => piece.piece_id === id));
+          if (stackedPieces.some((piece) => !piece)
+              || stackedPieces.some((piece) => piece.team_id !== stackedPieces[0].team_id)) {
+            return null;
+          }
           next.stacks = next.stacks.filter((stack) => stack.stack_id !== payload.stack_id);
-          next.stacks.push({ stack_id: payload.stack_id, team_id: next.pieces.find((piece) => piece.piece_id === payload.piece_ids[0])?.team_id,
+          next.stacks.push({ stack_id: payload.stack_id, team_id: stackedPieces[0].team_id,
             space_id: payload.space_id, piece_ids: payload.piece_ids,
             actual_previous_space: payload.actual_previous_space ?? null });
           rebuildReplayGroups(next);
