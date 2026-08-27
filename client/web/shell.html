@@ -830,7 +830,9 @@
               || !isNullableBoardSpace(payload.actual_previous_space)) {
             return null;
           }
-          next.stacks = next.stacks.filter((stack) => stack.stack_id !== payload.stack_id);
+          next.stacks = next.stacks.filter((stack) =>
+            stack.stack_id !== payload.stack_id
+            && !stack.piece_ids.some((id) => payload.piece_ids.includes(id)));
           next.stacks.push({ stack_id: payload.stack_id, team_id: stackedPieces[0].team_id,
             space_id: payload.space_id, piece_ids: [...payload.piece_ids],
             actual_previous_space: payload.actual_previous_space ?? null });

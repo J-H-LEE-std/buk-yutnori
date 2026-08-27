@@ -1142,20 +1142,26 @@ try {
     snapshot.stacks = [{ stack_id: "stack-A-do", team_id: "A", space_id: "do",
       piece_ids: ["A-1", "A-2"], actual_previous_space: null }];
     snapshot.position_groups[0].piece_ids = ["A-1", "A-2"];
-    const moved = reduceReplayEvents(snapshot, [{
-      version: 1, direction: "server_event", type: "PIECE_MOVED", sequence: 61,
-      room_id: "room-topology", match_id: "match-topology",
-      payload: { piece_ids: ["A-1", "A-2"], from_space_id: "do", to_space_id: "gae",
-        movement_kind: "forward" },
-    }]);
+    const moved = reduceReplayEvents(snapshot, [
+      { version: 1, direction: "server_event", type: "PIECE_MOVED", sequence: 61,
+        room_id: "room-topology", match_id: "match-topology",
+        payload: { piece_ids: ["A-1", "A-2"], from_space_id: "do", to_space_id: "gae",
+          movement_kind: "forward" } },
+      { version: 1, direction: "server_event", type: "PIECES_STACKED", sequence: 62,
+        room_id: "room-topology", match_id: "match-topology",
+        payload: { stack_id: "stack:A:gae", team_id: "A", space_id: "gae",
+          piece_ids: ["A-1", "A-2"], actual_previous_space: "do" } },
+    ]);
     const malformed = reduceReplayEvents(snapshot, [{
       version: 2, direction: "server_event", type: "TURN_STARTED", sequence: 61,
       room_id: "room-topology", match_id: "match-topology",
       payload: { player_id: "user-a", phase: "wait_throw", required_input: "throw", remaining_ms: 1 },
     }]);
-    return { movedStacks: moved?.stacks, movedSpace: moved?.stacks?.[0]?.space_id, malformed };
+    return { movedStacks: moved?.stacks, movedSpace: moved?.stacks?.[0]?.space_id,
+      movedStackId: moved?.stacks?.[0]?.stack_id, malformed };
   })()`);
-  if (replayTopology.movedSpace !== "gae" || replayTopology.movedStacks?.[0]?.piece_ids?.length !== 2
+  if (replayTopology.movedSpace !== "gae" || replayTopology.movedStackId !== "stack:A:gae"
+      || replayTopology.movedStacks?.length !== 1 || replayTopology.movedStacks?.[0]?.piece_ids?.length !== 2
       || replayTopology.malformed !== null) {
     throw new Error(`replay topology reducer failed: ${JSON.stringify(replayTopology)}`);
   }
