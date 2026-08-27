@@ -139,8 +139,13 @@ client/assets/
 | hud | screen/game/hud_frame.png 등 | 1280×720 영역 | 게임 HUD 프레임 |
 
 위 수치는 초기 기준값이다. 아트 작업에서 조정이 필요하면 본 문서를 개정으로
-갱신한다. 검증 자동화(포맷·크기·명명·예산 검사기, `tools/check_assets.py`)는
-미결 항목이며 도입 시 CI에 붙인다.
+갱신한다. 검증 자동화는 `tools/check_assets.py`로 수행한다. 로컬에서는
+`python3 tools/check_assets.py --root client/assets`를 실행하며, 실제 리소스
+fixture가 추가되면 동일 명령을 CI 필수 단계로 연결한다. 현재 CI는
+`tools/check_assets_test.py`로 검사기 자체의 정상·실패 경로를 검증한다.
+검사기의 초기 로딩 4MB bucket은 보드·말·윷 결과·이펙트처럼 게임 진입에
+필수인 항목(`critical`)으로 정의하고, 공통 GUI·HUD·폰트는 전체 16MB 예산에만
+포함한다.
 
 ## 미결 항목
 
@@ -152,4 +157,4 @@ client/assets/
 - 텍스처 atlas 도입과 프레임 메타 형식
 - 경로 따라가기 이동 연출(traversed 경로 기반), 백도·북 전용 연출, 승리 연출
 - 고대비/접근성 테마와 UI 스케일 설정
-- `tools/check_assets.py` 리소스 검증기와 CI 연결
+- 실제 asset fixture 추가 뒤 `tools/check_assets.py`를 CI 필수 단계로 연결
