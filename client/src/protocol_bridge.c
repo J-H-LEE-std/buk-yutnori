@@ -27,6 +27,7 @@ static bool route_interaction_enabled;
 static bool route_command_pending;
 static int route_intent;
 static bool route_intent_set;
+static int event_cue;
 static char last_sequence_text[SEQUENCE_TEXT_CAPACITY];
 static char remaining_ms_text[SEQUENCE_TEXT_CAPACITY];
 
@@ -38,6 +39,11 @@ static void ResetRouteInteraction(void)
     route_intent_set = false;
 }
 
+static void ResetEventCue(void)
+{
+    event_cue = 0;
+}
+
 static void FailRuntimeSynchronization(void)
 {
     BukClientProtocolBeginSynchronization(&protocol_state);
@@ -46,6 +52,7 @@ static void FailRuntimeSynchronization(void)
     pending_event_tail = false;
     snapshot_sequence_staged = false;
     ResetRouteInteraction();
+    ResetEventCue();
 }
 
 static bool ParseSequence(const char *text, uint64_t *sequence)
@@ -78,6 +85,7 @@ void BukClientProtocolRuntimeInit(void)
     pending_event_tail = false;
     snapshot_sequence_staged = false;
     ResetRouteInteraction();
+    ResetEventCue();
 }
 
 int BukClientBeginSynchronization(void)
@@ -87,6 +95,7 @@ int BukClientBeginSynchronization(void)
     pending_event_tail = false;
     snapshot_sequence_staged = false;
     ResetRouteInteraction();
+    ResetEventCue();
     return 1;
 }
 
@@ -242,7 +251,32 @@ int BukClientCompleteSynchronization(void)
     pending_event_tail = false;
     snapshot_sequence_staged = false;
     ResetRouteInteraction();
+    ResetEventCue();
     return 1;
+}
+
+int BukClientSetEventCue(const char *cue)
+{
+    if (cue == NULL) return 0;
+    if (strcmp(cue, "backdo") == 0) {
+        event_cue = 1;
+    } else if (strcmp(cue, "buk") == 0) {
+        event_cue = 2;
+    } else {
+        return 0;
+    }
+    return 1;
+}
+
+int BukClientClearEventCue(void)
+{
+    ResetEventCue();
+    return 1;
+}
+
+const char *BukClientEventCueName(void)
+{
+    return event_cue == 1 ? "backdo" : event_cue == 2 ? "buk" : "none";
 }
 
 int BukClientCanSendStateCommands(void)

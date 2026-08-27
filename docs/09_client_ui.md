@@ -71,6 +71,9 @@ room/match scope를 결합해 `SELECT_ROUTE`를 전송한다. 관전자, 상대 
 
 - 서버는 애니메이션과 무관하게 결과를 즉시 확정
 - 클라이언트는 확정 이벤트를 순서대로 재생
+- `PIECE_MOVED.movement_kind=backdo|buk`와 `BUK_RESOLVED`는 match scope와
+  단조 sequence를 확인한 뒤 최대 900ms의 표시 cue만 만든다. cue는 판정을
+  재계산하지 않으며 재접속 snapshot 적용 시 즉시 제거한다.
 - 애니메이션 중 새 이벤트는 버퍼링할 수 있음
 - 애니메이션이 게임 판정을 바꾸지 않음
 - 재접속 스냅샷은 애니메이션보다 우선
