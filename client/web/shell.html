@@ -235,7 +235,9 @@
     }
 
     function acceptGameEventCue(message) {
-      if (stateReconnectScope === null || message.room_id !== stateReconnectScope.roomId
+      if (stateReconnectScope === null || message.version !== 1
+          || message.direction !== "server_event"
+          || message.room_id !== stateReconnectScope.roomId
           || message.match_id !== stateReconnectScope.matchId
           || !Number.isSafeInteger(message.sequence) || message.sequence <= lastGameEventSequence) {
         return false;
@@ -729,10 +731,19 @@
         return { group_id: `pos:${teamId}:${state}:${spaceId}`, team_id: teamId,
           space_id: spaceId, piece_ids: pieceIds };
       });
-      snapshot.stacks = [...stacks.values()].map((stack) => {
-        const ids = stack.piece_ids.filter((id) => snapshot.pieces.some((piece) => piece.piece_id === id));
-        return { ...stack, piece_ids: ids };
-      }).filter((stack) => stack.piece_ids.length >= 2);
+      snapshot.stacks = [...stacks.values()].flatMap((stack) => {
+        const members = stack.piece_ids.map((id) => snapshot.pieces.find((piece) => piece.piece_id === id))
+          .filter((piece) => piece && (piece.state === "on_board" || piece.state === "home_checkpoint")
+            && piece.team_id === stack.team_id && piece.current_space_id !== null);
+        const bySpace = new Map();
+        for (const piece of members) {
+          if (!bySpace.has(piece.current_space_id)) bySpace.set(piece.current_space_id, []);
+          bySpace.get(piece.current_space_id).push(piece.piece_id);
+        }
+        return [...bySpace.entries()]
+          .filter(([, ids]) => ids.length >= 2)
+          .map(([spaceId, ids]) => ({ ...stack, space_id: spaceId, piece_ids: ids }));
+      });
       for (const stack of snapshot.stacks) {
         for (const id of stack.piece_ids) {
           const piece = snapshot.pieces.find((candidate) => candidate.piece_id === id);
@@ -746,16 +757,19 @@
       const next = cloneSnapshot(snapshot);
       let expected = snapshot.sequence + 1;
       for (const event of events) {
-        if (!event || event.direction !== "server_event" || event.room_id !== next.room_id
+        if (!event || event.version !== 1 || event.direction !== "server_event" || event.room_id !== next.room_id
             || event.match_id !== next.match_id || event.sequence !== expected
             || !event.payload || typeof event.type !== "string") return null;
         const payload = event.payload;
         if (event.type === "YUT_RESULT" && payload.token && typeof payload.player_id === "string") {
+          if (!isStringId(payload.token.token_id) || !RESULTS.has(payload.token.result)
+              || !RESULT_ORIGINS.has(payload.token.origin)) return null;
           if (!next.result_queue.some((token) => token.token_id === payload.token.token_id)) {
-            next.result_queue.push(payload.token);
+            next.result_queue.push({ ...payload.token, generated_by_player_id: payload.player_id });
           }
         } else if (event.type === "RESULT_QUEUE_UPDATED" && Array.isArray(payload.result_queue)) {
-          next.result_queue = payload.result_queue;
+          if (payload.result_queue.length !== 0) return null;
+          next.result_queue = [];
         } else if (event.type === "TURN_STARTED" && typeof payload.player_id === "string"
                    && REQUIRED_INPUTS.has(payload.required_input) && TURN_PHASES.has(payload.phase)
                    && Number.isSafeInteger(payload.remaining_ms) && payload.remaining_ms >= 0) {
@@ -772,16 +786,19 @@
           next.current_turn.phase = payload.required_input === "select_route" ? "wait_route_selection"
             : payload.required_input === "select_piece" ? "wait_piece_selection" : "wait_result_selection";
           next.current_turn.move_request = {
-            required_input: payload.required_input, token_ids: payload.token_ids,
-            piece_ids: payload.piece_ids, routes: payload.routes,
+            required_input: payload.required_input, token_ids: [...payload.token_ids],
+            piece_ids: [...payload.piece_ids], routes: [...payload.routes],
           };
         } else if (event.type === "PIECE_MOVED" && Array.isArray(payload.piece_ids)
                    && payload.piece_ids.length > 0 && isNullableBoardSpace(payload.from_space_id)
                    && isNullableBoardSpace(payload.to_space_id)
                    && ["forward", "backdo", "buk", "finish"].includes(payload.movement_kind)) {
+          if (new Set(payload.piece_ids).size !== payload.piece_ids.length) return null;
           for (const id of payload.piece_ids) {
             const piece = next.pieces.find((candidate) => candidate.piece_id === id);
             if (!piece) return null;
+            if (payload.from_space_id !== null
+                && piece.current_space_id !== payload.from_space_id) return null;
             piece.actual_previous_space = piece.current_space_id;
             piece.current_space_id = payload.to_space_id;
             piece.state = payload.movement_kind === "finish" ? "finished"
@@ -806,12 +823,16 @@
           const stackedPieces = payload.piece_ids.map((id) =>
             next.pieces.find((piece) => piece.piece_id === id));
           if (stackedPieces.some((piece) => !piece)
-              || stackedPieces.some((piece) => piece.team_id !== stackedPieces[0].team_id)) {
+              || new Set(payload.piece_ids).size !== payload.piece_ids.length
+              || stackedPieces.some((piece) => piece.team_id !== stackedPieces[0].team_id)
+              || stackedPieces.some((piece) => piece.current_space_id !== payload.space_id)
+              || stackedPieces.some((piece) => piece.state !== "on_board" && piece.state !== "home_checkpoint")
+              || !isNullableBoardSpace(payload.actual_previous_space)) {
             return null;
           }
           next.stacks = next.stacks.filter((stack) => stack.stack_id !== payload.stack_id);
           next.stacks.push({ stack_id: payload.stack_id, team_id: stackedPieces[0].team_id,
-            space_id: payload.space_id, piece_ids: payload.piece_ids,
+            space_id: payload.space_id, piece_ids: [...payload.piece_ids],
             actual_previous_space: payload.actual_previous_space ?? null });
           rebuildReplayGroups(next);
         } else if (event.type === "BUK_RESOLVED" && typeof payload.token_id === "string"

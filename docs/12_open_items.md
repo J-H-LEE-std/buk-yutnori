@@ -18,7 +18,10 @@
 - Milestone 4 클라이언트의 비어 있지 않은 replay tail은 #102에서 지원 이벤트를
   검증·표시 상태에 원자 적용한다. 지원하지 않는 이벤트와 payload 불일치는 여전히
   fail-closed하며, 서버 판정을 재계산하지 않는다. 남는 후속은 새 이벤트 타입이
-  추가될 때 reducer 표와 계약 테스트를 함께 확장하는 것이다.
+  추가될 때 reducer 표와 계약 테스트를 함께 확장하는 것이다. 특히
+  `RESULT_QUEUE_UPDATED`는 이벤트 토큰에 `generated_by_player_id`가 없어
+  `game_snapshot` 토큰으로 완전하게 투영할 수 없으므로, 비어 있지 않은 큐는
+  현재 fail-closed 처리하고 서버·스냅샷 스키마 통합 시 재검토한다.
 - Milestone 4 지름길 UI 구현에서 `MOVE_REQUIRED`에 허용 경로가 없고 snapshot에는
   선택 중인 토큰·말 ID가 없어 재접속 클라이언트가 후보를 복원할 수 없는 빈칸이
   확인되었다. #96에서 `MOVE_REQUIRED.payload`와

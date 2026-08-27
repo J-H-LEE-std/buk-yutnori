@@ -1075,24 +1075,24 @@ try {
     stateReconnectScope = { roomId: "room-cue", matchId: "match-cue" };
     lastGameEventSequence = 10;
     const backdo = acceptGameEventCue({
-      direction: "server_event", room_id: "room-cue", match_id: "match-cue",
+      version: 1, direction: "server_event", room_id: "room-cue", match_id: "match-cue",
       sequence: 11, type: "PIECE_MOVED",
       payload: { movement_kind: "backdo" },
     });
     const wrongScope = acceptGameEventCue({
-      direction: "server_event", room_id: "other", match_id: "match-cue",
+      version: 1, direction: "server_event", room_id: "other", match_id: "match-cue",
       sequence: 12, type: "PIECE_MOVED", payload: { movement_kind: "buk" },
     });
     const duplicate = acceptGameEventCue({
-      direction: "server_event", room_id: "room-cue", match_id: "match-cue",
+      version: 1, direction: "server_event", room_id: "room-cue", match_id: "match-cue",
       sequence: 11, type: "PIECE_MOVED", payload: { movement_kind: "buk" },
     });
     const malformed = acceptGameEventCue({
-      direction: "server_event", room_id: "room-cue", match_id: "match-cue",
+      version: 1, direction: "server_event", room_id: "room-cue", match_id: "match-cue",
       sequence: 12, type: "BUK_RESOLVED", payload: { no_candidate: false },
     });
     const buk = acceptGameEventCue({
-      direction: "server_event", room_id: "room-cue", match_id: "match-cue",
+      version: 1, direction: "server_event", room_id: "room-cue", match_id: "match-cue",
       sequence: 12, type: "BUK_RESOLVED", payload: {
         token_id: "token-1", destination_space_id: "do", no_candidate: false,
       },
@@ -1130,6 +1130,34 @@ try {
   if (!replayTail.applied || replayTail.lastSequence !== "51"
       || replayTail.phase !== "wait_throw") {
     throw new Error(`authoritative replay tail failed: ${JSON.stringify(replayTail)}`);
+  }
+
+  const replayTopology = await evaluate(`(() => {
+    const snapshot = makeTestGameSnapshot("room-topology", "match-topology", 60);
+    snapshot.pieces.push({
+      piece_id: "A-2", team_id: "A", state: "on_board", current_space_id: "do",
+      stack_id: "stack-A-do", position_group_id: "group-A-do", actual_previous_space: null,
+    });
+    snapshot.pieces[0].stack_id = "stack-A-do";
+    snapshot.stacks = [{ stack_id: "stack-A-do", team_id: "A", space_id: "do",
+      piece_ids: ["A-1", "A-2"], actual_previous_space: null }];
+    snapshot.position_groups[0].piece_ids = ["A-1", "A-2"];
+    const moved = reduceReplayEvents(snapshot, [{
+      version: 1, direction: "server_event", type: "PIECE_MOVED", sequence: 61,
+      room_id: "room-topology", match_id: "match-topology",
+      payload: { piece_ids: ["A-1", "A-2"], from_space_id: "do", to_space_id: "gae",
+        movement_kind: "forward" },
+    }]);
+    const malformed = reduceReplayEvents(snapshot, [{
+      version: 2, direction: "server_event", type: "TURN_STARTED", sequence: 61,
+      room_id: "room-topology", match_id: "match-topology",
+      payload: { player_id: "user-a", phase: "wait_throw", required_input: "throw", remaining_ms: 1 },
+    }]);
+    return { movedStacks: moved?.stacks, movedSpace: moved?.stacks?.[0]?.space_id, malformed };
+  })()`);
+  if (replayTopology.movedSpace !== "gae" || replayTopology.movedStacks?.[0]?.piece_ids?.length !== 2
+      || replayTopology.malformed !== null) {
+    throw new Error(`replay topology reducer failed: ${JSON.stringify(replayTopology)}`);
   }
 
   await command("Input.dispatchKeyEvent", {
