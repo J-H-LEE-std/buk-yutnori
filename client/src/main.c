@@ -1,4 +1,5 @@
 #include "buk_client/board_layout.h"
+#include "buk_client/asset_runtime.h"
 #include "buk_client/bridge.h"
 #include "buk_client/state.h"
 
@@ -22,6 +23,13 @@ static int rendered_piece_count;
 static int rendered_stack_badge_count;
 static int rendered_route_option_count;
 static int highlighted_route_edge_count;
+static BukClientAssetRuntime asset_runtime;
+
+static int AssetFileExists(const char *path, void *userdata)
+{
+    (void)userdata;
+    return FileExists(path) ? 1 : 0;
+}
 
 static Rectangle RaylibRectangle(BukClientRect rectangle)
 {
@@ -476,6 +484,30 @@ int BukClientHighlightedRouteEdgeCount(void)
     return highlighted_route_edge_count;
 }
 
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientAssetsInitialized(void)
+{
+    return BukClientAssetRuntimeInitialized(&asset_runtime);
+}
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientAssetsLoadedCount(void)
+{
+    return (int)BukClientAssetRuntimeLoadedCount(&asset_runtime);
+}
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientAssetsFallbackCount(void)
+{
+    return (int)BukClientAssetRuntimeFallbackCount(&asset_runtime);
+}
+
 int main(void)
 {
     BukClientStateInit(&client_state);
@@ -484,6 +516,7 @@ int main(void)
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
 #endif
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Buk Yutnori board prototype");
+    BukClientAssetRuntimeInit(&asset_runtime, "assets", AssetFileExists, NULL);
 
 #if defined(PLATFORM_WEB)
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);

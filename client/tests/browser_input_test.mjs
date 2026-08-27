@@ -342,6 +342,9 @@ try {
       renderedPieceCount: Module.ccall(
         "BukClientRenderedPieceCount", "number", [], [],
       ),
+      assetsInitialized: Module.ccall("BukClientAssetsInitialized", "number", [], []),
+      assetsLoadedCount: Module.ccall("BukClientAssetsLoadedCount", "number", [], []),
+      assetsFallbackCount: Module.ccall("BukClientAssetsFallbackCount", "number", [], []),
     };
   })()`);
   if (initial.value !== "가나다" || initial.echo !== "가나다"
@@ -351,7 +354,9 @@ try {
       || initial.canvasWidth !== 1280 || initial.canvasHeight !== 720
       || Math.abs(initial.canvasAspectRatio - (16 / 9)) > 0.01
       || initial.renderedBoardNodeCount !== 29
-      || initial.renderedBoardEdgeCount !== 32 || initial.renderedPieceCount !== 0) {
+      || initial.renderedBoardEdgeCount !== 32 || initial.renderedPieceCount !== 0
+      || initial.assetsInitialized !== 1 || initial.assetsLoadedCount !== 0
+      || initial.assetsFallbackCount !== 46) {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
   }
 
