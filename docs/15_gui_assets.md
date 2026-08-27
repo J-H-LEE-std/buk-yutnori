@@ -143,6 +143,9 @@ client/assets/
 `python3 tools/check_assets.py --root client/assets`를 실행하며, 실제 리소스
 fixture가 추가되면 동일 명령을 CI 필수 단계로 연결한다. 현재 CI는
 `tools/check_assets_test.py`로 검사기 자체의 정상·실패 경로를 검증한다.
+검사기의 초기 로딩 4MB bucket은 보드·말·윷 결과·이펙트처럼 게임 진입에
+필수인 항목(`critical`)으로 정의하고, 공통 GUI·HUD·폰트는 전체 16MB 예산에만
+포함한다.
 
 ## 미결 항목
 

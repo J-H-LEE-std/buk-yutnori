@@ -25,6 +25,11 @@ class AssetCheckerTest(unittest.TestCase):
         ]), encoding="utf-8")
         return manifest
 
+    def write_manifest(self, root: Path, entries: list[dict[str, object]]) -> Path:
+        manifest = root.parent / "custom-manifest.json"
+        manifest.write_text(json.dumps(entries), encoding="utf-8")
+        return manifest
+
     def test_accepts_declared_rgba_png_and_ttf(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -56,6 +61,30 @@ class AssetCheckerTest(unittest.TestCase):
             (root / "font.ttf").write_bytes(b"\x00\x01\x00\x00fixture")
             with self.assertRaisesRegex(AssetValidationError, "must be RGBA8"):
                 validate_assets(root, self.manifest(root))
+
+    def test_rejects_non_snake_case_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_png(root / "Board-Main.png")
+            manifest = self.write_manifest(root, [{
+                "path": "Board-Main.png", "kind": "png", "width": 2, "height": 2,
+            }])
+            with self.assertRaisesRegex(AssetValidationError, "snake_case"):
+                validate_assets(root, manifest)
+
+    def test_rejects_critical_budget_overrun(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image = root / "board_main.png"
+            write_png(image)
+            with image.open("ab") as stream:
+                stream.write(b"x" * (4 * 1024 * 1024))
+            manifest = self.write_manifest(root, [{
+                "path": "board_main.png", "kind": "png", "width": 2, "height": 2,
+                "critical": True,
+            }])
+            with self.assertRaisesRegex(AssetValidationError, "critical assets exceed"):
+                validate_assets(root, manifest)
 
 
 if __name__ == "__main__":
