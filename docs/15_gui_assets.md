@@ -141,8 +141,9 @@ client/assets/
 위 수치는 초기 기준값이다. 아트 작업에서 조정이 필요하면 본 문서를 개정으로
 갱신한다. 검증 자동화는 `tools/check_assets.py`로 수행한다. 로컬에서는
 `python3 tools/check_assets.py --root client/assets`를 실행하며, 실제 리소스
-fixture가 추가되면 동일 명령을 CI 필수 단계로 연결한다. 현재 CI는
-`tools/check_assets_test.py`로 검사기 자체의 정상·실패 경로를 검증한다.
+Milestone 4에는 임시 AI 아트워크 fixture가 포함되며 동일 명령을 CI 필수 단계로
+실행한다. 최종 아트워크는 배포 시 동일한 경로, PNG RGBA8 형식, 픽셀 크기를
+유지한 채 파일 교체로 적용하고 검증 명령을 다시 실행한다.
 검사기의 초기 로딩 4MB bucket은 보드·말·윷 결과·이펙트처럼 게임 진입에
 필수인 항목(`critical`)으로 정의하고, 공통 GUI·HUD·폰트는 전체 16MB 예산에만
 포함한다.
@@ -157,4 +158,4 @@ fixture가 추가되면 동일 명령을 CI 필수 단계로 연결한다. 현�
 - 텍스처 atlas 도입과 프레임 메타 형식
 - 경로 따라가기 이동 연출(traversed 경로 기반), 백도·북 전용 연출, 승리 연출
 - 고대비/접근성 테마와 UI 스케일 설정
-- 실제 asset fixture 추가 뒤 `tools/check_assets.py`를 CI 필수 단계로 연결
+- 최종 아트워크 확정 및 교체(임시 fixture는 Issue #110에서 제공)
