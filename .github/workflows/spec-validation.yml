@@ -73,6 +73,16 @@ jobs:
           python-version: "3.12"
       - run: python -m unittest tools/check_release_tag_policy_test.py
 
+  client-assets:
+    name: client / asset contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest tools/check_assets_test.py
+
   go:
     name: go / quality
     runs-on: ubuntu-latest
@@ -170,7 +180,7 @@ jobs:
   required:
     name: ci / required
     if: always()
-    needs: [docs, parse, contracts, board, release-policy, go, client-native, client-wasm]
+    needs: [docs, parse, contracts, board, release-policy, client-assets, go, client-native, client-wasm]
     runs-on: ubuntu-latest
     steps:
       - name: Require all applicable checks
@@ -179,6 +189,7 @@ jobs:
           CONTRACTS_RESULT: ${{ needs.contracts.result }}
           BOARD_RESULT: ${{ needs.board.result }}
           RELEASE_POLICY_RESULT: ${{ needs.release-policy.result }}
+          CLIENT_ASSETS_RESULT: ${{ needs.client-assets.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           GO_RESULT: ${{ needs.go.result }}
           CLIENT_NATIVE_RESULT: ${{ needs.client-native.result }}
@@ -189,6 +200,7 @@ jobs:
           test "$CONTRACTS_RESULT" = "success"
           test "$BOARD_RESULT" = "success"
           test "$RELEASE_POLICY_RESULT" = "success"
+          test "$CLIENT_ASSETS_RESULT" = "success"
           test "$GO_RESULT" = "success"
           test "$CLIENT_NATIVE_RESULT" = "success"
           test "$CLIENT_WASM_RESULT" = "success"
