@@ -381,6 +381,16 @@ try {
       || safeRoomList.scriptCount !== 0 || safeRoomList.status !== "1개의 공개 방") {
     throw new Error(`room list renderer was not safe/deterministic: ${JSON.stringify(safeRoomList)}`);
   }
+  const invalidRoomSummary = await evaluate(`(() => ({
+    invalidCount: validateRoomSummary({
+      room_id: "r-2", title: "bad", has_password: false,
+      player_count: 5, max_players: 4,
+    }),
+    invalidShape: validateRoomSummary({ room_id: "r-3" }),
+  }))()`);
+  if (invalidRoomSummary.invalidCount || invalidRoomSummary.invalidShape) {
+    throw new Error(`room summary validator accepted invalid payload: ${JSON.stringify(invalidRoomSummary)}`);
+  }
 
   const safeChat = await evaluate(`(() => {
     appendChatMessage({

@@ -279,7 +279,8 @@
         && typeof room.title === "string" && room.title.length > 0
         && typeof room.has_password === "boolean"
         && Number.isInteger(room.player_count) && room.player_count >= 1
-        && [2, 4, 6, 8].includes(room.max_players);
+        && [2, 4, 6, 8].includes(room.max_players)
+        && room.player_count <= room.max_players;
     }
 
     async function refreshRoomList() {
