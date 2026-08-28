@@ -392,11 +392,14 @@ try {
       title: document.getElementById("room-detail-title").textContent,
       status: document.getElementById("room-detail-status").textContent,
       member: document.getElementById("room-members").textContent,
+      controlsDisabled: ["room-team-a", "room-team-b", "room-ready", "room-start"]
+        .every((id) => document.getElementById(id).disabled),
     };
   })()`);
   if (roomDetail.hidden || roomDetail.title !== "방"
       || roomDetail.status !== "1/2명 · 대기 중"
-      || roomDetail.member !== "user-1 · player · A팀 · 준비 완료") {
+      || roomDetail.member !== "user-1 · player · A팀 · 준비 완료"
+      || !roomDetail.controlsDisabled) {
     throw new Error(`room detail renderer failed: ${JSON.stringify(roomDetail)}`);
   }
   const invalidRoomSummary = await evaluate(`(() => ({
