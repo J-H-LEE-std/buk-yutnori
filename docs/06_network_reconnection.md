@@ -89,10 +89,14 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   ROOM_UPDATED(revision=해당 이벤트의 방 sequence, status 생명주기 매핑)를 방송하고,
   클라이언트는 신호를 받으면 HTTP 방 상세 조회로 상세를 당겨온다(pull-on-notify).
   창 진행 중 상세 조회 응답에는 활성 시작 확인 정보(match_id,
-  confirmation_deadline_at)가 포함된다. 구독은 방 멤버십 보유자에게 허용되며,
-  구독 등록과 최신 상태 스냅샷 전달은 방 상태 변경과 같은 임계구역에서 원자적으로
-  수행된다. 버퍼가 찬 느린 구독자는 채팅 선례와 같이 드롭(fail-closed)되고,
-  재구독 시 재전달 계약으로 현재 상태를 회복한다.
+  confirmation_deadline_at)가 포함된다. `in_match` 중에는 같은 member-only 상세
+  응답이 활성 런타임의 `active_match.match_id`를 제공한다. 이는 이미 방 멤버인
+  관전자가 live match view에 진입할 때 `RECONNECT`에 사용할 수 있는 유일한 서버
+  권위 scope이며, `lobby`·`starting`·`post_match`·`closed`에서는 생략한다. 진행 중
+  방에 새 관전자를 입장시키는 정책은 #127에서 별도로 결정한다. 구독은
+  방 멤버십 보유자에게 허용되며, 구독 등록과 최신 상태 스냅샷 전달은 방 상태 변경과
+  같은 임계구역에서 원자적으로 수행된다. 버퍼가 찬 느린 구독자는 채팅 선례와 같이
+  드롭(fail-closed)되고, 재구독 시 재전달 계약으로 현재 상태를 회복한다.
 - started 방의 경기 command(`THROW_YUT`, `SELECT_RESULT`, `SELECT_PIECE`,
   `SELECT_ROUTE`)는 레지스트리 소유 경기 런타임에서 실행된다(ADR-0016). 현재 턴
   플레이어가 아니면 `NOT_YOUR_TURN`, 단계가 맞지 않으면 `INVALID_TURN_ACTION`,

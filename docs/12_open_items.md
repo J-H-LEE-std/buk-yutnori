@@ -8,13 +8,6 @@
 
 ## 프로토콜 세부 정책 미결정
 
-- Milestone 5 관전 진입의 active match scope 전달 경로. `GAME_STARTING`은 시작
-  확인 창에서만 `match_id`를 전달하며, 이미 `in_match` 상태인 방에 새 관전자로
-  입장한 클라이언트가 `RECONNECT`에 필요한 현재 `match_id`를 얻을 HTTP 또는
-  WebSocket 계약이 없다. 클라이언트가 room 상태나 임의 ID로 추론해서는 안 된다.
-  `GET /api/v1/rooms/{room_id}` 확장, 별도 member-only match scope 조회, 또는
-  재구독 이벤트 중 하나를 명세·schema·서버 테스트와 함께 결정해야 한다.
-
 - `ERROR` 이벤트의 표준 오류 코드 목록
 - WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
 - 대기실·시작 확인 구독자 알림 계약은 ADR-0015로 확정되었다. GAME_STARTING 방송으로
@@ -47,6 +40,12 @@
 ## 방·운영 흐름 미결정
 
 - 운영자 강제 종료 시 전적과 무효 사유
+- 진행 중인 방의 새 관전자 입장 정책. `docs/01_product_scope.md`는 진행 중인 방
+  관전을 v1 범위로 두지만 현재 `Join`은 started 방의 모든 새 멤버십을 거부한다.
+  관전자 입장을 허용한다면 정원·비밀번호·WS 구독과 `RECONNECT` 스냅샷 전달의
+  원자성까지 함께 정해야 하며, 허용하지 않는다면 제품 범위 문구를 현 정책에 맞춰야
+  한다(#127). 이미 방 멤버인 관전자의 live match view 진입 scope 전달은 #125에서
+  해소한다.
 - 경기 런타임 연결은 #82로 해소되었다. 시작 확인 전원 동의 시 레지스트리가 실제
   경기 런타임을 조립하고(ADR-0016), THROW_YUT·SELECT_* 명령과 던지기·이동 제한
   시간 CPU 대체, GAME_ENDED 뒤 post_match 대기실 복귀와 started 해제가 동작한다.

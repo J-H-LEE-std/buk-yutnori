@@ -1,6 +1,8 @@
 package application
 
 import (
+	"bytes"
+	"encoding/json"
 	"testing"
 
 	"buk-yutnori/internal/auth"
@@ -76,6 +78,20 @@ func TestSeededWholeMatchRunsToGameEndedAndReturnsToWaitingRoom(t *testing.T) {
 	rt := fixture.runtime()
 	if rt != nil {
 		t.Fatal("runtime survived GAME_ENDED")
+	}
+	detail, err := fixture.registry.Detail(fixture.users[0], fixture.roomID)
+	if err != nil {
+		t.Fatalf("Detail(post_match) error = %v", err)
+	}
+	if detail.ActiveStart != nil || detail.ActiveMatch != nil {
+		t.Fatalf("post_match detail has active scope: %+v", detail)
+	}
+	encodedDetail, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatalf("Marshal(post_match detail) error = %v", err)
+	}
+	if bytes.Contains(encodedDetail, []byte(`"active_start"`)) || bytes.Contains(encodedDetail, []byte(`"active_match"`)) {
+		t.Fatalf("post_match detail serialized active scope: %s", encodedDetail)
 	}
 	for _, user := range fixture.users {
 		if err := fixture.registry.SetReady(user, fixture.roomID, true); err != nil {

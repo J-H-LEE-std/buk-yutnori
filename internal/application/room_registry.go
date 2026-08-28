@@ -352,6 +352,7 @@ type RoomDetailSnapshot struct {
 	Summary     RoomSummary          `json:"summary"`
 	Members     []RoomMemberView     `json:"members"`
 	ActiveStart *ActiveStartSnapshot `json:"active_start,omitempty"`
+	ActiveMatch *ActiveMatchSnapshot `json:"active_match,omitempty"`
 }
 
 // RoomMemberView is one member's visible lobby state.
@@ -366,6 +367,13 @@ type RoomMemberView struct {
 type ActiveStartSnapshot struct {
 	MatchID                domain.MatchID `json:"match_id"`
 	ConfirmationDeadlineAt string         `json:"confirmation_deadline_at"`
+}
+
+// ActiveMatchSnapshot describes the member-visible scope of a live runtime.
+// It is intentionally absent outside in-match state so clients never infer a
+// reconnect scope from room status or stale lifecycle data.
+type ActiveMatchSnapshot struct {
+	MatchID domain.MatchID `json:"match_id"`
 }
 
 // Detail returns the member-only view of a room's current lobby state and,
@@ -419,6 +427,9 @@ func (registry *RoomRegistry) Detail(user auth.UserID, roomID domain.RoomID) (Ro
 				ConfirmationDeadlineAt: snapshot.DeadlineAt.UTC().Format(time.RFC3339),
 			}
 		}
+	}
+	if entry.started && entry.runtime != nil {
+		detail.ActiveMatch = &ActiveMatchSnapshot{MatchID: entry.runtime.matchID}
 	}
 	return detail, nil
 }
