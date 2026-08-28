@@ -1,6 +1,7 @@
 package application
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -606,8 +607,8 @@ func TestDetailVisibilityContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detail(member) error = %v", err)
 	}
-	if detail.ActiveStart != nil {
-		t.Fatalf("closed window must be nil in Go: %+v", detail.ActiveStart)
+	if detail.ActiveStart != nil || detail.ActiveMatch != nil {
+		t.Fatalf("idle detail has active scope: %+v", detail)
 	}
 	encoded, err := json.Marshal(detail)
 	if err != nil {
@@ -619,6 +620,9 @@ func TestDetailVisibilityContract(t *testing.T) {
 	}
 	if _, present := decoded["active_start"]; present {
 		t.Fatalf("windowless response serialized active_start: %s", encoded)
+	}
+	if _, present := decoded["active_match"]; present {
+		t.Fatalf("idle response serialized active_match: %s", encoded)
 	}
 	if len(detail.Members) != 2 || detail.Members[0].Role != RoleSpectator ||
 		detail.Members[1].Team != domain.TeamA {
@@ -657,8 +661,15 @@ func TestDetailVisibilityContract(t *testing.T) {
 			t.Fatalf("ConfirmStart(%s) error = %v", user, err)
 		}
 	}
-	detail, err = registry.Detail(lobbyCreatorID, summary.RoomID)
-	if err != nil || detail.ActiveStart != nil {
-		t.Fatalf("post-start detail active_start = %+v error = %v, want omitted", detail.ActiveStart, err)
+	detail, err = registry.Detail(auth.UserID(startRosterIDs[1]), summary.RoomID)
+	if err != nil || detail.ActiveStart != nil || detail.ActiveMatch == nil || detail.ActiveMatch.MatchID != activeMatchID {
+		t.Fatalf("post-start detail = %+v error = %v, want only active match scope", detail, err)
+	}
+	encoded, err = json.Marshal(detail)
+	if err != nil {
+		t.Fatalf("Marshal(post-start detail) error = %v", err)
+	}
+	if bytes.Contains(encoded, []byte(`"active_start"`)) || !bytes.Contains(encoded, []byte(`"active_match"`)) {
+		t.Fatalf("post-start detail scope serialization = %s, want active_match only", encoded)
 	}
 }

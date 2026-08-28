@@ -352,18 +352,33 @@
           && typeof member.ready === "boolean")
         && (payload.active_start === undefined || (payload.active_start && typeof payload.active_start.match_id === "string"
           && payload.active_start.match_id.length > 0 && typeof payload.active_start.confirmation_deadline_at === "string"
-          && payload.active_start.confirmation_deadline_at.length > 0));
+          && payload.active_start.confirmation_deadline_at.length > 0))
+        && (payload.active_match === undefined || (payload.active_match && typeof payload.active_match.match_id === "string"
+          && payload.active_match.match_id.length > 0))
+        && !(payload.active_start && payload.active_match);
     }
 
     function renderRoomDetail(detail) {
       roomDetail.hidden = false;
       roomDetailTitle.textContent = detail.summary.title;
-      roomDetailStatus.textContent = `${detail.summary.player_count}/${detail.summary.max_players}명${detail.active_start ? " · 시작 확인 중" : " · 대기 중"}`;
+      roomDetailStatus.textContent = `${detail.summary.player_count}/${detail.summary.max_players}명${detail.active_start ? " · 시작 확인 중" : detail.active_match ? " · 경기 진행 중" : " · 대기 중"}`;
       const self = detail.members.find((member) => member.user_id === authenticatedUserId);
       activeRoomRole = self?.role ?? null;
       setRoomLobbyControls(roomListAuthenticated && activeRoomId === detail.summary.room_id, self);
       if (self?.role === "player") {
         roomReady.textContent = self.ready ? "준비 취소" : "준비";
+      }
+      if (detail.summary.room_id === activeRoomId && detail.active_match
+          && stateReconnectScope === null) {
+        // Detail may arrive after a newer lifecycle event. Only an unset scope
+        // can be initialized here; a confirmed match scope is never replaced
+        // by another detail response.
+        activeStartScope = null;
+        roomConfirmStart.disabled = true;
+        gameSession.hidden = false;
+        gameSessionTitle.textContent = "게임 화면";
+        gameSessionStatus.textContent = "서버 권위 경기 상태를 동기화하는 중…";
+        setStateReconnectScope(detail.summary.room_id, detail.active_match.match_id);
       }
       roomMembers.replaceChildren();
       for (const member of detail.members) {

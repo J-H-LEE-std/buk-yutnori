@@ -440,6 +440,61 @@ try {
     throw new Error(`start confirmation UI flow was not bounded: ${JSON.stringify(startConfirmation)}`);
   }
 
+  const lateSpectatorEntry = await evaluate(`(() => {
+    const sent = [];
+    const socket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
+    authenticatedUserId = "late-spectator";
+    activeRoomId = "room-already-live";
+    activeRoomRole = null;
+    activeStartScope = null;
+    clearStateReconnectScope();
+    realtimeSocket = socket;
+    renderRoomDetail({
+      summary: { room_id: "room-already-live", title: "진행 중인 방", has_password: false,
+        player_count: 2, max_players: 4 },
+      members: [{ user_id: "late-spectator", role: "spectator", ready: false }],
+      active_match: { match_id: "match-already-live" },
+    });
+    const snapshot = makeTestGameSnapshot("room-already-live", "match-already-live", 10);
+    snapshot.participants.push({
+      user_id: "late-spectator", nickname: "늦은 관전자", role: "spectator", team_id: null,
+      permissions: ["chat"], connected: true, cpu_control: { active: false, reason: null },
+    });
+    renderMatchSession(snapshot);
+    renderRoomDetail({
+      summary: { room_id: "room-already-live", title: "오래된 상세", has_password: false, player_count: 2, max_players: 4 },
+      members: [{ user_id: "late-spectator", role: "spectator", ready: false }],
+      active_match: { match_id: "stale-match" },
+    });
+    const result = {
+      scope: stateReconnectScope,
+      reconnect: sent[0],
+      sentCount: sent.length,
+      title: document.getElementById("game-session-title").textContent,
+      status: document.getElementById("game-session-status").textContent,
+      detailStatus: document.getElementById("room-detail-status").textContent,
+      invalidDetailRejected: !validateRoomDetail({
+        summary: { room_id: "invalid", title: "invalid", has_password: false, player_count: 2, max_players: 4 },
+        members: [], active_start: { match_id: "start", confirmation_deadline_at: "2026-01-01T00:00:00Z" },
+        active_match: { match_id: "match" },
+      }),
+    };
+    realtimeSocket = null;
+    clearStateReconnectScope();
+    return result;
+  })()`);
+  if (lateSpectatorEntry.scope?.roomId !== "room-already-live"
+      || lateSpectatorEntry.scope?.matchId !== "match-already-live"
+      || lateSpectatorEntry.reconnect?.type !== "RECONNECT"
+      || lateSpectatorEntry.reconnect?.room_id !== "room-already-live"
+      || lateSpectatorEntry.reconnect?.match_id !== "match-already-live"
+      || lateSpectatorEntry.sentCount !== 1 || lateSpectatorEntry.title !== "관전 중"
+      || !lateSpectatorEntry.status.includes("조작은 할 수 없습니다")
+      || lateSpectatorEntry.detailStatus !== "2/4명 · 경기 진행 중"
+      || !lateSpectatorEntry.invalidDetailRejected) {
+    throw new Error(`late spectator detail scope was not authoritative: ${JSON.stringify(lateSpectatorEntry)}`);
+  }
+
   await command("Emulation.setDeviceMetricsOverride", {
     width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
   });

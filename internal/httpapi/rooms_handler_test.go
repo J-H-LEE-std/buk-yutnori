@@ -357,7 +357,8 @@ func TestNewRoomsHandlerRejectsMissingDependencies(t *testing.T) {
 func TestRoomDetailMapsMembershipVisibility(t *testing.T) {
 	authenticator := &stubRoomAuthenticator{user: auth.User{ID: "user-1"}}
 	validDetail := application.RoomDetailSnapshot{
-		Summary: application.RoomSummary{RoomID: domain.RoomID("r1"), Title: "방", PlayerCount: 1, MaxPlayers: 8},
+		Summary:     application.RoomSummary{RoomID: domain.RoomID("r1"), Title: "방", PlayerCount: 1, MaxPlayers: 8},
+		ActiveMatch: &application.ActiveMatchSnapshot{MatchID: domain.MatchID("match-live")},
 	}
 
 	service := &stubRoomsService{detailErr: application.ErrNotMember}
@@ -379,5 +380,16 @@ func TestRoomDetailMapsMembershipVisibility(t *testing.T) {
 	response = roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms/r1", nil)
 	if response.Code != http.StatusOK {
 		t.Fatalf("member status = %d, want 200", response.Code)
+	}
+	var payload struct {
+		ActiveMatch *struct {
+			MatchID string `json:"match_id"`
+		} `json:"active_match"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode(member detail) error = %v", err)
+	}
+	if payload.ActiveMatch == nil || payload.ActiveMatch.MatchID != "match-live" {
+		t.Fatalf("member detail active_match = %+v, want live match scope", payload.ActiveMatch)
 	}
 }

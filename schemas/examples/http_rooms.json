@@ -98,5 +98,30 @@
         "ready": false
       }
     ]
+  },
+  {
+    "summary": {
+      "room_id": "f0e1d2c3b4a5968778695a4b3c2d1e0f",
+      "title": "경기 진행 중인 방",
+      "has_password": false,
+      "player_count": 2,
+      "max_players": 4
+    },
+    "members": [
+      {
+        "user_id": "usr_QkJCQkJCQkJCQkJCQkJCQg",
+        "role": "player",
+        "team": "A",
+        "ready": true
+      },
+      {
+        "user_id": "usr_U1NTU1NTU1NTU1NTU1NTUw",
+        "role": "spectator",
+        "ready": false
+      }
+    ],
+    "active_match": {
+      "match_id": "1e2d3c4b5a69788796a5b4c3d2e1f0a9"
+    }
   }
 ]
