@@ -148,7 +148,10 @@
     .room-actions, .room-create { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .room-create input, .room-create select { width: auto; min-width: 120px; padding: 8px 10px; }
     .room-detail { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid #6f5b4e; }
-    #room-detail-title, #room-members { overflow-wrap: anywhere; }
+    #room-detail-title, #room-members, .room-row strong { overflow-wrap: anywhere; }
+    .room-row strong { max-height: 4.5em; overflow-y: auto; }
+    #room-detail-title { max-height: 4.5em; overflow-y: auto; }
+    #room-members { max-height: 12rem; overflow-y: auto; }
     .room-detail[hidden] { display: none; }
     .room-lobby-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 

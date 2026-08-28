@@ -391,12 +391,16 @@ try {
       chatColumns: getComputedStyle(chatForm).gridTemplateColumns,
       canvasAspectRatio: canvas.clientWidth / canvas.clientHeight,
       touchTarget: getComputedStyle(document.getElementById("room-team-a")).minHeight,
+      roomTitleOverflow: getComputedStyle(document.querySelector("#room-list strong")).overflowY,
+      detailTitleMaxHeight: getComputedStyle(document.getElementById("room-detail-title")).maxHeight,
     };
   })()`);
   if (mobileLayout.viewportWidth !== 390 || mobileLayout.documentWidth > mobileLayout.viewportWidth
       || mobileLayout.roomCreateColumns === "none" || mobileLayout.chatColumns === "none"
       || Math.abs(mobileLayout.canvasAspectRatio - (16 / 9)) > 0.01
-      || mobileLayout.touchTarget !== "44px") {
+      || mobileLayout.touchTarget !== "44px"
+      || mobileLayout.roomTitleOverflow !== "auto"
+      || mobileLayout.detailTitleMaxHeight === "none") {
     throw new Error(`mobile shell layout overflowed or did not reflow: ${JSON.stringify(mobileLayout)}`);
   }
   await evaluate(`(() => {
