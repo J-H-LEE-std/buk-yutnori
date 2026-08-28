@@ -317,7 +317,12 @@
         return true;
       } catch (error) {
         console.error(error);
-        if (generation === roomDetailRequestGeneration && roomListAuthenticated) roomDetailStatus.textContent = "방 상세를 불러오지 못했습니다.";
+        if (generation === roomDetailRequestGeneration && roomListAuthenticated) {
+          roomDetail.hidden = false;
+          roomDetailTitle.textContent = "방 상세를 확인할 수 없습니다.";
+          roomDetailStatus.textContent = "방 상세를 불러오지 못했습니다. 다시 시도하세요.";
+          roomMembers.replaceChildren();
+        }
         return false;
       }
     }
@@ -337,12 +342,14 @@
         const joined = await response.json();
         if (!validateJoinedRoom(joined)) throw new Error("invalid joined room payload");
         activeRoomId = joined.room_id;
-        await loadRoomDetail(activeRoomId, generation);
+        if (!await loadRoomDetail(activeRoomId, generation)) return false;
         await refreshRoomList();
         return true;
       } catch (error) {
         console.error(error);
-        roomListStatus.textContent = "방 입장에 실패했습니다. 비밀번호와 방 상태를 확인하세요.";
+        if (generation === roomDetailRequestGeneration && roomListAuthenticated) {
+          roomListStatus.textContent = "방 입장에 실패했습니다. 비밀번호와 방 상태를 확인하세요.";
+        }
         return false;
       }
     }
@@ -439,6 +446,7 @@
       event.preventDefault();
       if (!roomListAuthenticated || roomTitle.value.trim().length === 0) return;
       roomCreate.disabled = true;
+      const generation = ++roomDetailRequestGeneration;
       try {
         const response = await fetch("/api/v1/rooms", {
           method: "POST", credentials: "same-origin", cache: "no-store",
@@ -451,12 +459,13 @@
         roomTitle.value = ""; roomPassword.value = "";
         activeRoomId = summary.room_id;
         roomListStatus.textContent = "방을 만들었습니다. 방 상세를 불러오는 중…";
-        const generation = ++roomDetailRequestGeneration;
-        await loadRoomDetail(activeRoomId, generation);
+        if (!await loadRoomDetail(activeRoomId, generation)) return;
         await refreshRoomList();
       } catch (error) {
         console.error(error);
-        roomListStatus.textContent = "방을 만들지 못했습니다. 제목과 설정을 확인하세요.";
+        if (generation === roomDetailRequestGeneration && roomListAuthenticated) {
+          roomListStatus.textContent = "방을 만들지 못했습니다. 제목과 설정을 확인하세요.";
+        }
       } finally {
         roomCreate.disabled = !roomListAuthenticated;
       }
