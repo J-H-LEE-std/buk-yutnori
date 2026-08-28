@@ -246,6 +246,7 @@
     let eventCue = null;
     let lastGameEventSequence = 0;
     let roomListAuthenticated = false;
+    let roomListRequestGeneration = 0;
 
     function renderRoomList(rooms) {
       roomList.replaceChildren();
@@ -283,6 +284,7 @@
 
     async function refreshRoomList() {
       if (!roomListAuthenticated) return false;
+      const requestGeneration = ++roomListRequestGeneration;
       roomRefresh.disabled = true;
       roomListStatus.textContent = "방 목록을 불러오는 중…";
       try {
@@ -294,6 +296,7 @@
         if (!payload || !Array.isArray(payload.rooms) || !payload.rooms.every(validateRoomSummary)) {
           throw new Error("invalid room list payload");
         }
+        if (!roomListAuthenticated || requestGeneration !== roomListRequestGeneration) return false;
         renderRoomList(payload.rooms);
         return true;
       } catch (error) {
@@ -302,12 +305,15 @@
         roomListStatus.textContent = "방 목록을 불러오지 못했습니다. 다시 시도하세요.";
         return false;
       } finally {
-        roomRefresh.disabled = false;
+        if (roomListAuthenticated && requestGeneration === roomListRequestGeneration) {
+          roomRefresh.disabled = false;
+        }
       }
     }
 
     function clearRoomList() {
       roomListAuthenticated = false;
+      roomListRequestGeneration++;
       roomRefresh.disabled = true;
       roomList.replaceChildren();
       roomListStatus.textContent = "로그인 후 방 목록을 확인할 수 있습니다.";
