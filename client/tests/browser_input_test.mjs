@@ -377,9 +377,27 @@ try {
       status: document.getElementById("room-list-status").textContent,
     };
   })()`);
-  if (safeRoomList.text !== "<script>bad</script>2/4명 · 비밀번호방 ID: r-1"
+  if (safeRoomList.text !== "<script>bad</script>2/4명 · 비밀번호방 ID: r-1플레이어 참여관전"
       || safeRoomList.scriptCount !== 0 || safeRoomList.status !== "1개의 공개 방") {
     throw new Error(`room list renderer was not safe/deterministic: ${JSON.stringify(safeRoomList)}`);
+  }
+  const roomDetail = await evaluate(`(() => {
+    renderRoomDetail({
+      summary: { room_id: "r-1", title: "방", has_password: false, player_count: 1, max_players: 2 },
+      members: [{ user_id: "user-1", role: "player", team: "A", ready: true }],
+      active_start: undefined,
+    });
+    return {
+      hidden: document.getElementById("room-detail").hidden,
+      title: document.getElementById("room-detail-title").textContent,
+      status: document.getElementById("room-detail-status").textContent,
+      member: document.getElementById("room-members").textContent,
+    };
+  })()`);
+  if (roomDetail.hidden || roomDetail.title !== "방"
+      || roomDetail.status !== "1/2명 · 대기 중"
+      || roomDetail.member !== "user-1 · player · A팀 · 준비 완료") {
+    throw new Error(`room detail renderer failed: ${JSON.stringify(roomDetail)}`);
   }
   const invalidRoomSummary = await evaluate(`(() => ({
     invalidCount: validateRoomSummary({

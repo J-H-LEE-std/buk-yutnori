@@ -145,6 +145,10 @@
     #room-list li { padding: 12px; border-radius: 8px; background: rgb(0 0 0 / 22%); }
     .room-row { display: flex; justify-content: space-between; gap: 12px; }
     .room-meta { color: #d6c4b7; font-size: .9rem; }
+    .room-actions, .room-create { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .room-create input, .room-create select { width: auto; min-width: 120px; padding: 8px 10px; }
+    .room-detail { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid #6f5b4e; }
+    .room-detail[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -166,6 +170,20 @@
       </div>
       <span id="room-list-status" role="status">로그인 후 방 목록을 확인할 수 있습니다.</span>
       <ul id="room-list" aria-live="polite" aria-label="공개 방 목록"></ul>
+      <form id="room-create-form" class="room-create">
+        <label class="visually-hidden" for="room-title">방 제목</label>
+        <input id="room-title" type="text" maxlength="25" placeholder="방 제목" disabled required>
+        <label class="visually-hidden" for="room-password">방 비밀번호</label>
+        <input id="room-password" type="password" maxlength="16" placeholder="비밀번호(선택)" disabled>
+        <label class="visually-hidden" for="room-team">팀</label>
+        <select id="room-team" disabled><option value="A">A팀</option><option value="B">B팀</option></select>
+        <button id="room-create" type="submit" disabled>방 만들기</button>
+      </form>
+      <div id="room-detail" class="room-detail" hidden aria-live="polite">
+        <strong id="room-detail-title"></strong>
+        <span id="room-detail-status" class="room-meta"></span>
+        <ul id="room-members" aria-label="방 멤버"></ul>
+      </div>
     </section>
     <canvas id="canvas" width="1280" height="720" tabindex="-1"
             oncontextmenu="event.preventDefault()"></canvas>
@@ -205,6 +223,15 @@
     const roomRefresh = document.getElementById("room-refresh");
     const roomListStatus = document.getElementById("room-list-status");
     const roomList = document.getElementById("room-list");
+    const roomCreateForm = document.getElementById("room-create-form");
+    const roomTitle = document.getElementById("room-title");
+    const roomPassword = document.getElementById("room-password");
+    const roomTeam = document.getElementById("room-team");
+    const roomCreate = document.getElementById("room-create");
+    const roomDetail = document.getElementById("room-detail");
+    const roomDetailTitle = document.getElementById("room-detail-title");
+    const roomDetailStatus = document.getElementById("room-detail-status");
+    const roomMembers = document.getElementById("room-members");
     const PROTOTYPE_ROOM_ID = "prototype-room";
     const MAX_CHAT_CODE_POINTS = 200;
     const MAX_RENDERED_CHAT_MESSAGES = 100;
@@ -247,6 +274,78 @@
     let lastGameEventSequence = 0;
     let roomListAuthenticated = false;
     let roomListRequestGeneration = 0;
+    let roomDetailRequestGeneration = 0;
+    let activeRoomId = null;
+
+    function setRoomEntryEnabled(enabled) {
+      for (const element of [roomTitle, roomPassword, roomTeam, roomCreate]) element.disabled = !enabled;
+      roomRefresh.disabled = !enabled;
+    }
+
+    function validateJoinedRoom(payload) {
+      return validateRoomSummary(payload) && (payload.role === "player" || payload.role === "spectator")
+        && (payload.team === undefined || payload.team === "A" || payload.team === "B");
+    }
+
+    function validateRoomDetail(payload) {
+      return payload && validateRoomSummary(payload.summary) && Array.isArray(payload.members)
+        && payload.members.every((member) => member && typeof member.user_id === "string"
+          && member.user_id.length > 0 && ["player", "spectator"].includes(member.role)
+          && (member.team === undefined || member.team === "A" || member.team === "B")
+          && typeof member.ready === "boolean");
+    }
+
+    function renderRoomDetail(detail) {
+      roomDetail.hidden = false;
+      roomDetailTitle.textContent = detail.summary.title;
+      roomDetailStatus.textContent = `${detail.summary.player_count}/${detail.summary.max_players}명${detail.active_start ? " · 시작 확인 중" : " · 대기 중"}`;
+      roomMembers.replaceChildren();
+      for (const member of detail.members) {
+        const item = document.createElement("li");
+        item.textContent = `${member.user_id} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
+        roomMembers.append(item);
+      }
+    }
+
+    async function loadRoomDetail(roomId, generation) {
+      try {
+        const response = await fetch(`/api/v1/rooms/${encodeURIComponent(roomId)}`, { credentials: "same-origin", cache: "no-store" });
+        if (!response.ok) throw new Error(`room detail request failed: ${response.status}`);
+        const payload = await response.json();
+        if (generation !== roomDetailRequestGeneration || !roomListAuthenticated || !validateRoomDetail(payload)) return false;
+        renderRoomDetail(payload);
+        return true;
+      } catch (error) {
+        console.error(error);
+        if (generation === roomDetailRequestGeneration && roomListAuthenticated) roomDetailStatus.textContent = "방 상세를 불러오지 못했습니다.";
+        return false;
+      }
+    }
+
+    async function enterRoom(roomId, role) {
+      if (!roomListAuthenticated) return false;
+      roomListStatus.textContent = "방 입장을 처리하는 중…";
+      const generation = ++roomDetailRequestGeneration;
+      const password = roomPassword.value;
+      try {
+        const response = await fetch(`/api/v1/rooms/${encodeURIComponent(roomId)}/join`, {
+          method: "POST", credentials: "same-origin", cache: "no-store",
+          headers: { "Content-Type": "application/json", "X-Buk-Request": "1" },
+          body: JSON.stringify({ role, team: role === "player" ? roomTeam.value : undefined, password }),
+        });
+        if (!response.ok) throw new Error(`room join request failed: ${response.status}`);
+        const joined = await response.json();
+        if (!validateJoinedRoom(joined)) throw new Error("invalid joined room payload");
+        activeRoomId = joined.room_id;
+        await loadRoomDetail(activeRoomId, generation);
+        await refreshRoomList();
+        return true;
+      } catch (error) {
+        console.error(error);
+        roomListStatus.textContent = "방 입장에 실패했습니다. 비밀번호와 방 상태를 확인하세요.";
+        return false;
+      }
+    }
 
     function renderRoomList(rooms) {
       roomList.replaceChildren();
@@ -268,7 +367,15 @@
         const id = document.createElement("span");
         id.className = "room-meta";
         id.textContent = `방 ID: ${room.room_id}`;
-        item.append(row, id);
+        const actions = document.createElement("div");
+        actions.className = "room-actions";
+        for (const [label, role] of [["플레이어 참여", "player"], ["관전", "spectator"]]) {
+          const button = document.createElement("button");
+          button.type = "button"; button.textContent = label; button.disabled = !roomListAuthenticated;
+          button.addEventListener("click", () => enterRoom(room.room_id, role));
+          actions.append(button);
+        }
+        item.append(row, id, actions);
         roomList.append(item);
       }
     }
@@ -320,9 +427,40 @@
       roomRefresh.disabled = true;
       roomList.replaceChildren();
       roomListStatus.textContent = "로그인 후 방 목록을 확인할 수 있습니다.";
+      roomDetailRequestGeneration++;
+      activeRoomId = null;
+      roomDetail.hidden = true;
+      roomMembers.replaceChildren();
+      setRoomEntryEnabled(false);
     }
 
     roomRefresh.addEventListener("click", refreshRoomList);
+    roomCreateForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!roomListAuthenticated || roomTitle.value.trim().length === 0) return;
+      roomCreate.disabled = true;
+      try {
+        const response = await fetch("/api/v1/rooms", {
+          method: "POST", credentials: "same-origin", cache: "no-store",
+          headers: { "Content-Type": "application/json", "X-Buk-Request": "1" },
+          body: JSON.stringify({ title: roomTitle.value, password: roomPassword.value, team: roomTeam.value }),
+        });
+        if (!response.ok) throw new Error(`room create request failed: ${response.status}`);
+        const summary = await response.json();
+        if (!validateRoomSummary(summary)) throw new Error("invalid created room payload");
+        roomTitle.value = ""; roomPassword.value = "";
+        activeRoomId = summary.room_id;
+        roomListStatus.textContent = "방을 만들었습니다. 방 상세를 불러오는 중…";
+        const generation = ++roomDetailRequestGeneration;
+        await loadRoomDetail(activeRoomId, generation);
+        await refreshRoomList();
+      } catch (error) {
+        console.error(error);
+        roomListStatus.textContent = "방을 만들지 못했습니다. 제목과 설정을 확인하세요.";
+      } finally {
+        roomCreate.disabled = !roomListAuthenticated;
+      }
+    });
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
@@ -423,6 +561,7 @@
       logout.hidden = false;
       authenticatedUserId = userId;
       roomListAuthenticated = true;
+      setRoomEntryEnabled(true);
       refreshRoomList();
       refreshRouteInteraction();
       realtimeReconnectEnabled = true;
