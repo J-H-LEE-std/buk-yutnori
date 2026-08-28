@@ -149,6 +149,7 @@
     .room-create input, .room-create select { width: auto; min-width: 120px; padding: 8px 10px; }
     .room-detail { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid #6f5b4e; }
     .room-detail[hidden] { display: none; }
+    .room-lobby-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -182,6 +183,13 @@
       <div id="room-detail" class="room-detail" hidden aria-live="polite">
         <strong id="room-detail-title"></strong>
         <span id="room-detail-status" class="room-meta"></span>
+        <div class="room-lobby-actions" aria-label="방 로비 조작">
+          <button id="room-team-a" type="button" disabled>A팀 선택</button>
+          <button id="room-team-b" type="button" disabled>B팀 선택</button>
+          <button id="room-ready" type="button" disabled>준비</button>
+          <button id="room-start" type="button" disabled>게임 시작</button>
+        </div>
+        <span id="room-lobby-status" role="status"></span>
         <ul id="room-members" aria-label="방 멤버"></ul>
       </div>
     </section>
@@ -231,6 +239,11 @@
     const roomDetail = document.getElementById("room-detail");
     const roomDetailTitle = document.getElementById("room-detail-title");
     const roomDetailStatus = document.getElementById("room-detail-status");
+    const roomTeamA = document.getElementById("room-team-a");
+    const roomTeamB = document.getElementById("room-team-b");
+    const roomReady = document.getElementById("room-ready");
+    const roomStart = document.getElementById("room-start");
+    const roomLobbyStatus = document.getElementById("room-lobby-status");
     const roomMembers = document.getElementById("room-members");
     const PROTOTYPE_ROOM_ID = "prototype-room";
     const MAX_CHAT_CODE_POINTS = 200;
@@ -267,6 +280,7 @@
     const pendingChatCommands = new Set();
     const pendingSynchronizationCommands = new Map();
     const pendingRouteCommands = new Map();
+    const pendingLobbyCommands = new Map();
     let confirmedSnapshotPieceIds = [];
     let confirmedRouteRequest = null;
     let routeIntentTimer = null;
@@ -280,6 +294,15 @@
     function setRoomEntryEnabled(enabled) {
       for (const element of [roomTitle, roomPassword, roomTeam, roomCreate]) element.disabled = !enabled;
       roomRefresh.disabled = !enabled;
+    }
+
+    function setRoomLobbyControls(enabled, member = null) {
+      const player = enabled && member?.role === "player";
+      roomTeamA.disabled = !player;
+      roomTeamB.disabled = !player;
+      roomReady.disabled = !player;
+      roomStart.disabled = !enabled;
+      if (!player) roomReady.textContent = "준비";
     }
 
     function validateJoinedRoom(payload) {
@@ -302,6 +325,11 @@
       roomDetail.hidden = false;
       roomDetailTitle.textContent = detail.summary.title;
       roomDetailStatus.textContent = `${detail.summary.player_count}/${detail.summary.max_players}명${detail.active_start ? " · 시작 확인 중" : " · 대기 중"}`;
+      const self = detail.members.find((member) => member.user_id === authenticatedUserId);
+      setRoomLobbyControls(roomListAuthenticated && activeRoomId === detail.summary.room_id, self);
+      if (self?.role === "player") {
+        roomReady.textContent = self.ready ? "준비 취소" : "준비";
+      }
       roomMembers.replaceChildren();
       for (const member of detail.members) {
         const item = document.createElement("li");
@@ -326,6 +354,7 @@
           roomDetailTitle.textContent = "방 상세를 확인할 수 없습니다.";
           roomDetailStatus.textContent = "방 상세를 불러오지 못했습니다. 다시 시도하세요.";
           roomMembers.replaceChildren();
+          setRoomLobbyControls(false);
         }
         return false;
       }
@@ -334,6 +363,7 @@
     async function enterRoom(roomId, role) {
       if (!roomListAuthenticated) return false;
       roomListStatus.textContent = "방 입장을 처리하는 중…";
+      pendingLobbyCommands.clear();
       const generation = ++roomDetailRequestGeneration;
       const password = roomPassword.value;
       try {
@@ -443,6 +473,8 @@
       activeRoomId = null;
       roomDetail.hidden = true;
       roomMembers.replaceChildren();
+      roomLobbyStatus.textContent = "";
+      setRoomLobbyControls(false);
       setRoomEntryEnabled(false);
     }
 
@@ -451,6 +483,7 @@
       event.preventDefault();
       if (!roomListAuthenticated || roomTitle.value.trim().length === 0) return;
       roomCreate.disabled = true;
+      pendingLobbyCommands.clear();
       const generation = ++roomDetailRequestGeneration;
       try {
         const response = await fetch("/api/v1/rooms", {
@@ -476,6 +509,14 @@
         if (generation === roomDetailRequestGeneration) roomCreate.disabled = !roomListAuthenticated;
       }
     });
+
+    roomTeamA.addEventListener("click", () => sendRoomLobbyCommand("SELECT_TEAM", { team_id: "A" }));
+    roomTeamB.addEventListener("click", () => sendRoomLobbyCommand("SELECT_TEAM", { team_id: "B" }));
+    roomReady.addEventListener("click", () => {
+      const shouldReady = roomReady.textContent !== "준비 취소";
+      sendRoomLobbyCommand("SET_READY", { ready: shouldReady });
+    });
+    roomStart.addEventListener("click", () => sendRoomLobbyCommand("START_GAME"));
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
@@ -613,6 +654,7 @@
         pendingChatCommands.clear();
         pendingSynchronizationCommands.clear();
         pendingRouteCommands.clear();
+        pendingLobbyCommands.clear();
         confirmedRouteRequest = null;
         clearEventCue();
         if (wasmRuntimeReady) {
@@ -640,6 +682,7 @@
       pendingChatCommands.clear();
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
+      pendingLobbyCommands.clear();
       confirmedRouteRequest = null;
       if (wasmRuntimeReady) {
         Module.ccall("BukClientSetRouteInteractionEnabled", "number", ["number"], [0]);
@@ -684,6 +727,27 @@
       }
       realtimeSocket.send(JSON.stringify(command));
       return true;
+    }
+
+    function sendRoomLobbyCommand(type, payload = {}) {
+      if (!roomListAuthenticated || !activeRoomId || realtimeSocket?.readyState !== WebSocket.OPEN) {
+        roomLobbyStatus.textContent = "실시간 방 연결이 필요합니다.";
+        return false;
+      }
+      const commandID = crypto.randomUUID();
+      pendingLobbyCommands.set(commandID, activeRoomId);
+      realtimeSocket.send(JSON.stringify({
+        version: 1, direction: "client_command", type, command_id: commandID,
+        room_id: activeRoomId, payload,
+      }));
+      roomLobbyStatus.textContent = "방 로비 요청 처리 중…";
+      return true;
+    }
+
+    function refreshActiveRoomDetail() {
+      if (!activeRoomId || !roomListAuthenticated) return false;
+      const generation = ++roomDetailRequestGeneration;
+      return loadRoomDetail(activeRoomId, generation);
     }
 
     function requestStateSynchronization(full) {
@@ -1308,6 +1372,33 @@
         } else {
           realtimeStatus.textContent = "실시간 서버 상태 동기화 실패";
         }
+        return;
+      }
+      if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
+          && pendingLobbyCommands.has(message.command_id)) {
+        const expectedRoomID = pendingLobbyCommands.get(message.command_id);
+        pendingLobbyCommands.delete(message.command_id);
+        if (message.room_id !== expectedRoomID || message.room_id !== activeRoomId) return;
+        if (message.payload?.status === "accepted") {
+          roomLobbyStatus.textContent = "방 로비 요청이 반영되었습니다.";
+          refreshActiveRoomDetail();
+        } else {
+          roomLobbyStatus.textContent = message.payload?.error?.message ?? "방 로비 요청이 거부되었습니다.";
+        }
+        return;
+      }
+      if (message.direction === "server_event" && message.room_id === activeRoomId
+          && message.type === "ROOM_UPDATED" && Number.isSafeInteger(message.sequence)
+          && message.sequence >= 1 && ["lobby", "starting", "in_match", "post_match", "closed"].includes(message.payload?.status)) {
+        roomLobbyStatus.textContent = "방 상태가 변경되어 동기화 중…";
+        refreshActiveRoomDetail();
+        return;
+      }
+      if (message.direction === "server_event" && message.room_id === activeRoomId
+          && message.type === "GAME_STARTING" && typeof message.match_id === "string"
+          && message.match_id.length > 0 && typeof message.payload?.confirmation_deadline_at === "string") {
+        roomLobbyStatus.textContent = "게임 시작 확인이 진행 중입니다.";
+        refreshActiveRoomDetail();
         return;
       }
       if (message.direction === "server_event" && message.type === "MOVE_REQUIRED"
