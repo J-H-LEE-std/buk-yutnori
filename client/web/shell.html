@@ -144,10 +144,11 @@
     #room-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
     #room-list li { padding: 12px; border-radius: 8px; background: rgb(0 0 0 / 22%); }
     .room-row { display: flex; justify-content: space-between; gap: 12px; }
-    .room-meta { color: #d6c4b7; font-size: .9rem; }
+    .room-meta { color: #d6c4b7; font-size: .9rem; overflow-wrap: anywhere; }
     .room-actions, .room-create { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .room-create input, .room-create select { width: auto; min-width: 120px; padding: 8px 10px; }
     .room-detail { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid #6f5b4e; }
+    #room-detail-title, #room-members { overflow-wrap: anywhere; }
     .room-detail[hidden] { display: none; }
     .room-lobby-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
@@ -159,7 +160,8 @@
       .room-create { display: grid; grid-template-columns: 1fr; }
       .room-create input, .room-create select, .room-create button { width: 100%; min-width: 0; }
       .room-actions, .room-lobby-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .room-actions button, .room-lobby-actions button { min-height: 44px; }
+      button, input, select { min-height: 44px; }
+      .room-actions button, .room-lobby-actions button { min-width: 0; }
       #chat-form { grid-template-columns: 1fr; }
       #chat-form button { min-height: 44px; }
     }

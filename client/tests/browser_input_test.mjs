@@ -368,19 +368,45 @@ try {
     width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
   });
   const mobileLayout = await evaluate(`(() => {
+    roomListAuthenticated = true;
+    renderRoomList([{
+      room_id: "room-with-an-intentionally-very-long-identifier-for-mobile",
+      title: "아주 긴 방 제목이 좁은 모바일 화면에서도 안전하게 줄바꿈되어야 합니다",
+      has_password: false, player_count: 4, max_players: 8,
+    }]);
+    activeRoomId = "room-with-an-intentionally-very-long-identifier-for-mobile";
+    authenticatedUserId = "mobile-user";
+    renderRoomDetail({
+      summary: { room_id: activeRoomId, title: "모바일 상세 화면의 긴 방 제목", has_password: false,
+        player_count: 4, max_players: 8 },
+      members: [{ user_id: "mobile-user-with-a-long-id", role: "player", team: "A", ready: false }],
+    });
     const roomCreate = document.getElementById("room-create-form");
     const chatForm = document.getElementById("chat-form");
+    const canvas = document.getElementById("canvas");
     return {
       viewportWidth: window.innerWidth,
       documentWidth: document.documentElement.scrollWidth,
       roomCreateColumns: getComputedStyle(roomCreate).gridTemplateColumns,
       chatColumns: getComputedStyle(chatForm).gridTemplateColumns,
+      canvasAspectRatio: canvas.clientWidth / canvas.clientHeight,
+      touchTarget: getComputedStyle(document.getElementById("room-team-a")).minHeight,
     };
   })()`);
   if (mobileLayout.viewportWidth !== 390 || mobileLayout.documentWidth > mobileLayout.viewportWidth
-      || mobileLayout.roomCreateColumns === "none" || mobileLayout.chatColumns === "none") {
+      || mobileLayout.roomCreateColumns === "none" || mobileLayout.chatColumns === "none"
+      || Math.abs(mobileLayout.canvasAspectRatio - (16 / 9)) > 0.01
+      || mobileLayout.touchTarget !== "44px") {
     throw new Error(`mobile shell layout overflowed or did not reflow: ${JSON.stringify(mobileLayout)}`);
   }
+  await evaluate(`(() => {
+    activeRoomId = null;
+    authenticatedUserId = null;
+    roomListAuthenticated = false;
+    roomDetail.hidden = true;
+    roomMembers.replaceChildren();
+    setRoomLobbyControls(false);
+  })()`);
   await command("Emulation.clearDeviceMetricsOverride");
 
   const safeRoomList = await evaluate(`(() => {
