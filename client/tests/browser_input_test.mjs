@@ -364,6 +364,82 @@ try {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
   }
 
+  const spectatorEntry = await evaluate(`(() => {
+    const sent = [];
+    const socket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
+    authenticatedUserId = "spectator-1";
+    activeRoomId = "room-live";
+    activeRoomRole = "spectator";
+    activeStartScope = { roomId: "room-live", matchId: "match-live" };
+    realtimeSocket = socket;
+    handleRealtimeMessage(socket, { data: JSON.stringify({
+      version: 2, direction: "server_event", type: "GAME_STARTED", sequence: 7,
+      room_id: "room-live", match_id: "match-live",
+      payload: { first_player_id: "user-a", buk_destination_space_id: null },
+    }) });
+    const invalidEventIgnored = stateReconnectScope === null && sent.length === 0;
+    handleRealtimeMessage(socket, { data: JSON.stringify({
+      version: 1, direction: "server_event", type: "GAME_STARTED", sequence: 7,
+      room_id: "room-live", match_id: "match-live",
+      payload: { first_player_id: "user-a", buk_destination_space_id: null },
+    }) });
+    const snapshot = makeTestGameSnapshot("room-live", "match-live", 7);
+    snapshot.participants.push({
+      user_id: "spectator-1", nickname: "구경꾼", role: "spectator", team_id: null,
+      permissions: ["chat"], connected: true, cpu_control: { active: false, reason: null },
+    });
+    renderMatchSession(snapshot);
+    const result = {
+      scope: stateReconnectScope,
+      reconnect: sent[0],
+      title: document.getElementById("game-session-title").textContent,
+      status: document.getElementById("game-session-status").textContent,
+      confirmBlocked: document.getElementById("room-confirm-start").disabled,
+      commandBlocked: sendStartConfirmation() === false,
+      invalidEventIgnored,
+    };
+    realtimeSocket = null;
+    clearStateReconnectScope();
+    return result;
+  })()`);
+  if (spectatorEntry.scope?.roomId !== "room-live" || spectatorEntry.scope?.matchId !== "match-live"
+      || spectatorEntry.reconnect?.type !== "RECONNECT" || spectatorEntry.reconnect?.room_id !== "room-live"
+      || spectatorEntry.reconnect?.match_id !== "match-live" || spectatorEntry.title !== "관전 중"
+      || !spectatorEntry.status.includes("조작은 할 수 없습니다")
+      || !spectatorEntry.confirmBlocked || !spectatorEntry.commandBlocked || !spectatorEntry.invalidEventIgnored) {
+    throw new Error(`spectator live-match entry was not authoritative/locked: ${JSON.stringify(spectatorEntry)}`);
+  }
+
+  const startConfirmation = await evaluate(`(() => {
+    const sent = [];
+    const socket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
+    authenticatedUserId = "player-1";
+    activeRoomId = "room-starting";
+    activeRoomRole = "player";
+    activeStartScope = { roomId: "room-starting", matchId: "match-starting" };
+    realtimeSocket = socket;
+    const button = document.getElementById("room-confirm-start");
+    button.disabled = false;
+    button.click();
+    handleRealtimeMessage(socket, { data: JSON.stringify({
+      version: 1, direction: "server_event", type: "ROOM_UPDATED", sequence: 8,
+      room_id: "room-starting", payload: { status: "lobby" },
+    }) });
+    const result = {
+      command: sent[0],
+      scopeCleared: activeStartScope === null,
+      buttonDisabled: button.disabled,
+    };
+    realtimeSocket = null;
+    return result;
+  })()`);
+  if (startConfirmation.command?.type !== "CONFIRM_GAME_START"
+      || startConfirmation.command?.room_id !== "room-starting"
+      || startConfirmation.command?.match_id !== "match-starting"
+      || !startConfirmation.scopeCleared || !startConfirmation.buttonDisabled) {
+    throw new Error(`start confirmation UI flow was not bounded: ${JSON.stringify(startConfirmation)}`);
+  }
+
   await command("Emulation.setDeviceMetricsOverride", {
     width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
   });

@@ -8,6 +8,13 @@
 
 ## 프로토콜 세부 정책 미결정
 
+- Milestone 5 관전 진입의 active match scope 전달 경로. `GAME_STARTING`은 시작
+  확인 창에서만 `match_id`를 전달하며, 이미 `in_match` 상태인 방에 새 관전자로
+  입장한 클라이언트가 `RECONNECT`에 필요한 현재 `match_id`를 얻을 HTTP 또는
+  WebSocket 계약이 없다. 클라이언트가 room 상태나 임의 ID로 추론해서는 안 된다.
+  `GET /api/v1/rooms/{room_id}` 확장, 별도 member-only match scope 조회, 또는
+  재구독 이벤트 중 하나를 명세·schema·서버 테스트와 함께 결정해야 한다.
+
 - `ERROR` 이벤트의 표준 오류 코드 목록
 - WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
 - 대기실·시작 확인 구독자 알림 계약은 ADR-0015로 확정되었다. GAME_STARTING 방송으로
