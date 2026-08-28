@@ -6,6 +6,13 @@
 #define BUK_CLIENT_ASSET_PATH_MAX 128
 #define BUK_CLIENT_ASSET_COUNT 46
 
+enum {
+    BUK_CLIENT_ASSET_BOARD_MAIN = 0,
+    BUK_CLIENT_ASSET_PIECE_A_ON_BOARD = 4,
+    BUK_CLIENT_ASSET_PIECE_B_ON_BOARD = 8,
+    BUK_CLIENT_ASSET_YUT_RESULT_DO = 13,
+};
+
 typedef int (*BukClientAssetExistsFn)(const char *path, void *userdata);
 
 typedef struct {

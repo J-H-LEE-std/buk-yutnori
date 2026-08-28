@@ -82,6 +82,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m unittest tools/check_assets_test.py
+      - run: python tools/check_assets.py --root client/assets
 
   go:
     name: go / quality

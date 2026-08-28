@@ -5,6 +5,7 @@
 
 #include "raylib.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #if defined(PLATFORM_WEB)
@@ -24,6 +25,22 @@ static int rendered_stack_badge_count;
 static int rendered_route_option_count;
 static int highlighted_route_edge_count;
 static BukClientAssetRuntime asset_runtime;
+static Texture2D board_texture;
+static Texture2D piece_texture_a;
+static Texture2D piece_texture_b;
+static Texture2D result_textures[BUK_CLIENT_RESULT_COUNT];
+
+static Texture2D LoadAssetTexture(size_t index)
+{
+    const char *relative = BukClientAssetRuntimePath(index);
+    char path[BUK_CLIENT_ASSET_PATH_MAX];
+
+    if (relative == NULL || !BukClientAssetRuntimeAvailable(&asset_runtime, index)) {
+        return (Texture2D){ 0 };
+    }
+    (void)snprintf(path, sizeof(path), "assets/%s", relative);
+    return LoadTexture(path);
+}
 
 static int AssetFileExists(const char *path, void *userdata)
 {
@@ -71,7 +88,15 @@ static void DrawCanonicalBoard(const BukClientGameLayout *layout)
 
     rendered_board_node_count = 0;
     rendered_board_edge_count = 0;
-    DrawRectangleRounded(RaylibRectangle(layout->board), 0.04F, 12, board_background);
+    if (board_texture.id != 0U) {
+        DrawTexturePro(board_texture,
+                       (Rectangle){ 0.0F, 0.0F, (float)board_texture.width,
+                                   (float)board_texture.height },
+                       RaylibRectangle(layout->board), (Vector2){ 0.0F, 0.0F }, 0.0F,
+                       WHITE);
+    } else {
+        DrawRectangleRounded(RaylibRectangle(layout->board), 0.04F, 12, board_background);
+    }
     edges = BukClientBoardEdges(&edge_count);
     for (edge_index = 0U; edge_index < edge_count; edge_index++) {
         BukClientPoint from;
@@ -210,13 +235,22 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
         point.x += offset_x[offset_index] * ring * layout->scale;
         point.y += offset_y[offset_index] * ring * layout->scale;
         fill = piece.team == BUK_CLIENT_TEAM_A ? team_a : team_b;
-        DrawCircleV((Vector2){ point.x, point.y }, radius + (2.0F * layout->scale),
-                    outline);
-        DrawCircleV((Vector2){ point.x, point.y }, radius, fill);
-        if (label_size < 7) label_size = 7;
-        DrawText(TextFormat("%i", (int)piece_index + 1),
-                 (int)(point.x - (4.0F * layout->scale)),
-                 (int)(point.y - (6.0F * layout->scale)), label_size, label);
+        Texture2D texture = piece.team == BUK_CLIENT_TEAM_A ? piece_texture_a : piece_texture_b;
+        if (texture.id != 0U) {
+            float diameter = radius * 2.0F;
+            DrawTexturePro(texture,
+                           (Rectangle){ 0.0F, 0.0F, (float)texture.width,
+                                       (float)texture.height },
+                           (Rectangle){ point.x - radius, point.y - radius, diameter, diameter },
+                           (Vector2){ 0.0F, 0.0F }, 0.0F, WHITE);
+        } else {
+            DrawCircleV((Vector2){ point.x, point.y }, radius + (2.0F * layout->scale), outline);
+            DrawCircleV((Vector2){ point.x, point.y }, radius, fill);
+            if (label_size < 7) label_size = 7;
+            DrawText(TextFormat("%i", (int)piece_index + 1),
+                     (int)(point.x - (4.0F * layout->scale)),
+                     (int)(point.y - (6.0F * layout->scale)), label_size, label);
+        }
         if (piece.stacked && piece.stack_size >= 2U &&
             previous_stack_at_node + 1U == piece.stack_size) {
             const float badge_radius = 9.0F * layout->scale;
@@ -309,11 +343,19 @@ static void DrawGameHud(const BukClientGameLayout *layout)
             BukClientRect token = LogicalRectangle(
                 layout, 776.0F + ((float)result_index * 66.0F), 386.0F, 56.0F, 52.0F);
 
-            DrawRectangleRounded(RaylibRectangle(token), 0.14F, 6,
-                                 (Color){ 255, 250, 240, 255 });
-            DrawText(BukClientResultName(snapshot->results[result_index]),
-                     (int)(token.x + (7.0F * layout->scale)),
-                     (int)(token.y + (17.0F * layout->scale)), body_size, ink);
+            Texture2D result_texture = result_textures[snapshot->results[result_index]];
+            if (result_texture.id != 0U) {
+                DrawTexturePro(result_texture,
+                               (Rectangle){ 0.0F, 0.0F, (float)result_texture.width,
+                                           (float)result_texture.height },
+                               RaylibRectangle(token), (Vector2){ 0.0F, 0.0F }, 0.0F, WHITE);
+            } else {
+                DrawRectangleRounded(RaylibRectangle(token), 0.14F, 6,
+                                     (Color){ 255, 250, 240, 255 });
+                DrawText(BukClientResultName(snapshot->results[result_index]),
+                         (int)(token.x + (7.0F * layout->scale)),
+                         (int)(token.y + (17.0F * layout->scale)), body_size, ink);
+            }
         }
         if (snapshot->result_count > visible) {
             DrawText(TextFormat("+%i", (int)(snapshot->result_count - visible)),
@@ -517,6 +559,13 @@ int main(void)
 #endif
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Buk Yutnori board prototype");
     BukClientAssetRuntimeInit(&asset_runtime, "assets", AssetFileExists, NULL);
+    board_texture = LoadAssetTexture(BUK_CLIENT_ASSET_BOARD_MAIN);
+    piece_texture_a = LoadAssetTexture(BUK_CLIENT_ASSET_PIECE_A_ON_BOARD);
+    piece_texture_b = LoadAssetTexture(BUK_CLIENT_ASSET_PIECE_B_ON_BOARD);
+    for (size_t result_index = 0U; result_index < BUK_CLIENT_RESULT_COUNT; result_index++) {
+        result_textures[result_index] = LoadAssetTexture(
+            BUK_CLIENT_ASSET_YUT_RESULT_DO + result_index);
+    }
 
 #if defined(PLATFORM_WEB)
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
@@ -525,6 +574,12 @@ int main(void)
     while (!WindowShouldClose()) UpdateDrawFrame();
 #endif
 
+    if (board_texture.id != 0U) UnloadTexture(board_texture);
+    if (piece_texture_a.id != 0U) UnloadTexture(piece_texture_a);
+    if (piece_texture_b.id != 0U) UnloadTexture(piece_texture_b);
+    for (size_t result_index = 0U; result_index < BUK_CLIENT_RESULT_COUNT; result_index++) {
+        if (result_textures[result_index].id != 0U) UnloadTexture(result_textures[result_index]);
+    }
     CloseWindow();
     return 0;
 }

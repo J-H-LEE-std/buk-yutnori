@@ -355,8 +355,8 @@ try {
       || Math.abs(initial.canvasAspectRatio - (16 / 9)) > 0.01
       || initial.renderedBoardNodeCount !== 29
       || initial.renderedBoardEdgeCount !== 32 || initial.renderedPieceCount !== 0
-      || initial.assetsInitialized !== 1 || initial.assetsLoadedCount !== 0
-      || initial.assetsFallbackCount !== 46) {
+      || initial.assetsInitialized !== 1 || initial.assetsLoadedCount !== 46
+      || initial.assetsFallbackCount !== 0) {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
   }
 
