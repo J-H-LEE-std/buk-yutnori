@@ -555,6 +555,7 @@
       sendRoomLobbyCommand("SET_READY", { ready: shouldReady });
     });
     roomStart.addEventListener("click", () => sendRoomLobbyCommand("START_GAME"));
+    roomConfirmStart.addEventListener("click", sendStartConfirmation);
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
@@ -1480,7 +1481,10 @@
       if (message.direction === "server_event" && message.room_id === activeRoomId
           && message.type === "ROOM_UPDATED" && Number.isSafeInteger(message.sequence)
           && message.sequence >= 1 && ["lobby", "starting", "in_match", "post_match", "closed"].includes(message.payload?.status)) {
-        if (message.payload.status === "post_match" || message.payload.status === "closed") {
+        // The server emits ROOM_UPDATED(in_match) before GAME_STARTED, so retain
+        // the start scope for that event. Every other terminal/failed start state
+        // must discard it rather than allowing a stale confirmation command.
+        if (["lobby", "post_match", "closed"].includes(message.payload.status)) {
           activeStartScope = null;
           clearStateReconnectScope();
         }
@@ -1497,8 +1501,14 @@
         refreshActiveRoomDetail();
         return;
       }
-      if (message.direction === "server_event" && message.room_id === activeRoomId
-          && message.type === "GAME_STARTED" && typeof message.match_id === "string"
+      if (message.version === 1 && message.direction === "server_event"
+          && message.room_id === activeRoomId && message.type === "GAME_STARTED"
+          && Number.isSafeInteger(message.sequence) && message.sequence >= 1
+          && typeof message.match_id === "string" && message.match_id.length > 0
+          && typeof message.payload?.first_player_id === "string" && message.payload.first_player_id.length > 0
+          && (message.payload.buk_destination_space_id === null
+              || (typeof message.payload.buk_destination_space_id === "string"
+                  && message.payload.buk_destination_space_id.length > 0))
           && activeStartScope?.roomId === message.room_id && activeStartScope.matchId === message.match_id) {
         activeStartScope = null;
         roomConfirmStart.disabled = true;
