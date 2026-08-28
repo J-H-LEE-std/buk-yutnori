@@ -354,6 +354,7 @@
           roomDetailTitle.textContent = "방 상세를 확인할 수 없습니다.";
           roomDetailStatus.textContent = "방 상세를 불러오지 못했습니다. 다시 시도하세요.";
           roomMembers.replaceChildren();
+          setRoomLobbyControls(false);
         }
         return false;
       }
@@ -362,6 +363,7 @@
     async function enterRoom(roomId, role) {
       if (!roomListAuthenticated) return false;
       roomListStatus.textContent = "방 입장을 처리하는 중…";
+      pendingLobbyCommands.clear();
       const generation = ++roomDetailRequestGeneration;
       const password = roomPassword.value;
       try {
@@ -481,6 +483,7 @@
       event.preventDefault();
       if (!roomListAuthenticated || roomTitle.value.trim().length === 0) return;
       roomCreate.disabled = true;
+      pendingLobbyCommands.clear();
       const generation = ++roomDetailRequestGeneration;
       try {
         const response = await fetch("/api/v1/rooms", {
@@ -1375,7 +1378,7 @@
           && pendingLobbyCommands.has(message.command_id)) {
         const expectedRoomID = pendingLobbyCommands.get(message.command_id);
         pendingLobbyCommands.delete(message.command_id);
-        if (message.room_id !== expectedRoomID) return;
+        if (message.room_id !== expectedRoomID || message.room_id !== activeRoomId) return;
         if (message.payload?.status === "accepted") {
           roomLobbyStatus.textContent = "방 로비 요청이 반영되었습니다.";
           refreshActiveRoomDetail();
