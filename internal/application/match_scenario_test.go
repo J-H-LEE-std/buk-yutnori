@@ -93,6 +93,19 @@ func TestSeededWholeMatchRunsToGameEndedAndReturnsToWaitingRoom(t *testing.T) {
 	if bytes.Contains(encodedDetail, []byte(`"active_start"`)) || bytes.Contains(encodedDetail, []byte(`"active_match"`)) {
 		t.Fatalf("post_match detail serialized active scope: %s", encodedDetail)
 	}
+	// Once GAME_ENDED has atomically released the started state, the existing
+	// lobby spectator policy applies again. This admission must not revive an
+	// active-match scope or grant the new member a stale RECONNECT target.
+	lateSpectator := auth.UserID("post-match-spectator")
+	if _, err := fixture.registry.Join(JoinRoomInput{
+		User: lateSpectator, RoomID: fixture.roomID, Role: RoleSpectator,
+	}); err != nil {
+		t.Fatalf("Join(post_match spectator) error = %v", err)
+	}
+	lateDetail, err := fixture.registry.Detail(lateSpectator, fixture.roomID)
+	if err != nil || lateDetail.ActiveStart != nil || lateDetail.ActiveMatch != nil {
+		t.Fatalf("post_match late spectator detail = %+v error = %v, want no active scope", lateDetail, err)
+	}
 	for _, user := range fixture.users {
 		if err := fixture.registry.SetReady(user, fixture.roomID, true); err != nil {
 			t.Fatalf("SetReady(%s) after match error = %v", user, err)
