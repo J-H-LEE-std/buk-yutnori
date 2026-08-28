@@ -364,6 +364,45 @@ try {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
   }
 
+  const spectatorEntry = await evaluate(`(() => {
+    const sent = [];
+    const socket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
+    authenticatedUserId = "spectator-1";
+    activeRoomId = "room-live";
+    activeRoomRole = "spectator";
+    activeStartScope = { roomId: "room-live", matchId: "match-live" };
+    realtimeSocket = socket;
+    handleRealtimeMessage(socket, { data: JSON.stringify({
+      version: 1, direction: "server_event", type: "GAME_STARTED", sequence: 7,
+      room_id: "room-live", match_id: "match-live",
+      payload: { first_player_id: "user-a", buk_destination_space_id: null },
+    }) });
+    const snapshot = makeTestGameSnapshot("room-live", "match-live", 7);
+    snapshot.participants.push({
+      user_id: "spectator-1", nickname: "구경꾼", role: "spectator", team_id: null,
+      permissions: ["chat"], connected: true, cpu_control: { active: false, reason: null },
+    });
+    renderMatchSession(snapshot);
+    const result = {
+      scope: stateReconnectScope,
+      reconnect: sent[0],
+      title: document.getElementById("game-session-title").textContent,
+      status: document.getElementById("game-session-status").textContent,
+      confirmBlocked: document.getElementById("room-confirm-start").disabled,
+      commandBlocked: sendStartConfirmation() === false,
+    };
+    realtimeSocket = null;
+    clearStateReconnectScope();
+    return result;
+  })()`);
+  if (spectatorEntry.scope?.roomId !== "room-live" || spectatorEntry.scope?.matchId !== "match-live"
+      || spectatorEntry.reconnect?.type !== "RECONNECT" || spectatorEntry.reconnect?.room_id !== "room-live"
+      || spectatorEntry.reconnect?.match_id !== "match-live" || spectatorEntry.title !== "관전 중"
+      || !spectatorEntry.status.includes("조작은 할 수 없습니다")
+      || !spectatorEntry.confirmBlocked || !spectatorEntry.commandBlocked) {
+    throw new Error(`spectator live-match entry was not authoritative/locked: ${JSON.stringify(spectatorEntry)}`);
+  }
+
   await command("Emulation.setDeviceMetricsOverride", {
     width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
   });

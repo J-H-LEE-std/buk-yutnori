@@ -154,6 +154,8 @@
     #room-members { max-height: 12rem; overflow-y: auto; }
     .room-detail[hidden] { display: none; }
     .room-lobby-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .game-session { display: grid; gap: 6px; margin: 18px 0; padding: 14px 16px; border: 1px solid #6f5b4e; border-radius: 12px; background: rgb(255 250 240 / 8%); }
+    .game-session[hidden] { display: none; }
 
     @media (max-width: 720px) {
       body { padding: 12px; place-items: start center; }
@@ -206,10 +208,15 @@
           <button id="room-team-b" type="button" disabled>B팀 선택</button>
           <button id="room-ready" type="button" disabled>준비</button>
           <button id="room-start" type="button" disabled>게임 시작</button>
+          <button id="room-confirm-start" type="button" disabled>시작 확인</button>
         </div>
         <span id="room-lobby-status" role="status"></span>
         <ul id="room-members" aria-label="방 멤버"></ul>
       </div>
+    </section>
+    <section id="game-session" class="game-session" hidden aria-live="polite" aria-label="게임 화면 상태">
+      <strong id="game-session-title">게임 화면</strong>
+      <span id="game-session-status" class="room-meta"></span>
     </section>
     <canvas id="canvas" width="1280" height="720" tabindex="-1"
             oncontextmenu="event.preventDefault()"></canvas>
@@ -261,7 +268,11 @@
     const roomTeamB = document.getElementById("room-team-b");
     const roomReady = document.getElementById("room-ready");
     const roomStart = document.getElementById("room-start");
+    const roomConfirmStart = document.getElementById("room-confirm-start");
     const roomLobbyStatus = document.getElementById("room-lobby-status");
+    const gameSession = document.getElementById("game-session");
+    const gameSessionTitle = document.getElementById("game-session-title");
+    const gameSessionStatus = document.getElementById("game-session-status");
     const roomMembers = document.getElementById("room-members");
     const PROTOTYPE_ROOM_ID = "prototype-room";
     const MAX_CHAT_CODE_POINTS = 200;
@@ -299,6 +310,7 @@
     const pendingSynchronizationCommands = new Map();
     const pendingRouteCommands = new Map();
     const pendingLobbyCommands = new Map();
+    const pendingStartConfirmationCommands = new Map();
     let confirmedSnapshotPieceIds = [];
     let confirmedRouteRequest = null;
     let routeIntentTimer = null;
@@ -308,6 +320,9 @@
     let roomListRequestGeneration = 0;
     let roomDetailRequestGeneration = 0;
     let activeRoomId = null;
+    let activeRoomRole = null;
+    let activeStartScope = null;
+    let activeViewerRole = null;
 
     function setRoomEntryEnabled(enabled) {
       for (const element of [roomTitle, roomPassword, roomTeam, roomCreate]) element.disabled = !enabled;
@@ -320,6 +335,7 @@
       roomTeamB.disabled = !player;
       roomReady.disabled = !player;
       roomStart.disabled = !enabled;
+      roomConfirmStart.disabled = !player || activeStartScope?.roomId !== activeRoomId;
       if (!player) roomReady.textContent = "준비";
     }
 
@@ -344,6 +360,7 @@
       roomDetailTitle.textContent = detail.summary.title;
       roomDetailStatus.textContent = `${detail.summary.player_count}/${detail.summary.max_players}명${detail.active_start ? " · 시작 확인 중" : " · 대기 중"}`;
       const self = detail.members.find((member) => member.user_id === authenticatedUserId);
+      activeRoomRole = self?.role ?? null;
       setRoomLobbyControls(roomListAuthenticated && activeRoomId === detail.summary.room_id, self);
       if (self?.role === "player") {
         roomReady.textContent = self.ready ? "준비 취소" : "준비";
@@ -489,6 +506,9 @@
       roomListStatus.textContent = "로그인 후 방 목록을 확인할 수 있습니다.";
       roomDetailRequestGeneration++;
       activeRoomId = null;
+      activeRoomRole = null;
+      activeStartScope = null;
+      pendingStartConfirmationCommands.clear();
       roomDetail.hidden = true;
       roomMembers.replaceChildren();
       roomLobbyStatus.textContent = "";
@@ -673,6 +693,7 @@
         pendingSynchronizationCommands.clear();
         pendingRouteCommands.clear();
         pendingLobbyCommands.clear();
+        pendingStartConfirmationCommands.clear();
         confirmedRouteRequest = null;
         clearEventCue();
         if (wasmRuntimeReady) {
@@ -701,6 +722,7 @@
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
       pendingLobbyCommands.clear();
+      pendingStartConfirmationCommands.clear();
       confirmedRouteRequest = null;
       if (wasmRuntimeReady) {
         Module.ccall("BukClientSetRouteInteractionEnabled", "number", ["number"], [0]);
@@ -729,6 +751,7 @@
       pendingRouteCommands.clear();
       confirmedRouteRequest = null;
       fullResynchronizationAttempted = false;
+      clearMatchSession();
       if (wasmRuntimeReady) {
         Module.ccall("BukClientSetRouteInteractionEnabled", "number", ["number"], [0]);
       }
@@ -759,6 +782,40 @@
         room_id: activeRoomId, payload,
       }));
       roomLobbyStatus.textContent = "방 로비 요청 처리 중…";
+      return true;
+    }
+
+    function sendStartConfirmation() {
+      const scope = activeStartScope;
+      if (!scope || scope.roomId !== activeRoomId || activeRoomRole !== "player" || roomConfirmStart.disabled
+          || realtimeSocket?.readyState !== WebSocket.OPEN) return false;
+      const commandID = crypto.randomUUID();
+      pendingStartConfirmationCommands.set(commandID, scope);
+      roomConfirmStart.disabled = true;
+      roomLobbyStatus.textContent = "게임 시작 확인을 서버에 전송하는 중…";
+      realtimeSocket.send(JSON.stringify({
+        version: 1, direction: "client_command", type: "CONFIRM_GAME_START",
+        command_id: commandID, room_id: scope.roomId, match_id: scope.matchId, payload: {},
+      }));
+      return true;
+    }
+
+    function clearMatchSession() {
+      activeViewerRole = null;
+      gameSession.hidden = true;
+      gameSessionTitle.textContent = "게임 화면";
+      gameSessionStatus.textContent = "";
+    }
+
+    function renderMatchSession(snapshot) {
+      const viewer = snapshot.participants.find((participant) => participant.user_id === authenticatedUserId);
+      if (!viewer) return false;
+      activeViewerRole = viewer.role;
+      gameSession.hidden = false;
+      gameSessionTitle.textContent = viewer.role === "spectator" ? "관전 중" : "게임 진행 중";
+      gameSessionStatus.textContent = viewer.role === "spectator"
+        ? "서버 권위 경기 상태를 관전 중입니다. 게임 조작은 할 수 없습니다."
+        : "서버 권위 경기 상태와 동기화되었습니다.";
       return true;
     }
 
@@ -1284,6 +1341,7 @@
       confirmedSnapshotPieceIds = pendingPresentation.pieceIds;
       confirmedRouteRequest = pendingPresentation.routeRequest;
       lastGameEventSequence = sequences.snapshot.sequence;
+      renderMatchSession(sequences.snapshot);
       clearEventCue();
       if (wasmRuntimeReady) Module.ccall("BukClientClearEventCue", "number", [], []);
       refreshRouteInteraction();
@@ -1405,9 +1463,27 @@
         }
         return;
       }
+      if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
+          && pendingStartConfirmationCommands.has(message.command_id)) {
+        const expectedScope = pendingStartConfirmationCommands.get(message.command_id);
+        pendingStartConfirmationCommands.delete(message.command_id);
+        if (message.room_id !== expectedScope.roomId || message.match_id !== expectedScope.matchId
+            || message.room_id !== activeRoomId || activeStartScope?.matchId !== expectedScope.matchId) return;
+        if (message.payload?.status === "accepted") {
+          roomLobbyStatus.textContent = "시작 확인이 서버에 반영되었습니다.";
+        } else {
+          roomLobbyStatus.textContent = message.payload?.error?.message ?? "시작 확인이 거부되었습니다.";
+          roomConfirmStart.disabled = activeRoomRole !== "player";
+        }
+        return;
+      }
       if (message.direction === "server_event" && message.room_id === activeRoomId
           && message.type === "ROOM_UPDATED" && Number.isSafeInteger(message.sequence)
           && message.sequence >= 1 && ["lobby", "starting", "in_match", "post_match", "closed"].includes(message.payload?.status)) {
+        if (message.payload.status === "post_match" || message.payload.status === "closed") {
+          activeStartScope = null;
+          clearStateReconnectScope();
+        }
         roomLobbyStatus.textContent = "방 상태가 변경되어 동기화 중…";
         refreshActiveRoomDetail();
         return;
@@ -1415,8 +1491,21 @@
       if (message.direction === "server_event" && message.room_id === activeRoomId
           && message.type === "GAME_STARTING" && typeof message.match_id === "string"
           && message.match_id.length > 0 && typeof message.payload?.confirmation_deadline_at === "string") {
+        activeStartScope = { roomId: message.room_id, matchId: message.match_id };
+        roomConfirmStart.disabled = activeRoomRole !== "player";
         roomLobbyStatus.textContent = "게임 시작 확인이 진행 중입니다.";
         refreshActiveRoomDetail();
+        return;
+      }
+      if (message.direction === "server_event" && message.room_id === activeRoomId
+          && message.type === "GAME_STARTED" && typeof message.match_id === "string"
+          && activeStartScope?.roomId === message.room_id && activeStartScope.matchId === message.match_id) {
+        activeStartScope = null;
+        roomConfirmStart.disabled = true;
+        gameSession.hidden = false;
+        gameSessionTitle.textContent = "게임 화면";
+        gameSessionStatus.textContent = "서버 권위 경기 상태를 동기화하는 중…";
+        setStateReconnectScope(message.room_id, message.match_id);
         return;
       }
       if (message.direction === "server_event" && message.type === "MOVE_REQUIRED"
