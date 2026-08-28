@@ -260,8 +260,9 @@ func TestReconnectRejectionsForRealRooms(t *testing.T) {
 	t.Parallel()
 
 	fixture := newMatchFixture(t, nil, func(f *matchFixture) {
-		// Spectators are members; they must join before the match starts
-		// because started rooms block membership changes.
+		// This covers a spectator who was already in the room before the
+		// match; TestLateSpectatorAdmissionSynchronizesActiveMatch covers
+		// the equally valid in-match admission path.
 		if _, err := f.registry.Join(JoinRoomInput{
 			User: auth.UserID(reconnectSpectatorID), RoomID: f.roomID, Role: RoleSpectator,
 		}); err != nil {
