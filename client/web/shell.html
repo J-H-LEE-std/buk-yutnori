@@ -150,6 +150,19 @@
     .room-detail { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid #6f5b4e; }
     .room-detail[hidden] { display: none; }
     .room-lobby-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    @media (max-width: 720px) {
+      body { padding: 12px; place-items: start center; }
+      .auth, .lobby-header { align-items: stretch; flex-direction: column; gap: 10px; }
+      .auth-actions, .auth-actions button, .lobby-header button { width: 100%; }
+      .room-row { align-items: flex-start; flex-direction: column; gap: 4px; }
+      .room-create { display: grid; grid-template-columns: 1fr; }
+      .room-create input, .room-create select, .room-create button { width: 100%; min-width: 0; }
+      .room-actions, .room-lobby-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .room-actions button, .room-lobby-actions button { min-height: 44px; }
+      #chat-form { grid-template-columns: 1fr; }
+      #chat-form button { min-height: 44px; }
+    }
   </style>
 </head>
 <body>
