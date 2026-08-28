@@ -28,7 +28,7 @@ static BukClientAssetRuntime asset_runtime;
 static Texture2D board_texture;
 static Texture2D piece_texture_a;
 static Texture2D piece_texture_b;
-static Texture2D result_texture;
+static Texture2D result_textures[BUK_CLIENT_RESULT_COUNT];
 
 static Texture2D LoadAssetTexture(size_t index)
 {
@@ -343,6 +343,7 @@ static void DrawGameHud(const BukClientGameLayout *layout)
             BukClientRect token = LogicalRectangle(
                 layout, 776.0F + ((float)result_index * 66.0F), 386.0F, 56.0F, 52.0F);
 
+            Texture2D result_texture = result_textures[snapshot->results[result_index]];
             if (result_texture.id != 0U) {
                 DrawTexturePro(result_texture,
                                (Rectangle){ 0.0F, 0.0F, (float)result_texture.width,
@@ -561,7 +562,10 @@ int main(void)
     board_texture = LoadAssetTexture(BUK_CLIENT_ASSET_BOARD_MAIN);
     piece_texture_a = LoadAssetTexture(BUK_CLIENT_ASSET_PIECE_A_ON_BOARD);
     piece_texture_b = LoadAssetTexture(BUK_CLIENT_ASSET_PIECE_B_ON_BOARD);
-    result_texture = LoadAssetTexture(BUK_CLIENT_ASSET_YUT_RESULT_DO);
+    for (size_t result_index = 0U; result_index < BUK_CLIENT_RESULT_COUNT; result_index++) {
+        result_textures[result_index] = LoadAssetTexture(
+            BUK_CLIENT_ASSET_YUT_RESULT_DO + result_index);
+    }
 
 #if defined(PLATFORM_WEB)
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
@@ -573,7 +577,9 @@ int main(void)
     if (board_texture.id != 0U) UnloadTexture(board_texture);
     if (piece_texture_a.id != 0U) UnloadTexture(piece_texture_a);
     if (piece_texture_b.id != 0U) UnloadTexture(piece_texture_b);
-    if (result_texture.id != 0U) UnloadTexture(result_texture);
+    for (size_t result_index = 0U; result_index < BUK_CLIENT_RESULT_COUNT; result_index++) {
+        if (result_textures[result_index].id != 0U) UnloadTexture(result_textures[result_index]);
+    }
     CloseWindow();
     return 0;
 }
