@@ -330,6 +330,8 @@ try {
       chatDisabled: document.getElementById("chat-input").disabled,
       chatSendDisabled: document.getElementById("chat-send").disabled,
       chatStatus: document.getElementById("chat-status").textContent,
+      roomListStatus: document.getElementById("room-list-status").textContent,
+      roomRefreshDisabled: document.getElementById("room-refresh").disabled,
       canvasWidth: canvas.width,
       canvasHeight: canvas.height,
       canvasAspectRatio: canvas.clientWidth / canvas.clientHeight,
@@ -351,6 +353,8 @@ try {
       || initial.realtimeStatus !== "로그인 후 실시간 연결"
       || !initial.chatDisabled || !initial.chatSendDisabled
       || initial.chatStatus !== "로그인 후 채팅할 수 있습니다."
+      || initial.roomListStatus !== "로그인 후 방 목록을 확인할 수 있습니다."
+      || !initial.roomRefreshDisabled
       || initial.canvasWidth !== 1280 || initial.canvasHeight !== 720
       || Math.abs(initial.canvasAspectRatio - (16 / 9)) > 0.01
       || initial.renderedBoardNodeCount !== 29
@@ -358,6 +362,24 @@ try {
       || initial.assetsInitialized !== 1 || initial.assetsLoadedCount !== 46
       || initial.assetsFallbackCount !== 0) {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
+  }
+
+  const safeRoomList = await evaluate(`(() => {
+    roomListAuthenticated = true;
+    renderRoomList([{
+      room_id: "r-1", title: "<script>bad</script>", has_password: true,
+      player_count: 2, max_players: 4,
+    }]);
+    const list = document.getElementById("room-list");
+    return {
+      text: list.textContent,
+      scriptCount: list.querySelectorAll("script").length,
+      status: document.getElementById("room-list-status").textContent,
+    };
+  })()`);
+  if (safeRoomList.text !== "<script>bad</script>2/4명 · 비밀번호방 ID: r-1"
+      || safeRoomList.scriptCount !== 0 || safeRoomList.status !== "1개의 공개 방") {
+    throw new Error(`room list renderer was not safe/deterministic: ${JSON.stringify(safeRoomList)}`);
   }
 
   const safeChat = await evaluate(`(() => {

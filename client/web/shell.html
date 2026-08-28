@@ -128,6 +128,23 @@
     #status { color: #d6c4b7; }
     #realtime-status { display: block; color: #d6c4b7; }
     #chat-status { color: #d6c4b7; }
+
+    .lobby {
+      display: grid;
+      gap: 10px;
+      margin: 18px 0;
+      padding: 16px;
+      border: 1px solid #6f5b4e;
+      border-radius: 12px;
+      background: rgb(255 250 240 / 8%);
+    }
+
+    .lobby-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .lobby h2 { margin: 0; font-size: 1.05rem; }
+    #room-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+    #room-list li { padding: 12px; border-radius: 8px; background: rgb(0 0 0 / 22%); }
+    .room-row { display: flex; justify-content: space-between; gap: 12px; }
+    .room-meta { color: #d6c4b7; font-size: .9rem; }
   </style>
 </head>
 <body>
@@ -141,6 +158,14 @@
         <div id="google-signin"></div>
         <button id="logout" type="button" hidden>로그아웃</button>
       </div>
+    </section>
+    <section class="lobby" aria-labelledby="lobby-heading">
+      <div class="lobby-header">
+        <h2 id="lobby-heading">공개 방 목록</h2>
+        <button id="room-refresh" type="button" disabled>새로고침</button>
+      </div>
+      <span id="room-list-status" role="status">로그인 후 방 목록을 확인할 수 있습니다.</span>
+      <ul id="room-list" aria-live="polite" aria-label="공개 방 목록"></ul>
     </section>
     <canvas id="canvas" width="1280" height="720" tabindex="-1"
             oncontextmenu="event.preventDefault()"></canvas>
@@ -177,6 +202,9 @@
     const chatSend = document.getElementById("chat-send");
     const chatMessages = document.getElementById("chat-messages");
     const chatStatus = document.getElementById("chat-status");
+    const roomRefresh = document.getElementById("room-refresh");
+    const roomListStatus = document.getElementById("room-list-status");
+    const roomList = document.getElementById("room-list");
     const PROTOTYPE_ROOM_ID = "prototype-room";
     const MAX_CHAT_CODE_POINTS = 200;
     const MAX_RENDERED_CHAT_MESSAGES = 100;
@@ -217,6 +245,75 @@
     let routeIntentTimer = null;
     let eventCue = null;
     let lastGameEventSequence = 0;
+    let roomListAuthenticated = false;
+
+    function renderRoomList(rooms) {
+      roomList.replaceChildren();
+      if (!Array.isArray(rooms) || rooms.length === 0) {
+        roomListStatus.textContent = roomListAuthenticated ? "현재 공개 방이 없습니다." : "로그인 후 방 목록을 확인할 수 있습니다.";
+        return;
+      }
+      roomListStatus.textContent = `${rooms.length}개의 공개 방`;
+      for (const room of rooms) {
+        const item = document.createElement("li");
+        const row = document.createElement("div");
+        row.className = "room-row";
+        const title = document.createElement("strong");
+        title.textContent = room.title;
+        const count = document.createElement("span");
+        count.className = "room-meta";
+        count.textContent = `${room.player_count}/${room.max_players}명${room.has_password ? " · 비밀번호" : ""}`;
+        row.append(title, count);
+        const id = document.createElement("span");
+        id.className = "room-meta";
+        id.textContent = `방 ID: ${room.room_id}`;
+        item.append(row, id);
+        roomList.append(item);
+      }
+    }
+
+    function validateRoomSummary(room) {
+      return room !== null && typeof room === "object"
+        && typeof room.room_id === "string" && room.room_id.length > 0
+        && typeof room.title === "string" && room.title.length > 0
+        && typeof room.has_password === "boolean"
+        && Number.isInteger(room.player_count) && room.player_count >= 1
+        && [2, 4, 6, 8].includes(room.max_players);
+    }
+
+    async function refreshRoomList() {
+      if (!roomListAuthenticated) return false;
+      roomRefresh.disabled = true;
+      roomListStatus.textContent = "방 목록을 불러오는 중…";
+      try {
+        const response = await fetch("/api/v1/rooms", {
+          credentials: "same-origin", cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`room list request failed: ${response.status}`);
+        const payload = await response.json();
+        if (!payload || !Array.isArray(payload.rooms) || !payload.rooms.every(validateRoomSummary)) {
+          throw new Error("invalid room list payload");
+        }
+        renderRoomList(payload.rooms);
+        return true;
+      } catch (error) {
+        console.error(error);
+        roomList.replaceChildren();
+        roomListStatus.textContent = "방 목록을 불러오지 못했습니다. 다시 시도하세요.";
+        return false;
+      } finally {
+        roomRefresh.disabled = false;
+      }
+    }
+
+    function clearRoomList() {
+      roomListAuthenticated = false;
+      roomRefresh.disabled = true;
+      roomList.replaceChildren();
+      roomListStatus.textContent = "로그인 후 방 목록을 확인할 수 있습니다.";
+    }
+
+    roomRefresh.addEventListener("click", refreshRoomList);
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
@@ -316,6 +413,8 @@
       googleSignin.hidden = true;
       logout.hidden = false;
       authenticatedUserId = userId;
+      roomListAuthenticated = true;
+      refreshRoomList();
       refreshRouteInteraction();
       realtimeReconnectEnabled = true;
       realtimeReconnectAttempt = 0;
@@ -1166,6 +1265,7 @@
         disconnectRealtime();
         authenticatedUserId = null;
         clearStateReconnectScope();
+        clearRoomList();
         logout.hidden = true;
         googleSignin.hidden = false;
         googleSignin.replaceChildren();
