@@ -364,6 +364,25 @@ try {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
   }
 
+  await command("Emulation.setDeviceMetricsOverride", {
+    width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
+  });
+  const mobileLayout = await evaluate(`(() => {
+    const roomCreate = document.getElementById("room-create-form");
+    const chatForm = document.getElementById("chat-form");
+    return {
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      roomCreateColumns: getComputedStyle(roomCreate).gridTemplateColumns,
+      chatColumns: getComputedStyle(chatForm).gridTemplateColumns,
+    };
+  })()`);
+  if (mobileLayout.viewportWidth !== 390 || mobileLayout.documentWidth > mobileLayout.viewportWidth
+      || mobileLayout.roomCreateColumns === "none" || mobileLayout.chatColumns === "none") {
+    throw new Error(`mobile shell layout overflowed or did not reflow: ${JSON.stringify(mobileLayout)}`);
+  }
+  await command("Emulation.clearDeviceMetricsOverride");
+
   const safeRoomList = await evaluate(`(() => {
     roomListAuthenticated = true;
     renderRoomList([{
