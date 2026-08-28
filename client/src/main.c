@@ -88,7 +88,7 @@ static void DrawCanonicalBoard(const BukClientGameLayout *layout)
 
     rendered_board_node_count = 0;
     rendered_board_edge_count = 0;
-    if (IsTextureReady(board_texture)) {
+    if (board_texture.id != 0U) {
         DrawTexturePro(board_texture,
                        (Rectangle){ 0.0F, 0.0F, (float)board_texture.width,
                                    (float)board_texture.height },
@@ -236,7 +236,7 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
         point.y += offset_y[offset_index] * ring * layout->scale;
         fill = piece.team == BUK_CLIENT_TEAM_A ? team_a : team_b;
         Texture2D texture = piece.team == BUK_CLIENT_TEAM_A ? piece_texture_a : piece_texture_b;
-        if (IsTextureReady(texture)) {
+        if (texture.id != 0U) {
             float diameter = radius * 2.0F;
             DrawTexturePro(texture,
                            (Rectangle){ 0.0F, 0.0F, (float)texture.width,
@@ -343,7 +343,7 @@ static void DrawGameHud(const BukClientGameLayout *layout)
             BukClientRect token = LogicalRectangle(
                 layout, 776.0F + ((float)result_index * 66.0F), 386.0F, 56.0F, 52.0F);
 
-            if (IsTextureReady(result_texture)) {
+            if (result_texture.id != 0U) {
                 DrawTexturePro(result_texture,
                                (Rectangle){ 0.0F, 0.0F, (float)result_texture.width,
                                            (float)result_texture.height },
@@ -570,10 +570,10 @@ int main(void)
     while (!WindowShouldClose()) UpdateDrawFrame();
 #endif
 
-    if (IsTextureReady(board_texture)) UnloadTexture(board_texture);
-    if (IsTextureReady(piece_texture_a)) UnloadTexture(piece_texture_a);
-    if (IsTextureReady(piece_texture_b)) UnloadTexture(piece_texture_b);
-    if (IsTextureReady(result_texture)) UnloadTexture(result_texture);
+    if (board_texture.id != 0U) UnloadTexture(board_texture);
+    if (piece_texture_a.id != 0U) UnloadTexture(piece_texture_a);
+    if (piece_texture_b.id != 0U) UnloadTexture(piece_texture_b);
+    if (result_texture.id != 0U) UnloadTexture(result_texture);
     CloseWindow();
     return 0;
 }
