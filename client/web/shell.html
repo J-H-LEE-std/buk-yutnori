@@ -292,7 +292,10 @@
         && payload.members.every((member) => member && typeof member.user_id === "string"
           && member.user_id.length > 0 && ["player", "spectator"].includes(member.role)
           && (member.team === undefined || member.team === "A" || member.team === "B")
-          && typeof member.ready === "boolean");
+          && typeof member.ready === "boolean")
+        && (payload.active_start === undefined || (payload.active_start && typeof payload.active_start.match_id === "string"
+          && payload.active_start.match_id.length > 0 && typeof payload.active_start.confirmation_deadline_at === "string"
+          && payload.active_start.confirmation_deadline_at.length > 0));
     }
 
     function renderRoomDetail(detail) {
@@ -312,7 +315,8 @@
         const response = await fetch(`/api/v1/rooms/${encodeURIComponent(roomId)}`, { credentials: "same-origin", cache: "no-store" });
         if (!response.ok) throw new Error(`room detail request failed: ${response.status}`);
         const payload = await response.json();
-        if (generation !== roomDetailRequestGeneration || !roomListAuthenticated || !validateRoomDetail(payload)) return false;
+        if (generation !== roomDetailRequestGeneration || !roomListAuthenticated) return false;
+        if (!validateRoomDetail(payload)) throw new Error("invalid room detail payload");
         renderRoomDetail(payload);
         return true;
       } catch (error) {
@@ -340,6 +344,7 @@
         });
         if (!response.ok) throw new Error(`room join request failed: ${response.status}`);
         const joined = await response.json();
+        if (!roomListAuthenticated || generation !== roomDetailRequestGeneration) return false;
         if (!validateJoinedRoom(joined)) throw new Error("invalid joined room payload");
         activeRoomId = joined.room_id;
         if (!await loadRoomDetail(activeRoomId, generation)) return false;
@@ -455,6 +460,7 @@
         });
         if (!response.ok) throw new Error(`room create request failed: ${response.status}`);
         const summary = await response.json();
+        if (!roomListAuthenticated || generation !== roomDetailRequestGeneration) return;
         if (!validateRoomSummary(summary)) throw new Error("invalid created room payload");
         roomTitle.value = ""; roomPassword.value = "";
         activeRoomId = summary.room_id;
@@ -467,7 +473,7 @@
           roomListStatus.textContent = "방을 만들지 못했습니다. 제목과 설정을 확인하세요.";
         }
       } finally {
-        roomCreate.disabled = !roomListAuthenticated;
+        if (generation === roomDetailRequestGeneration) roomCreate.disabled = !roomListAuthenticated;
       }
     });
 
