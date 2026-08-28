@@ -495,6 +495,66 @@ try {
     throw new Error(`late spectator detail scope was not authoritative: ${JSON.stringify(lateSpectatorEntry)}`);
   }
 
+  // A newly admitted spectator must follow the normal HTTP join/detail flow
+  // before the server-authoritative active_match scope can initiate RECONNECT.
+  // Rendering a detail directly (the case above) is not sufficient to guard
+  // this boundary because enterRoom owns the membership response transition.
+  const lateSpectatorJoinFlow = await evaluate(`(async () => {
+    const originalFetch = globalThis.fetch;
+    const sent = [];
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+      requests.push({ url: String(url), method: options.method ?? "GET", body: options.body ?? null });
+      if (String(url).endsWith("/join")) {
+        return { ok: true, json: async () => ({
+          room_id: "room-late-entry", title: "진행 중인 방", has_password: false, player_count: 2, max_players: 4,
+          role: "spectator",
+        }) };
+      }
+      if (String(url).endsWith("/room-late-entry")) {
+        return { ok: true, json: async () => ({
+          summary: { room_id: "room-late-entry", title: "진행 중인 방", has_password: false, player_count: 2, max_players: 4 },
+          members: [{ user_id: "late-joiner", role: "spectator", ready: false }],
+          active_match: { match_id: "match-late-entry" },
+        }) };
+      }
+      if (String(url).endsWith("/api/v1/rooms")) return { ok: true, json: async () => ({ rooms: [] }) };
+      throw new Error("unexpected fetch: " + url);
+    };
+    authenticatedUserId = "late-joiner";
+    roomListAuthenticated = true;
+    activeRoomId = null;
+    activeRoomRole = null;
+    activeStartScope = null;
+    clearStateReconnectScope();
+    realtimeSocket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
+    const joined = await enterRoom("room-late-entry", "spectator");
+    const result = {
+      joined, activeRoomId, activeRoomRole, requests, reconnect: sent[0],
+      gameStatus: document.getElementById("game-session-status").textContent,
+    };
+    globalThis.fetch = originalFetch;
+    realtimeSocket = null;
+    activeRoomId = null;
+    activeRoomRole = null;
+    clearStateReconnectScope();
+    return result;
+  })()`, true);
+  if (!lateSpectatorJoinFlow.joined || lateSpectatorJoinFlow.activeRoomId !== "room-late-entry"
+      || lateSpectatorJoinFlow.activeRoomRole !== "spectator"
+      || lateSpectatorJoinFlow.requests.length !== 3
+      || lateSpectatorJoinFlow.requests[0]?.url !== "/api/v1/rooms/room-late-entry/join"
+      || lateSpectatorJoinFlow.requests[0]?.method !== "POST"
+      || JSON.parse(lateSpectatorJoinFlow.requests[0]?.body ?? "{}").role !== "spectator"
+      || lateSpectatorJoinFlow.requests[1]?.url !== "/api/v1/rooms/room-late-entry"
+      || lateSpectatorJoinFlow.requests[2]?.url !== "/api/v1/rooms"
+      || lateSpectatorJoinFlow.reconnect?.type !== "RECONNECT"
+      || lateSpectatorJoinFlow.reconnect?.room_id !== "room-late-entry"
+      || lateSpectatorJoinFlow.reconnect?.match_id !== "match-late-entry"
+      || !lateSpectatorJoinFlow.gameStatus.includes("동기화하는 중")) {
+    throw new Error(`late spectator HTTP admission did not synchronize live match: ${JSON.stringify(lateSpectatorJoinFlow)}`);
+  }
+
   await command("Emulation.setDeviceMetricsOverride", {
     width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
   });
