@@ -691,6 +691,11 @@ try {
     const wrongScopeIgnored = messages.childElementCount === beforeWrongScope;
     handleRealtimeMessage(socket, { data: JSON.stringify({
       version: 1, direction: "server_event", type: "CHAT_MESSAGE", sequence: 1,
+      room_id: "lobby", payload: { sender_user_id: "missing-display", text: "ignored" },
+    }) });
+    const missingNicknameIgnored = messages.childElementCount === beforeWrongScope;
+    handleRealtimeMessage(socket, { data: JSON.stringify({
+      version: 1, direction: "server_event", type: "CHAT_MESSAGE", sequence: 1,
       room_id: "lobby", payload: { sender_user_id: "user-lobby", sender_nickname: "로비 사용자", text: "서버 확정" },
     }) });
     handleRealtimeMessage(socket, { data: JSON.stringify({
@@ -699,7 +704,7 @@ try {
       payload: { status: "accepted" },
     }) });
     const result = {
-      command, wrongScopeIgnored, lastMessage: messages.lastElementChild?.textContent,
+      command, wrongScopeIgnored, missingNicknameIgnored, lastMessage: messages.lastElementChild?.textContent,
       status: document.getElementById("chat-status").textContent, inputCleared: input.value === "",
     };
     realtimeSocket = null;
@@ -709,7 +714,8 @@ try {
   })()`);
   if (lobbyChatFlow.command?.type !== "SEND_CHAT" || lobbyChatFlow.command?.room_id !== "lobby"
       || lobbyChatFlow.command?.payload?.text !== "로비에서 보낸 메시지"
-      || !lobbyChatFlow.wrongScopeIgnored || lobbyChatFlow.lastMessage !== "로비 사용자: 서버 확정"
+      || !lobbyChatFlow.wrongScopeIgnored || !lobbyChatFlow.missingNicknameIgnored
+      || lobbyChatFlow.lastMessage !== "로비 사용자: 서버 확정"
       || lobbyChatFlow.status !== "메시지가 서버에서 확정됐습니다." || !lobbyChatFlow.inputCleared) {
     throw new Error(`lobby chat UI flow was not scope-safe: ${JSON.stringify(lobbyChatFlow)}`);
   }
