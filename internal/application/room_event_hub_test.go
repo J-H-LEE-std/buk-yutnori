@@ -105,3 +105,29 @@ func TestEmissionsKeepSequenceOrderingAndFilterNonMembers(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+// A WebSocket can be open before its owner uses the HTTP join endpoint. Once
+// a live spectator is admitted, the same serialized transaction must make the
+// existing subscription a room member before it broadcasts ROOM_UPDATED.
+func TestLiveSpectatorJoinActivatesExistingSubscription(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMatchFixture(t, nil)
+	defer fixture.recorder.close()
+	lateSpectator := auth.UserID(startRosterIDs[2])
+	subscription, err := fixture.registry.SubscribeEvents(lateSpectator)
+	if err != nil {
+		t.Fatalf("SubscribeEvents(late spectator) error = %v", err)
+	}
+	defer subscription.Close()
+
+	if _, err := fixture.registry.Join(JoinRoomInput{
+		User: lateSpectator, RoomID: fixture.roomID, Role: RoleSpectator,
+	}); err != nil {
+		t.Fatalf("Join(late spectator) error = %v", err)
+	}
+	event := drainEvent(t, subscription)
+	if event.Payload.Status != protocol.RoomStatusInMatch || event.Payload.Revision != event.Sequence {
+		t.Fatalf("late spectator ROOM_UPDATED = %+v, want in_match revision", event)
+	}
+}

@@ -286,8 +286,21 @@ func (registry *RoomRegistry) Join(input JoinRoomInput) (RoomSummary, error) {
 			return RoomSummary{}, ErrInvalidRoomPassword
 		}
 	}
-	if err := registry.guardLobbyMutation(entry); err != nil {
-		return RoomSummary{}, err
+	if input.Role == RolePlayer {
+		if err := registry.guardLobbyMutation(entry); err != nil {
+			return RoomSummary{}, err
+		}
+	} else {
+		// A confirmed match freezes the player lobby, but docs/05 and docs/08
+		// allow a fresh observer to enter the live public or password-protected
+		// room. The confirmation window remains closed to every membership
+		// mutation so its confirmed roster cannot change underneath it.
+		if entry.poisoned {
+			return RoomSummary{}, ErrEventStoreUnavailable
+		}
+		if entry.confirmation != nil && !entry.started {
+			return RoomSummary{}, ErrStartAlreadyRequested
+		}
 	}
 
 	playerCount := len(entry.lobby.Players())

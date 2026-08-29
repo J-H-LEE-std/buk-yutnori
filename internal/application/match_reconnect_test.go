@@ -2,7 +2,9 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"buk-yutnori/internal/auth"
@@ -113,6 +115,112 @@ func TestReconnectReturnsRealAssembledSnapshotForStartedRoom(t *testing.T) {
 	}
 }
 
+// A user who joins as a spectator after the match has started receives the
+// same server-authoritative live scope and snapshot as an earlier spectator,
+// but never receives a player control permission.
+func TestLateSpectatorAdmissionSynchronizesActiveMatch(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMatchFixture(t, nil)
+	defer fixture.recorder.close()
+	lateSpectator := auth.UserID(startRosterIDs[2])
+
+	if _, err := fixture.registry.Join(JoinRoomInput{
+		User: lateSpectator, RoomID: fixture.roomID, Role: RoleSpectator,
+	}); err != nil {
+		t.Fatalf("Join(late spectator) error = %v", err)
+	}
+	membership, err := fixture.registry.Membership(lateSpectator, fixture.roomID)
+	if err != nil || membership.Role != RoleSpectator || membership.Team != "" || membership.Ready {
+		t.Fatalf("late spectator membership = %+v error = %v", membership, err)
+	}
+	detail, err := fixture.registry.Detail(lateSpectator, fixture.roomID)
+	if err != nil || detail.ActiveMatch == nil || detail.ActiveMatch.MatchID != fixture.matchID {
+		t.Fatalf("late spectator detail = %+v error = %v, want active match scope", detail, err)
+	}
+
+	command := reconnectCommandFor(fixture.roomID, fixture.matchID, "cmd-late-spectator", 0)
+	result, err := fixture.processor.Process(context.Background(), auth.User{ID: lateSpectator}, command)
+	if err != nil || result.Payload.Status != protocol.CommandAccepted || result.Payload.Synchronization == nil {
+		t.Fatalf("late spectator reconnect = %+v error = %v, want accepted snapshot", result, err)
+	}
+	snapshot, _ := decodeSnapshotScope(t, result.Payload.Synchronization.Snapshot)
+	var participant *snapshotParticipant
+	for index := range snapshot.Participants {
+		if snapshot.Participants[index].UserID == lateSpectator {
+			participant = &snapshot.Participants[index]
+			break
+		}
+	}
+	if participant == nil || participant.Role != RoleSpectator || participant.TeamID != nil ||
+		len(participant.Permissions) != 1 || participant.Permissions[0] != participantPermissionChat {
+		t.Fatalf("late spectator participant = %+v, want chat-only observer", participant)
+	}
+
+	scope := fixture.matchID
+	throw := protocol.ClientCommand{
+		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
+		Type: protocol.CommandThrowYut, CommandID: "cmd-late-spectator-throw",
+		RoomID: fixture.roomID, MatchID: &scope, Payload: protocol.EmptyPayload{},
+	}
+	result, err = fixture.processor.Process(context.Background(), auth.User{ID: lateSpectator}, throw)
+	if err != nil || result.Payload.Status != protocol.CommandRejected || result.Payload.Error == nil ||
+		result.Payload.Error.Code != notMemberCode || result.Payload.Error.Retriable {
+		t.Fatalf("late spectator throw = %+v error = %v, want non-retriable control rejection", result, err)
+	}
+}
+
+func TestLateSpectatorAdmissionPreservesStartedRoomBoundaries(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMatchFixture(t, nil)
+	defer fixture.recorder.close()
+	password := "pass1234"
+	digest := sha256.Sum256([]byte(password))
+	fixture.registry.mutex.Lock()
+	fixture.registry.rooms[fixture.roomID].password = digest[:]
+	fixture.registry.mutex.Unlock()
+
+	if _, err := fixture.registry.Join(JoinRoomInput{
+		User: auth.UserID(startRosterIDs[2]), RoomID: fixture.roomID, Role: RolePlayer, Team: domain.TeamA, Password: password,
+	}); !errors.Is(err, ErrRoomAlreadyStarted) {
+		t.Fatalf("Join(player during match) error = %v, want ErrRoomAlreadyStarted", err)
+	}
+	if _, err := fixture.registry.Join(JoinRoomInput{
+		User: auth.UserID(startRosterIDs[2]), RoomID: fixture.roomID, Role: RoleSpectator,
+	}); !errors.Is(err, ErrPasswordRequired) {
+		t.Fatalf("Join(late spectator without password) error = %v, want ErrPasswordRequired", err)
+	}
+	if _, err := fixture.registry.Join(JoinRoomInput{
+		User: auth.UserID(startRosterIDs[2]), RoomID: fixture.roomID, Role: RoleSpectator, Password: "wrong999",
+	}); !errors.Is(err, ErrInvalidRoomPassword) {
+		t.Fatalf("Join(late spectator wrong password) error = %v, want ErrInvalidRoomPassword", err)
+	}
+	if _, err := fixture.registry.Join(JoinRoomInput{
+		User: auth.UserID(startRosterIDs[2]), RoomID: fixture.roomID, Role: RoleSpectator, Password: password,
+	}); err != nil {
+		t.Fatalf("Join(password-protected late spectator) error = %v", err)
+	}
+	if _, err := fixture.registry.Join(JoinRoomInput{
+		User: auth.UserID(startRosterIDs[2]), RoomID: fixture.roomID, Role: RoleSpectator, Password: password,
+	}); !errors.Is(err, ErrAlreadyMember) {
+		t.Fatalf("Join(duplicate late spectator) error = %v, want ErrAlreadyMember", err)
+	}
+	for index := 0; index < combinedMemberCapacity-3; index++ {
+		user := auth.UserID("late-spectator-" + string(rune('a'+index%26)) + string(rune('0'+index/26)))
+		if _, err := fixture.registry.Join(JoinRoomInput{
+			User: user, RoomID: fixture.roomID, Role: RoleSpectator, Password: password,
+		}); err != nil {
+			t.Fatalf("Join(late spectator %d) error = %v", index, err)
+		}
+	}
+	if _, err := fixture.registry.Join(JoinRoomInput{
+		User: auth.UserID("late-spectator-over-capacity"), RoomID: fixture.roomID, Role: RoleSpectator, Password: password,
+	}); !errors.Is(err, ErrCombinedCapacityFull) {
+		t.Fatalf("Join(late spectator over capacity) error = %v, want ErrCombinedCapacityFull", err)
+	}
+}
+
 // Duplicate RECONNECT replays the original bundle byte-for-byte.
 func TestReconnectReplaysOriginalSnapshotAtOriginalBoundary(t *testing.T) {
 	t.Parallel()
@@ -152,8 +260,9 @@ func TestReconnectRejectionsForRealRooms(t *testing.T) {
 	t.Parallel()
 
 	fixture := newMatchFixture(t, nil, func(f *matchFixture) {
-		// Spectators are members; they must join before the match starts
-		// because started rooms block membership changes.
+		// This covers a spectator who was already in the room before the
+		// match; TestLateSpectatorAdmissionSynchronizesActiveMatch covers
+		// the equally valid in-match admission path.
 		if _, err := f.registry.Join(JoinRoomInput{
 			User: auth.UserID(reconnectSpectatorID), RoomID: f.roomID, Role: RoleSpectator,
 		}); err != nil {
