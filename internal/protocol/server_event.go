@@ -17,14 +17,15 @@ const (
 
 var ErrInvalidServerEvent = errors.New("invalid server event")
 
-// ChatMessagePayload is the v1 public payload for a chat event. The current
-// production scope is the authenticated `lobby` channel; the event keeps only
-// the stable internal sender ID until profile nicknames exist.
+// ChatMessagePayload is the v1 public payload for a chat event. sender_user_id
+// remains the stable audit and idempotency identity; sender_nickname is the
+// server-resolved display value for the authenticated lobby channel.
 type ChatMessagePayload struct {
-	MessageID    string      `json:"message_id"`
-	SenderUserID auth.UserID `json:"sender_user_id"`
-	Text         string      `json:"text"`
-	SentAt       string      `json:"sent_at"`
+	MessageID      string      `json:"message_id"`
+	SenderUserID   auth.UserID `json:"sender_user_id"`
+	SenderNickname string      `json:"sender_nickname"`
+	Text           string      `json:"text"`
+	SentAt         string      `json:"sent_at"`
 }
 
 // ChatMessageEvent is the typed v1 room_id-scoped CHAT_MESSAGE server event.
@@ -39,6 +40,12 @@ type ChatMessageEvent struct {
 
 // NewChatMessageEvent constructs a validated immutable chat event.
 func NewChatMessageEvent(roomID domain.RoomID, sequence uint64, senderUserID auth.UserID, text string, sentAt time.Time) (ChatMessageEvent, error) {
+	return NewChatMessageEventWithNickname(roomID, sequence, senderUserID, string(senderUserID), text, sentAt)
+}
+
+// NewChatMessageEventWithNickname constructs a validated event with a display
+// name already resolved by the server-side profile boundary.
+func NewChatMessageEventWithNickname(roomID domain.RoomID, sequence uint64, senderUserID auth.UserID, senderNickname, text string, sentAt time.Time) (ChatMessageEvent, error) {
 	if err := roomID.Validate(); err != nil {
 		return ChatMessageEvent{}, fmt.Errorf("%w: room_id: %v", ErrInvalidServerEvent, err)
 	}
@@ -47,6 +54,9 @@ func NewChatMessageEvent(roomID domain.RoomID, sequence uint64, senderUserID aut
 	}
 	if err := senderUserID.Validate(); err != nil {
 		return ChatMessageEvent{}, fmt.Errorf("%w: sender_user_id: %v", ErrInvalidServerEvent, err)
+	}
+	if senderNickname == "" || !utf8.ValidString(senderNickname) {
+		return ChatMessageEvent{}, fmt.Errorf("%w: sender_nickname is required UTF-8", ErrInvalidServerEvent)
 	}
 	if text == "" || utf8.RuneCountInString(text) > MaxChatCodePoints {
 		return ChatMessageEvent{}, fmt.Errorf("%w: text must contain 1-%d code points", ErrInvalidServerEvent, MaxChatCodePoints)
@@ -61,10 +71,11 @@ func NewChatMessageEvent(roomID domain.RoomID, sequence uint64, senderUserID aut
 		Sequence:  sequence,
 		RoomID:    roomID,
 		Payload: ChatMessagePayload{
-			MessageID:    fmt.Sprintf("chat-%d", sequence),
-			SenderUserID: senderUserID,
-			Text:         text,
-			SentAt:       sentAt.UTC().Format(time.RFC3339Nano),
+			MessageID:      fmt.Sprintf("chat-%d", sequence),
+			SenderUserID:   senderUserID,
+			SenderNickname: senderNickname,
+			Text:           text,
+			SentAt:         sentAt.UTC().Format(time.RFC3339Nano),
 		},
 	}, nil
 }

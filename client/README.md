@@ -74,8 +74,9 @@ BUK_GOOGLE_CLIENT_ID="<web-client-id>.apps.googleusercontent.com" \
 구독하며, HTML 채팅 입력의 `SEND_CHAT`을 멱등 application processor로 전달한다.
 서버가 확정한 `CHAT_MESSAGE`는 모든 활성 인증 연결에 전달되고 셸은 내용을 DOM
 `textContent`로 렌더링한다. 승인 메시지는 비차단 최선노력으로 SQLite 로그에 남지만
-새로고침·재접속 시 과거 목록을 replay하지 않는다. 닉네임 경계가 아직 없으므로 현재
-발신자는 내부 `user_id`로 표시한다.
+새로고침·재접속 시 과거 목록을 replay하지 않는다. 발신자 표시는 서버가 넣은
+`sender_nickname`을 사용하며, profile이 아직 없거나 서버 조회가 실패한 경우에는
+안정적인 내부 `user_id`가 그 표시 필드에 들어온다.
 
 브라우저는 로그인 시 재접속 scope를 임의로 만들지 않는다(ADR-0013 은퇴, #82).
 재접속 machinery(`setStateReconnectScope` → `RECONNECT` → bundle staging)는 유지되며,

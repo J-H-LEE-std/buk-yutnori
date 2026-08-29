@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 	"buk-yutnori/internal/storage"
 )
@@ -55,6 +57,7 @@ type LobbyChatRoom struct {
 	users          map[auth.UserID]*chatUserState
 	logs           *lobbyChatLogWriter
 	closedLogs     *lobbyChatLogWriter
+	profiles       profile.Store
 }
 
 type chatUserState struct {
@@ -78,6 +81,13 @@ type lobbyChatSubscription struct {
 // store so accepted messages are recorded without entering the match commit
 // path or blocking WebSocket delivery.
 func NewLobbyChatRoom(sequences *RoomEventSequences, now func() time.Time, logStore storage.EventStore) (*LobbyChatRoom, error) {
+	return NewLobbyChatRoomWithProfiles(sequences, now, logStore, nil)
+}
+
+// NewLobbyChatRoomWithProfiles additionally resolves display nicknames at the
+// server boundary. A nil profile store preserves the pre-profile fallback for
+// memory-only tests and deliberately never prevents chat delivery.
+func NewLobbyChatRoomWithProfiles(sequences *RoomEventSequences, now func() time.Time, logStore storage.EventStore, profiles profile.Store) (*LobbyChatRoom, error) {
 	if sequences == nil || now == nil {
 		return nil, fmt.Errorf("%w: chat sequences and clock are required", ErrInvalidConfiguration)
 	}
@@ -86,6 +96,7 @@ func NewLobbyChatRoom(sequences *RoomEventSequences, now func() time.Time, logSt
 		now:         now,
 		subscribers: make(map[uint64]*lobbyChatSubscription),
 		users:       make(map[auth.UserID]*chatUserState),
+		profiles:    profiles,
 	}
 	if logStore != nil {
 		if err := restoreLobbyChatBoundary(sequences, logStore); err != nil {
@@ -167,6 +178,7 @@ func (room *LobbyChatRoom) Execute(ctx context.Context, user auth.User, command 
 	if !ok || payload.Text == "" || utf8.RuneCountInString(payload.Text) > protocol.MaxChatCodePoints {
 		return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid SEND_CHAT payload", ErrInvalidCommand)
 	}
+	nickname := room.resolveChatNickname(ctx, user.ID)
 
 	room.mutex.Lock()
 	defer room.mutex.Unlock()
@@ -205,7 +217,7 @@ func (room *LobbyChatRoom) Execute(ctx context.Context, user auth.User, command 
 	if err != nil {
 		return protocol.CommandOutcome{}, fmt.Errorf("commit chat sequence: %w", err)
 	}
-	event, err := protocol.NewChatMessageEvent(LobbyChatRoomID, sequence, user.ID, payload.Text, now)
+	event, err := protocol.NewChatMessageEventWithNickname(LobbyChatRoomID, sequence, user.ID, nickname, payload.Text, now)
 	if err != nil {
 		return protocol.CommandOutcome{}, fmt.Errorf("build chat event: %w", err)
 	}
@@ -219,6 +231,25 @@ func (room *LobbyChatRoom) Execute(ctx context.Context, user auth.User, command 
 		EventSequenceStart: uint64Pointer(sequence),
 		EventSequenceEnd:   uint64Pointer(sequence),
 	}, nil
+}
+
+func (room *LobbyChatRoom) resolveChatNickname(ctx context.Context, userID auth.UserID) string {
+	fallback := string(userID)
+	if room.profiles == nil {
+		return fallback
+	}
+	value, err := room.profiles.Lookup(ctx, userID)
+	if err != nil {
+		if !errors.Is(err, profile.ErrNotFound) {
+			slog.Warn("falling back to internal chat sender identifier after profile lookup failure", "user_id", userID, "error", err)
+		}
+		return fallback
+	}
+	if err := value.Validate(); err != nil || value.UserID != userID {
+		slog.Warn("falling back to internal chat sender identifier after invalid profile lookup", "user_id", userID)
+		return fallback
+	}
+	return string(value.Nickname)
 }
 
 func (room *LobbyChatRoom) publishLocked(event protocol.ChatMessageEvent) {

@@ -7,6 +7,7 @@ import (
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 	"buk-yutnori/internal/storage"
 )
@@ -33,6 +34,16 @@ type realtimeRouter struct {
 // NewRealtimeApplication constructs the lobby chat runtime plus authoritative
 // room and match routing. chatLogStore may be nil for memory-only tests.
 func NewRealtimeApplication(now func() time.Time, lobbies *RoomRegistry, chatLogStore storage.EventStore) (*RealtimeApplication, error) {
+	return newRealtimeApplication(now, lobbies, chatLogStore, nil)
+}
+
+// NewRealtimeApplicationWithProfiles wires the durable profile boundary into
+// lobby chat display-name resolution without changing game-command authority.
+func NewRealtimeApplicationWithProfiles(now func() time.Time, lobbies *RoomRegistry, chatLogStore storage.EventStore, profiles profile.Store) (*RealtimeApplication, error) {
+	return newRealtimeApplication(now, lobbies, chatLogStore, profiles)
+}
+
+func newRealtimeApplication(now func() time.Time, lobbies *RoomRegistry, chatLogStore storage.EventStore, profiles profile.Store) (*RealtimeApplication, error) {
 	if now == nil {
 		return nil, fmt.Errorf("%w: realtime clock is required", ErrInvalidConfiguration)
 	}
@@ -45,7 +56,7 @@ func NewRealtimeApplication(now func() time.Time, lobbies *RoomRegistry, chatLog
 		return nil, err
 	}
 	sequences := NewRoomEventSequences()
-	chat, err := NewLobbyChatRoom(sequences, now, chatLogStore)
+	chat, err := NewLobbyChatRoomWithProfiles(sequences, now, chatLogStore, profiles)
 	if err != nil {
 		return nil, err
 	}

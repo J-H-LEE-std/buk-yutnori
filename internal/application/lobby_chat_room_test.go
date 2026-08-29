@@ -12,6 +12,7 @@ import (
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 	"buk-yutnori/internal/storage"
 )
@@ -38,6 +39,57 @@ func TestLobbyChatRoomPublishesKoreanMessageToEverySubscriber(t *testing.T) {
 	}
 	if senderEvent.Payload.Text != "한글 채팅 👋" || senderEvent.Payload.SenderUserID != chatTestUserID || senderEvent.Payload.MessageID != "chat-1" {
 		t.Fatalf("CHAT_MESSAGE = %+v", senderEvent)
+	}
+}
+
+func TestLobbyChatRoomResolvesConfiguredNicknameWithoutTrustingCommandPayload(t *testing.T) {
+	clock := &chatTestClock{current: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
+	profiles := &chatProfileStore{values: map[auth.UserID]profile.Profile{
+		chatTestUserID: {UserID: chatTestUserID, Nickname: "가나다", Public: false},
+	}}
+	room, err := NewLobbyChatRoomWithProfiles(NewRoomEventSequences(), clock.Now, nil, profiles)
+	if err != nil {
+		t.Fatalf("NewLobbyChatRoomWithProfiles() error = %v", err)
+	}
+	subscriber := mustChatSubscription(t, room, chatTestUserID)
+	defer subscriber.Close()
+	if _, err := room.Execute(context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-nickname", "profile 에서 결정")); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	event := readChatEvent(t, subscriber)
+	if event.Payload.SenderUserID != chatTestUserID || event.Payload.SenderNickname != "가나다" {
+		t.Fatalf("sender identity/display = %+v", event.Payload)
+	}
+}
+
+func TestLobbyChatRoomFallsBackToStableUserIDWhenProfileCannotBeRead(t *testing.T) {
+	tests := map[string]*chatProfileStore{
+		"not configured": {lookupErr: profile.ErrNotFound},
+		"store failure":  {lookupErr: errors.New("profile database unavailable")},
+		"invalid record": {
+			values: map[auth.UserID]profile.Profile{
+				chatTestUserID: {UserID: chatTestUserID, Nickname: "x", Public: false},
+			},
+		},
+	}
+	for name, profiles := range tests {
+		t.Run(name, func(t *testing.T) {
+			clock := &chatTestClock{current: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
+			room, err := NewLobbyChatRoomWithProfiles(NewRoomEventSequences(), clock.Now, nil, profiles)
+			if err != nil {
+				t.Fatalf("NewLobbyChatRoomWithProfiles() error = %v", err)
+			}
+			subscriber := mustChatSubscription(t, room, chatTestUserID)
+			defer subscriber.Close()
+			outcome, err := room.Execute(context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-fallback-"+name, "계속 전송"))
+			if err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			assertAcceptedChatSequence(t, outcome, 1)
+			if event := readChatEvent(t, subscriber); event.Payload.SenderNickname != string(chatTestUserID) {
+				t.Fatalf("fallback event = %+v", event)
+			}
+		})
 	}
 }
 
@@ -469,6 +521,26 @@ func assertChatRejection(t *testing.T, outcome protocol.CommandOutcome, code str
 	if outcome.Status != protocol.CommandRejected || outcome.EventSequenceStart != nil || outcome.EventSequenceEnd != nil || outcome.Error == nil || outcome.Error.Code != code || outcome.Error.Retriable != retriable {
 		t.Fatalf("rejected outcome = %+v, want code=%s retriable=%v", outcome, code, retriable)
 	}
+}
+
+type chatProfileStore struct {
+	values    map[auth.UserID]profile.Profile
+	lookupErr error
+}
+
+func (store *chatProfileStore) Save(context.Context, profile.Profile) error {
+	return errors.New("unexpected profile save")
+}
+
+func (store *chatProfileStore) Lookup(_ context.Context, userID auth.UserID) (profile.Profile, error) {
+	if store.lookupErr != nil {
+		return profile.Profile{}, store.lookupErr
+	}
+	value, ok := store.values[userID]
+	if !ok {
+		return profile.Profile{}, profile.ErrNotFound
+	}
+	return value, nil
 }
 
 type chatTestClock struct {

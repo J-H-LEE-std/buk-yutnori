@@ -94,7 +94,8 @@ room/match scope를 결합해 `SELECT_ROUTE`를 전송한다. 관전자, 상대 
    전달한다. 명령 결과가 거부되면 서버 오류를 표시하며 클라이언트는 상태를 추론하지 않는다.
    전체 채팅은 모든 인증 연결이 자동 구독하는 `room_id=lobby` scope다. 셸은
    `SEND_CHAT`과 새 연결 이후의 `CHAT_MESSAGE`만 처리하며, 재접속 때 과거 목록을
-   복구하지 않는다(ADR-0018).
+   복구하지 않는다(ADR-0018). 표시명은 서버가 넣은 `sender_nickname`만 사용하고,
+   브라우저는 이를 `textContent`로 렌더링한다.
 3. 방 로비 — 입장 성공 후 도달한다. 방 상세 조회(멤버 전용), ROOM_UPDATED/GAME_STARTING
    구독과 팀·준비·시작 확인 명령이 데이터 소스다. 전체 채팅은 계속 `lobby` scope를
    사용하며 방 membership를 요구하지 않는다.
