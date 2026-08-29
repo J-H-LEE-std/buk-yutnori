@@ -22,9 +22,10 @@
 - `BUK_LISTEN_ADDR`: 프로토타입 서버 주소, 기본 `127.0.0.1:8080`
 - `BUK_WEB_ROOT`: 생성된 WASM 정적 파일 경로, 기본 `build/client/web`
 
-현재 프로토타입 서버의 인증 저장소는 메모리형이므로 운영 배포하지 않는다. SQLite
-세션 저장소가 연결되기 전에는 30일 쿠키가 있더라도 서버 재시작 시 다시 로그인해야
-한다.
+인증 계정과 세션은 SQLite에 영구 저장하므로 유효한 30일 쿠키는 서버 재시작 뒤에도
+계속 인증된다. 다만 진행 중 방·경기 런타임은 v1에서 재시작 복구 대상이 아니며,
+운영 배포의 Docker·HTTPS/WSS·모니터링·부하 시험 요구는 Milestone 6에서 별도로
+충족한다.
 
 WebSocket 수신 메시지는 16 KiB로 제한하고 압축은 기본 비활성이다. active connection
 graceful shutdown과 heartbeat/idle timeout 정책은 connection registry 도입 전

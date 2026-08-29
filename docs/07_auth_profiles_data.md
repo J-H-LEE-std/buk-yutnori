@@ -36,10 +36,11 @@ Google 토큰을 게임 세션이나 사용자 ID로 직접 사용하지 않는�
 - WebSocket handshake도 같은 쿠키를 서버에서 검증한다. 브라우저가 세션 원문이나
   사용자 ID를 메시지 또는 query parameter로 복제하지 않는다.
 
-Milestone 2 최초 수직 프로토타입의 메모리 저장소는 서버 재시작 시 세션을 잃는다.
-이는 운영 구현이 아니며, 실제 30일 로그인 유지는 이 문서의 DB 저장 필드를
-구현하는 SQLite 어댑터가 연결된 뒤 충족된다. 세부 경계는
-`docs/adr/0005_http_google_auth_session_boundary.md`를 따른다.
+서버는 SQLite 정본 저장소가 `auth.Store`도 구현하게 하여 계정과 세션을 같은 로컬
+DB에 영구 저장한다. 재시작 뒤에도 유효·미폐기 session digest는 기존 내부 사용자
+ID로 인증되며, 마지막 사용 시각만 갱신하고 최초 생성 시각 기준의 절대 30일 만료는
+연장하지 않는다. `MemoryStore`는 단위 테스트와 수직 프로토타입용 어댑터로만
+유지한다. 세부 경계는 `docs/adr/0005_http_google_auth_session_boundary.md`를 따른다.
 
 ## 닉네임
 

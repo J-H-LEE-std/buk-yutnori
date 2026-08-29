@@ -34,9 +34,10 @@ ADR 항목으로 남아 있었다.
 - `GET /api/v1/auth/session`은 유효한 세션의 내부 user ID만 반환한다.
   `DELETE /api/v1/auth/session`은 세션을 폐기하고 쿠키를 제거하며 반복 호출에 대해
   멱등이다.
-- 현재 `MemoryStore`는 수직 프로토타입과 테스트 어댑터다. 서버 재시작 뒤 세션을
-  보존하지 않으므로 운영용이 아니다. 운영 배포 전 `docs/07_auth_profiles_data.md`에
-  정의된 SQLite 영구 세션 저장소가 같은 인터페이스를 구현해야 한다.
+- `SQLiteEventStore`가 같은 SQLite 연결에서 `auth.Store`도 구현한다. 계정 resolve와
+  session digest 발급은 하나의 짧은 transaction으로 확정하며, 서버 재시작 뒤에도
+  유효 세션과 stable 내부 사용자 ID를 보존한다. `MemoryStore`는 수직 프로토타입과
+  테스트 어댑터로만 유지한다.
 
 ## 결과
 
