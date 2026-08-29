@@ -1,7 +1,6 @@
-// SQLite implementation of the canonical event store (ADR-0001, ADR-0014):
-// one process-local database, WAL journaling, a single writer connection,
-// and exactly one table keyed by (room_id, sequence) with no secondary
-// indexes.
+// SQLite implementation of the canonical event and authentication stores
+// (ADR-0001, ADR-0005, ADR-0014): one process-local database, WAL journaling,
+// and a single writer connection.
 
 package storage
 
@@ -13,18 +12,21 @@ import (
 	"strings"
 	"time"
 
+	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	_ "modernc.org/sqlite"
 )
 
-const sqliteSchemaVersion = 1
+const sqliteSchemaVersion = 2
 
-// SQLiteEventStore is the canonical room event store backed by one local
-// SQLite database file. Open one instance per process; the application layer
-// already serializes event commits per room.
+// SQLiteEventStore is the canonical room-event and authentication store backed
+// by one local SQLite database file. Open one instance per process; the
+// application layer already serializes event commits per room.
 type SQLiteEventStore struct {
 	db *sql.DB
 }
+
+var _ auth.Store = (*SQLiteEventStore)(nil)
 
 // OpenSQLite opens or creates the database file and applies the canonical
 // schema. The returned store enables WAL journaling and full synchronous
@@ -47,6 +49,7 @@ func OpenSQLite(path string) (*SQLiteEventStore, error) {
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA synchronous = FULL",
 		"PRAGMA busy_timeout = 5000",
+		"PRAGMA foreign_keys = ON",
 	} {
 		if _, err := db.Exec(pragma); err != nil {
 			db.Close()
@@ -62,6 +65,21 @@ CREATE TABLE IF NOT EXISTS room_events (
 	created_at_ms INTEGER NOT NULL,
 	PRIMARY KEY (room_id, sequence)
 ) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS users (
+	user_id        TEXT NOT NULL PRIMARY KEY,
+	google_subject TEXT NOT NULL UNIQUE
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS sessions (
+	digest          BLOB    NOT NULL PRIMARY KEY,
+	user_id         TEXT    NOT NULL,
+	created_at_ms   INTEGER NOT NULL,
+	expires_at_ms   INTEGER NOT NULL,
+	last_used_at_ms INTEGER NOT NULL,
+	revoked_at_ms   INTEGER,
+	FOREIGN KEY (user_id) REFERENCES users(user_id)
+) WITHOUT ROWID;
 `
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
@@ -74,6 +92,170 @@ CREATE TABLE IF NOT EXISTS room_events (
 		return nil, fmt.Errorf("record schema version: %w", err)
 	}
 	return &SQLiteEventStore{db: db}, nil
+}
+
+// IssueSession atomically resolves a verified Google subject to its stable
+// internal user ID and stores only the SHA-256 session digest. It implements
+// auth.Store without ever accepting a browser session token.
+func (store *SQLiteEventStore) IssueSession(ctx context.Context, subject auth.GoogleSubject, proposedUserID auth.UserID, session auth.NewSession) (auth.User, error) {
+	if store == nil || store.db == nil {
+		return auth.User{}, errors.New("sqlite event store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return auth.User{}, err
+	}
+	if err := subject.Validate(); err != nil {
+		return auth.User{}, err
+	}
+	if err := proposedUserID.Validate(); err != nil {
+		return auth.User{}, auth.ErrInvalidIdentity
+	}
+	if err := validateAuthNewSession(session); err != nil {
+		return auth.User{}, err
+	}
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return auth.User{}, fmt.Errorf("begin auth session issue: %w", err)
+	}
+	defer tx.Rollback()
+
+	userID, err := storedUserID(ctx, tx, subject)
+	switch {
+	case err == nil:
+	case errors.Is(err, sql.ErrNoRows):
+		userID = proposedUserID
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO users (user_id, google_subject) VALUES (?, ?)`,
+			string(userID), string(subject),
+		); err != nil {
+			if isUniqueViolation(err) {
+				return auth.User{}, auth.ErrSessionConflict
+			}
+			return auth.User{}, fmt.Errorf("insert auth user: %w", err)
+		}
+	default:
+		return auth.User{}, fmt.Errorf("resolve auth user: %w", err)
+	}
+	if err := userID.Validate(); err != nil {
+		return auth.User{}, auth.ErrInvalidIdentity
+	}
+
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions
+		(digest, user_id, created_at_ms, expires_at_ms, last_used_at_ms, revoked_at_ms)
+		VALUES (?, ?, ?, ?, ?, NULL)`,
+		session.Digest[:], string(userID), session.CreatedAt.UTC().UnixMilli(),
+		session.ExpiresAt.UTC().UnixMilli(), session.LastUsedAt.UTC().UnixMilli(),
+	); err != nil {
+		if isUniqueViolation(err) {
+			return auth.User{}, auth.ErrSessionConflict
+		}
+		return auth.User{}, fmt.Errorf("insert auth session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return auth.User{}, fmt.Errorf("commit auth session issue: %w", err)
+	}
+	return auth.User{ID: userID}, nil
+}
+
+// UseSession resolves an active, unexpired digest and monotonically advances
+// last_used_at without extending the absolute expiration deadline.
+func (store *SQLiteEventStore) UseSession(ctx context.Context, digest auth.SessionDigest, usedAt time.Time) (auth.User, error) {
+	if store == nil || store.db == nil {
+		return auth.User{}, errors.New("sqlite event store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return auth.User{}, err
+	}
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return auth.User{}, fmt.Errorf("begin auth session use: %w", err)
+	}
+	defer tx.Rollback()
+
+	var (
+		userIDValue  string
+		createdAtMS  int64
+		expiresAtMS  int64
+		lastUsedAtMS int64
+		revokedAtMS  sql.NullInt64
+	)
+	err = tx.QueryRowContext(ctx, `SELECT user_id, created_at_ms, expires_at_ms, last_used_at_ms, revoked_at_ms
+		FROM sessions WHERE digest = ?`, digest[:]).Scan(
+		&userIDValue, &createdAtMS, &expiresAtMS, &lastUsedAtMS, &revokedAtMS,
+	)
+	if errors.Is(err, sql.ErrNoRows) || revokedAtMS.Valid {
+		return auth.User{}, auth.ErrUnauthenticated
+	}
+	if err != nil {
+		return auth.User{}, fmt.Errorf("read auth session: %w", err)
+	}
+
+	usedAtMS := usedAt.UTC().UnixMilli()
+	if usedAtMS >= expiresAtMS {
+		return auth.User{}, auth.ErrUnauthenticated
+	}
+	if usedAtMS < createdAtMS {
+		return auth.User{}, auth.ErrInvalidSession
+	}
+	if usedAtMS > lastUsedAtMS {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET last_used_at_ms = ? WHERE digest = ?`, usedAtMS, digest[:]); err != nil {
+			return auth.User{}, fmt.Errorf("update auth session last use: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return auth.User{}, fmt.Errorf("commit auth session use: %w", err)
+	}
+	user := auth.User{ID: auth.UserID(userIDValue)}
+	if err := user.ID.Validate(); err != nil {
+		return auth.User{}, auth.ErrUnauthenticated
+	}
+	return user, nil
+}
+
+// RevokeSession makes an existing digest unusable. Repeated revocation is
+// idempotent, matching the authenticated HTTP logout contract.
+func (store *SQLiteEventStore) RevokeSession(ctx context.Context, digest auth.SessionDigest, revokedAt time.Time) error {
+	if store == nil || store.db == nil {
+		return errors.New("sqlite event store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result, err := store.db.ExecContext(ctx,
+		`UPDATE sessions SET revoked_at_ms = COALESCE(revoked_at_ms, ?) WHERE digest = ?`,
+		revokedAt.UTC().UnixMilli(), digest[:],
+	)
+	if err != nil {
+		return fmt.Errorf("revoke auth session: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read auth session revoke result: %w", err)
+	}
+	if affected == 0 {
+		return auth.ErrUnauthenticated
+	}
+	return nil
+}
+
+func storedUserID(ctx context.Context, tx *sql.Tx, subject auth.GoogleSubject) (auth.UserID, error) {
+	var userID string
+	if err := tx.QueryRowContext(ctx, `SELECT user_id FROM users WHERE google_subject = ?`, string(subject)).Scan(&userID); err != nil {
+		return "", err
+	}
+	return auth.UserID(userID), nil
+}
+
+func validateAuthNewSession(session auth.NewSession) error {
+	if session.Digest == (auth.SessionDigest{}) || session.CreatedAt.IsZero() || session.ExpiresAt.IsZero() || session.LastUsedAt.IsZero() {
+		return auth.ErrInvalidSession
+	}
+	if !session.ExpiresAt.After(session.CreatedAt) || session.LastUsedAt.Before(session.CreatedAt) || !session.LastUsedAt.Before(session.ExpiresAt) {
+		return auth.ErrInvalidSession
+	}
+	return nil
 }
 
 // AppendRoomEvents stores every row in one transaction: readers observe all

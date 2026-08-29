@@ -46,7 +46,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	authService, err := auth.NewService(verifier, auth.NewMemoryStore(), rand.Reader, time.Now)
+	eventStore, err := storage.OpenSQLite(config.dbPath)
+	if err != nil {
+		return fmt.Errorf("open canonical event store: %w", err)
+	}
+	defer func() {
+		if closeErr := eventStore.Close(); closeErr != nil {
+			slog.Error("event store shutdown failed", "error", closeErr)
+		}
+	}()
+	authService, err := auth.NewService(verifier, eventStore, rand.Reader, time.Now)
 	if err != nil {
 		return err
 	}
@@ -65,15 +74,6 @@ func run() error {
 	if err := roomsRegistry.AttachBoardGraph(boardGraph); err != nil {
 		return err
 	}
-	eventStore, err := storage.OpenSQLite(config.dbPath)
-	if err != nil {
-		return fmt.Errorf("open canonical event store: %w", err)
-	}
-	defer func() {
-		if closeErr := eventStore.Close(); closeErr != nil {
-			slog.Error("event store shutdown failed", "error", closeErr)
-		}
-	}()
 	if err := roomsRegistry.AttachEventStore(eventStore); err != nil {
 		return err
 	}
@@ -131,7 +131,6 @@ func run() error {
 		}
 	}()
 
-	slog.Warn("using in-memory authentication store; sessions do not survive restart")
 	slog.Warn(
 		"using in-memory room registry and match runtime; state does not survive restart",
 		"lobby_chat_room_id", application.LobbyChatRoomID,
