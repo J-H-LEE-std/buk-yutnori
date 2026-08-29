@@ -85,7 +85,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	realtimeRuntime, err := application.NewRealtimeApplication(time.Now, roomsRegistry, eventStore)
+	realtimeRuntime, err := application.NewRealtimeApplicationWithProfiles(time.Now, roomsRegistry, eventStore, eventStore)
 	if err != nil {
 		return err
 	}

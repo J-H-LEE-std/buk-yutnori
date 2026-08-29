@@ -258,6 +258,7 @@
     "payload": {
       "message_id": "chat-17",
       "sender_user_id": "usr_EREREREREREREREREREREQ",
+      "sender_nickname": "가나다",
       "text": "안녕하세요",
       "sent_at": "2026-07-22T08:02:00Z"
     }

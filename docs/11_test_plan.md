@@ -202,12 +202,14 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 유효한 한글 텍스트 command의 transport 왕복
 - 인증 `lobby` scope의 `SEND_CHAT`이 한 sequence만 소비하고 모든 활성 연결에 같은
   `CHAT_MESSAGE`를 전달하며 `prototype-room`과 임의 방 scope는 거부
+- 설정된 profile 닉네임은 서버가 `CHAT_MESSAGE.sender_nickname`으로 넣고, profile이
+  없거나 읽기 실패하면 채팅을 거부하지 않고 안정적인 `sender_user_id`를 표시명으로 사용
 - 동일 `command_id` 재전송이 채팅 event를 다시 발행하지 않고 최초 응답만 반환
 - sliding 1초 3개, 5초 16번째 시도 1분 차단, 동일 텍스트 5초 제한
 - bounded chat queue가 가득 찬 연결을 종료하고 다른 연결 전달은 유지
 - backpressure 종료가 진행 중인 write context를 먼저 취소하지 않고 실제 WebSocket
   `1013 event_backpressure` close frame을 전달
-- 채팅 DOM 렌더링이 HTML을 실행하지 않고 text로 보존
+- 채팅 DOM 렌더링이 `sender_nickname`과 본문 HTML을 실행하지 않고 text로 보존
 - 메인 로비 셸이 `room_id=lobby`만 전송·표시하고 다른 scope의 `CHAT_MESSAGE`를 무시
 - 채팅 로그가 비동기 SQLite 행으로 남고, 프로세스 재시작 뒤 저장된 최대 sequence에서
   계속되며, append 실패가 승인·전달·경기를 막지 않음

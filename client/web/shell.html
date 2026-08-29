@@ -1405,7 +1405,7 @@
     function appendChatMessage(message) {
       const item = document.createElement("li");
       const sender = document.createElement("strong");
-      sender.textContent = message.sender_user_id;
+      sender.textContent = message.sender_nickname;
       item.append(sender, document.createTextNode(`: ${message.text}`));
       chatMessages.append(item);
       while (chatMessages.childElementCount > MAX_RENDERED_CHAT_MESSAGES) {
@@ -1551,6 +1551,7 @@
         const payload = message.payload;
         if (!Number.isInteger(message.sequence) || message.sequence < 1
             || typeof payload?.sender_user_id !== "string"
+            || typeof payload?.sender_nickname !== "string"
             || typeof payload?.text !== "string") return;
         appendChatMessage(payload);
         return;

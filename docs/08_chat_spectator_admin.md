@@ -23,8 +23,9 @@
   새 연결은 연결 이후 확정된 메시지만 표시한다.
 
 인증 WebSocket 연결은 `lobby` 전체 채팅에 자동 구독한다. `SEND_CHAT`은 이 scope만
-허용하고, 기존 `prototype-room`과 임의 방 ID는 거부한다. 발신자는 닉네임 기능 전까지
-내부 `user_id`로 표시한다. 전체 채팅은 새 연결 이후 확정된 이벤트만 표시하며
+허용하고, 기존 `prototype-room`과 임의 방 ID는 거부한다. 서버는 확정 시점에 저장된
+profile 닉네임을 `CHAT_MESSAGE.sender_nickname`으로 넣어 표시한다. profile이 아직 없거나
+조회가 실패하면 채팅을 막지 않고 안정적인 내부 `user_id`를 표시자로 사용한다. 전체 채팅은 새 연결 이후 확정된 이벤트만 표시하며
 재접속 snapshot에는 포함하지 않는다. 상세 경계는 ADR-0018과 ADR-0010을 따른다.
 
 ## 관전

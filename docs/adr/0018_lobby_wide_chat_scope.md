@@ -36,8 +36,10 @@ Milestone 2의 `prototype-room` 채팅은 두 인증 브라우저의 전송·멱
 - 기동 시 SQLite의 `MAX(sequence)`로 저장된 `lobby` 행의 최대 sequence만 복원해 다음
   이벤트에 사용한다. 따라서 정상 종료 뒤 서버를 다시 띄워도 `(lobby, sequence)`
   기본키와 충돌하지 않고, 전체 채팅 로그를 메모리에 읽지 않는다.
-- 발신자 표시는 아직 stable `sender_user_id`다. 닉네임·공개 프로필·보존 기간·제재와
-  방 전용 채팅은 별도 요구사항으로 남긴다.
+- 발신자 식별은 stable `sender_user_id`로 유지한다. #137부터 서버는 확정 시점의 profile
+  nickname을 별도 `sender_nickname` 표시 필드로 넣는다. profile이 없거나 조회가 실패하면
+  채팅을 막지 않고 `user_id`를 표시명으로 사용한다. 공개 profile·보존 기간·제재와 방 전용
+  채팅은 별도 요구사항으로 남긴다.
 
 ## 결과
 

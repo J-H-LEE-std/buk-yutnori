@@ -466,10 +466,11 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["message_id", "sender_user_id", "text", "sent_at"],
+          "required": ["message_id", "sender_user_id", "sender_nickname", "text", "sent_at"],
           "properties": {
             "message_id": { "type": "string", "minLength": 1 },
             "sender_user_id": { "type": "string", "minLength": 1 },
+            "sender_nickname": { "type": "string", "minLength": 1 },
             "text": { "type": "string", "minLength": 1, "maxLength": 200 },
             "sent_at": { "type": "string", "format": "date-time" }
           }

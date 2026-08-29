@@ -66,7 +66,7 @@ func TestNewCommandResultBuildsReconnectSynchronization(t *testing.T) {
 	}
 	snapshot := json.RawMessage(`{"room_id":"room-1","match_id":"match-1","sequence":41}`)
 	events := []json.RawMessage{
-		json.RawMessage(`{"version":1,"direction":"server_event","type":"CHAT_MESSAGE","sequence":42,"room_id":"room-1","payload":{"message_id":"chat-42","sender_user_id":"usr_EREREREREREREREREREQ","text":"다시 연결","sent_at":"2026-08-19T05:30:00Z"}}`),
+		json.RawMessage(`{"version":1,"direction":"server_event","type":"CHAT_MESSAGE","sequence":42,"room_id":"room-1","payload":{"message_id":"chat-42","sender_user_id":"usr_EREREREREREREREREREQ","sender_nickname":"가나다","text":"다시 연결","sent_at":"2026-08-19T05:30:00Z"}}`),
 		json.RawMessage(`{"version":1,"direction":"server_event","type":"PLAYER_RECONNECTED","sequence":43,"room_id":"room-1","match_id":"match-1","payload":{"player_id":"user-a","control_restored":true}}`),
 	}
 	synchronization, err := NewReconnectSynchronization(command, snapshot, events)
@@ -85,7 +85,7 @@ func TestNewCommandResultBuildsReconnectSynchronization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	want := `{"version":1,"direction":"server_response","type":"COMMAND_RESULT","request_id":"req-reconnect","command_id":"cmd-reconnect","sequence":null,"room_id":"room-1","match_id":"match-1","payload":{"status":"accepted","event_sequence_start":null,"event_sequence_end":null,"error":null,"synchronization":{"snapshot":{"room_id":"room-1","match_id":"match-1","sequence":41},"events":[{"version":1,"direction":"server_event","type":"CHAT_MESSAGE","sequence":42,"room_id":"room-1","payload":{"message_id":"chat-42","sender_user_id":"usr_EREREREREREREREREREQ","text":"다시 연결","sent_at":"2026-08-19T05:30:00Z"}},{"version":1,"direction":"server_event","type":"PLAYER_RECONNECTED","sequence":43,"room_id":"room-1","match_id":"match-1","payload":{"player_id":"user-a","control_restored":true}}]}}}`
+	want := `{"version":1,"direction":"server_response","type":"COMMAND_RESULT","request_id":"req-reconnect","command_id":"cmd-reconnect","sequence":null,"room_id":"room-1","match_id":"match-1","payload":{"status":"accepted","event_sequence_start":null,"event_sequence_end":null,"error":null,"synchronization":{"snapshot":{"room_id":"room-1","match_id":"match-1","sequence":41},"events":[{"version":1,"direction":"server_event","type":"CHAT_MESSAGE","sequence":42,"room_id":"room-1","payload":{"message_id":"chat-42","sender_user_id":"usr_EREREREREREREREREREQ","sender_nickname":"가나다","text":"다시 연결","sent_at":"2026-08-19T05:30:00Z"}},{"version":1,"direction":"server_event","type":"PLAYER_RECONNECTED","sequence":43,"room_id":"room-1","match_id":"match-1","payload":{"player_id":"user-a","control_restored":true}}]}}}`
 	if string(encoded) != want {
 		t.Fatalf("encoded reconnect result = %s\nwant = %s", encoded, want)
 	}
