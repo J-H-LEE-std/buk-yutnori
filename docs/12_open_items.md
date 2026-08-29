@@ -27,15 +27,8 @@
   확인되었다. #96에서 `MOVE_REQUIRED.payload`와
   `game_snapshot.current_turn.move_request`를 같은 서버 권위형 선택 요청으로 맞추고,
   `select_route`의 `normal`/`shortcut` 후보를 명시해 이 빈칸을 닫는다.
-- 메인 로비 전체 채팅의 WebSocket 전송 계약. 방 스코프 채팅(docs/08)과 제한·sequence
-  공간을 공유할지 여부를 포함해 정의해야 한다. 화면 모델 자체는 docs/09로 확정되었다
-  (로그인 스크린→메인 로비→방 로비→게임 화면). Membership 센티널 분리(404/403)는
-  ADR-0015 슬라이스 (b)에서 정비되었다.
 - 방 퇴장·강퇴의 전송 계약. v1 WebSocket command에 leave/kick 타입이 없고 마지막
   사용자 퇴장 시 빈 방 즉시 삭제(docs/05)와 강퇴(docs/05)가 이를 필요로 한다.
-- 채팅 저장이 영구 실패해 소비된 room sequence에 이벤트 행이 남지 않을 때 재접속
-  누락 이벤트 조회의 연속성 판정과 `RESYNC_REQUIRED` 기준. ADR-0014 저장 구조에서
-  채팅 비복구(ADR-0010)와 sequence 공백이 만나는 지점이다.
 
 ## 방·운영 흐름 미결정
 

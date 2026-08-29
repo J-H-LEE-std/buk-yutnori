@@ -5,19 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"buk-yutnori/internal/auth"
+	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/protocol"
+	"buk-yutnori/internal/storage"
 )
 
 const chatTestUserID auth.UserID = "usr_EREREREREREREREREREREQ"
 
-func TestPrototypeChatRoomPublishesKoreanMessageToEverySubscriber(t *testing.T) {
+func TestLobbyChatRoomPublishesKoreanMessageToEverySubscriber(t *testing.T) {
 	clock := &chatTestClock{current: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
-	room := mustPrototypeChatRoom(t, clock.Now)
+	room := mustLobbyChatRoom(t, clock.Now)
 	sender := mustChatSubscription(t, room, chatTestUserID)
 	defer sender.Close()
 	observer := mustChatSubscription(t, room, auth.UserID("usr_IiIiIiIiIiIiIiIiIiIiIg"))
@@ -38,9 +41,9 @@ func TestPrototypeChatRoomPublishesKoreanMessageToEverySubscriber(t *testing.T) 
 	}
 }
 
-func TestPrototypeChatRoomProcessorReplaysWithoutRepublishing(t *testing.T) {
+func TestLobbyChatRoomProcessorReplaysWithoutRepublishing(t *testing.T) {
 	clock := &chatTestClock{current: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
-	room := mustPrototypeChatRoom(t, clock.Now)
+	room := mustLobbyChatRoom(t, clock.Now)
 	observer := mustChatSubscription(t, room, chatTestUserID)
 	defer observer.Close()
 	processor, err := NewProcessor(room)
@@ -66,9 +69,114 @@ func TestPrototypeChatRoomProcessorReplaysWithoutRepublishing(t *testing.T) {
 	assertNoChatEvent(t, observer)
 }
 
-func TestPrototypeChatRoomRejectsWrongRoomAndUnsupportedCommand(t *testing.T) {
+func TestLobbyChatRoomLogsAcceptedMessagesAsynchronouslyWithoutBlockingDelivery(t *testing.T) {
+	clock := &chatTestClock{current: time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)}
+	logs, err := storage.OpenSQLite(filepath.Join(t.TempDir(), "lobby-chat.db"))
+	if err != nil {
+		t.Fatalf("OpenSQLite() error = %v", err)
+	}
+	defer logs.Close()
+	room, err := NewLobbyChatRoom(NewRoomEventSequences(), clock.Now, logs)
+	if err != nil {
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
+	}
+	subscriber := mustChatSubscription(t, room, chatTestUserID)
+	defer subscriber.Close()
+
+	outcome, err := room.Execute(context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-log", "저장도 전송도"))
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	assertAcceptedChatSequence(t, outcome, 1)
+	if event := readChatEvent(t, subscriber); event.RoomID != LobbyChatRoomID || event.Payload.Text != "저장도 전송도" {
+		t.Fatalf("delivered event = %+v", event)
+	}
+
+	if err := room.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	rows, err := logs.ReadRoomEventsAfter(context.Background(), LobbyChatRoomID, 0)
+	if err != nil {
+		t.Fatalf("ReadRoomEventsAfter() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("logged rows = %+v, want exactly one", rows)
+	}
+	row := rows[0]
+	if row.RoomID != LobbyChatRoomID || row.Sequence != 1 || row.EventType != protocol.EventChatMessage || row.CreatedAtMS != clock.Now().UnixMilli() {
+		t.Fatalf("logged row metadata = %+v", row)
+	}
+	var event protocol.ChatMessageEvent
+	if err := json.Unmarshal(row.PayloadJSON, &event); err != nil {
+		t.Fatalf("json.Unmarshal(logged event) error = %v", err)
+	}
+	if event.RoomID != LobbyChatRoomID || event.Payload.Text != "저장도 전송도" {
+		t.Fatalf("logged event = %+v", event)
+	}
+}
+
+func TestLobbyChatRoomRestoresPersistedSequenceAcrossProcessStart(t *testing.T) {
+	clock := &chatTestClock{current: time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)}
+	logs, err := storage.OpenSQLite(filepath.Join(t.TempDir(), "lobby-chat-restart.db"))
+	if err != nil {
+		t.Fatalf("OpenSQLite() error = %v", err)
+	}
+	defer logs.Close()
+
+	first, err := NewLobbyChatRoom(NewRoomEventSequences(), clock.Now, logs)
+	if err != nil {
+		t.Fatalf("first NewLobbyChatRoom() error = %v", err)
+	}
+	if outcome, err := first.Execute(context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-before-restart", "첫 메시지")); err != nil {
+		t.Fatalf("first Execute() error = %v", err)
+	} else {
+		assertAcceptedChatSequence(t, outcome, 1)
+	}
+	if err := first.Close(context.Background()); err != nil {
+		t.Fatalf("first Close() error = %v", err)
+	}
+
+	second, err := NewLobbyChatRoom(NewRoomEventSequences(), clock.Now, logs)
+	if err != nil {
+		t.Fatalf("second NewLobbyChatRoom() error = %v", err)
+	}
+	defer second.Close(context.Background())
+	if outcome, err := second.Execute(context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-after-restart", "둘째 메시지")); err != nil {
+		t.Fatalf("second Execute() error = %v", err)
+	} else {
+		assertAcceptedChatSequence(t, outcome, 2)
+	}
+}
+
+func TestLobbyChatRoomDoesNotRejectDeliveryWhenLogPersistenceFails(t *testing.T) {
+	clock := &chatTestClock{current: time.Date(2026, 8, 29, 9, 0, 0, 0, time.UTC)}
+	logs := &recordingChatLogStore{appends: make(chan storage.EventRow, 1), err: errors.New("disk unavailable")}
+	room, err := NewLobbyChatRoom(NewRoomEventSequences(), clock.Now, logs)
+	if err != nil {
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
+	}
+	defer room.Close(context.Background())
+	subscriber := mustChatSubscription(t, room, chatTestUserID)
+	defer subscriber.Close()
+
+	outcome, err := room.Execute(context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-log-failure", "전송은 유지"))
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	assertAcceptedChatSequence(t, outcome, 1)
+	if event := readChatEvent(t, subscriber); event.Payload.Text != "전송은 유지" {
+		t.Fatalf("delivered event = %+v", event)
+	}
+	select {
+	case <-logs.appends:
+	case <-time.After(time.Second):
+		t.Fatal("failed best-effort append was not attempted")
+	}
+}
+
+func TestLobbyChatRoomRejectsWrongScopeAndUnsupportedCommand(t *testing.T) {
 	clock := &chatTestClock{current: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
-	room := mustPrototypeChatRoom(t, clock.Now)
+	room := mustLobbyChatRoom(t, clock.Now)
 	subscription := mustChatSubscription(t, room, chatTestUserID)
 	defer subscription.Close()
 
@@ -82,7 +190,7 @@ func TestPrototypeChatRoomRejectsWrongRoomAndUnsupportedCommand(t *testing.T) {
 
 	unsupported := protocol.ClientCommand{
 		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
-		Type: protocol.CommandSetReady, CommandID: "cmd-ready", RoomID: PrototypeRoomID,
+		Type: protocol.CommandSetReady, CommandID: "cmd-ready", RoomID: LobbyChatRoomID,
 		Payload: protocol.SetReadyPayload{Ready: true},
 	}
 	outcome, err = room.Execute(context.Background(), auth.User{ID: chatTestUserID}, unsupported)
@@ -93,8 +201,8 @@ func TestPrototypeChatRoomRejectsWrongRoomAndUnsupportedCommand(t *testing.T) {
 	assertNoChatEvent(t, subscription)
 }
 
-func TestPrototypeChatRoomProcessorDoesNotRetainUnknownRoomRejection(t *testing.T) {
-	room := mustPrototypeChatRoom(t, time.Now)
+func TestLobbyChatRoomProcessorDoesNotRetainUnknownScopeRejection(t *testing.T) {
+	room := mustLobbyChatRoom(t, time.Now)
 	processor, err := NewProcessor(room)
 	if err != nil {
 		t.Fatalf("NewProcessor() error = %v", err)
@@ -118,10 +226,10 @@ func TestPrototypeChatRoomProcessorDoesNotRetainUnknownRoomRejection(t *testing.
 	}
 }
 
-func TestPrototypeChatRoomAppliesRateDuplicateAndBlockPolicies(t *testing.T) {
+func TestLobbyChatRoomAppliesRateDuplicateAndBlockPolicies(t *testing.T) {
 	t.Run("sliding one second maximum", func(t *testing.T) {
 		clock := &chatTestClock{current: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
-		room := mustPrototypeChatRoom(t, clock.Now)
+		room := mustLobbyChatRoom(t, clock.Now)
 		subscription := mustChatSubscription(t, room, chatTestUserID)
 		defer subscription.Close()
 		for index := 1; index <= 3; index++ {
@@ -147,7 +255,7 @@ func TestPrototypeChatRoomAppliesRateDuplicateAndBlockPolicies(t *testing.T) {
 
 	t.Run("exact duplicate within five seconds", func(t *testing.T) {
 		clock := &chatTestClock{current: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
-		room := mustPrototypeChatRoom(t, clock.Now)
+		room := mustLobbyChatRoom(t, clock.Now)
 		subscription := mustChatSubscription(t, room, chatTestUserID)
 		defer subscription.Close()
 		first, err := room.Execute(context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-first", "repeat me"))
@@ -172,7 +280,7 @@ func TestPrototypeChatRoomAppliesRateDuplicateAndBlockPolicies(t *testing.T) {
 
 	t.Run("sixteenth attempt blocks for one minute", func(t *testing.T) {
 		clock := &chatTestClock{current: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
-		room := mustPrototypeChatRoom(t, clock.Now)
+		room := mustLobbyChatRoom(t, clock.Now)
 		for index := 1; index <= 15; index++ {
 			outcome, err := room.Execute(context.Background(), auth.User{ID: chatTestUserID}, chatCommand(fmt.Sprintf("cmd-%d", index), fmt.Sprintf("attempt-%d", index)))
 			if err != nil {
@@ -204,9 +312,9 @@ func TestPrototypeChatRoomAppliesRateDuplicateAndBlockPolicies(t *testing.T) {
 	})
 }
 
-func TestPrototypeChatRoomDisconnectsOverflowedSubscriberWithoutAffectingOthers(t *testing.T) {
+func TestLobbyChatRoomDisconnectsOverflowedSubscriberWithoutAffectingOthers(t *testing.T) {
 	clock := &chatTestClock{current: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)}
-	room := mustPrototypeChatRoom(t, clock.Now)
+	room := mustLobbyChatRoom(t, clock.Now)
 	slow := mustChatSubscription(t, room, chatTestUserID)
 	defer slow.Close()
 	fast := mustChatSubscription(t, room, auth.UserID("usr_IiIiIiIiIiIiIiIiIiIiIg"))
@@ -238,7 +346,7 @@ func TestPrototypeChatRoomDisconnectsOverflowedSubscriberWithoutAffectingOthers(
 	}
 }
 
-func TestPrototypeChatRoomSerializesClockObservationWithCommands(t *testing.T) {
+func TestLobbyChatRoomSerializesClockObservationWithCommands(t *testing.T) {
 	base := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 	firstClockEntered := make(chan struct{})
 	releaseFirstClock := make(chan struct{})
@@ -251,7 +359,7 @@ func TestPrototypeChatRoomSerializesClockObservationWithCommands(t *testing.T) {
 		}
 		return base.Add(time.Duration(call) * time.Millisecond)
 	}
-	room := mustPrototypeChatRoom(t, clock)
+	room := mustLobbyChatRoom(t, clock)
 	type execution struct {
 		outcome protocol.CommandOutcome
 		err     error
@@ -291,33 +399,33 @@ func TestPrototypeChatRoomSerializesClockObservationWithCommands(t *testing.T) {
 	}
 }
 
-func TestNewPrototypeChatRoomRejectsInvalidDependencies(t *testing.T) {
-	if room, err := NewPrototypeChatRoom(nil, time.Now); !errors.Is(err, ErrInvalidConfiguration) || room != nil {
-		t.Fatalf("NewPrototypeChatRoom(nil sequences) = %v, %v", room, err)
+func TestNewLobbyChatRoomRejectsInvalidDependencies(t *testing.T) {
+	if room, err := NewLobbyChatRoom(nil, time.Now, nil); !errors.Is(err, ErrInvalidConfiguration) || room != nil {
+		t.Fatalf("NewLobbyChatRoom(nil sequences) = %v, %v", room, err)
 	}
-	if room, err := NewPrototypeChatRoom(NewRoomEventSequences(), nil); !errors.Is(err, ErrInvalidConfiguration) || room != nil {
-		t.Fatalf("NewPrototypeChatRoom(nil clock) = %v, %v", room, err)
+	if room, err := NewLobbyChatRoom(NewRoomEventSequences(), nil, nil); !errors.Is(err, ErrInvalidConfiguration) || room != nil {
+		t.Fatalf("NewLobbyChatRoom(nil clock) = %v, %v", room, err)
 	}
 }
 
 func chatCommand(commandID, text string) protocol.ClientCommand {
 	return protocol.ClientCommand{
 		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
-		Type: protocol.CommandSendChat, CommandID: commandID, RoomID: PrototypeRoomID,
+		Type: protocol.CommandSendChat, CommandID: commandID, RoomID: LobbyChatRoomID,
 		Payload: protocol.SendChatPayload{Text: text},
 	}
 }
 
-func mustPrototypeChatRoom(t *testing.T, now func() time.Time) *PrototypeChatRoom {
+func mustLobbyChatRoom(t *testing.T, now func() time.Time) *LobbyChatRoom {
 	t.Helper()
-	room, err := NewPrototypeChatRoom(NewRoomEventSequences(), now)
+	room, err := NewLobbyChatRoom(NewRoomEventSequences(), now, nil)
 	if err != nil {
-		t.Fatalf("NewPrototypeChatRoom() error = %v", err)
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
 	}
 	return room
 }
 
-func mustChatSubscription(t *testing.T, room *PrototypeChatRoom, userID auth.UserID) ChatSubscription {
+func mustChatSubscription(t *testing.T, room *LobbyChatRoom, userID auth.UserID) ChatSubscription {
 	t.Helper()
 	subscription, err := room.Subscribe(auth.User{ID: userID})
 	if err != nil {
@@ -365,6 +473,22 @@ func assertChatRejection(t *testing.T, outcome protocol.CommandOutcome, code str
 
 type chatTestClock struct {
 	current time.Time
+}
+
+type recordingChatLogStore struct {
+	appends chan storage.EventRow
+	err     error
+}
+
+func (store *recordingChatLogStore) AppendRoomEvents(_ context.Context, rows []storage.EventRow) error {
+	for _, row := range rows {
+		store.appends <- row
+	}
+	return store.err
+}
+
+func (store *recordingChatLogStore) ReadRoomEventsAfter(context.Context, domain.RoomID, uint64) ([]storage.EventRow, error) {
+	return nil, nil
 }
 
 func (clock *chatTestClock) Now() time.Time {

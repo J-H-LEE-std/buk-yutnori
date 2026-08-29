@@ -17,9 +17,9 @@ const (
 
 var ErrInvalidServerEvent = errors.New("invalid server event")
 
-// ChatMessagePayload is the v1 public payload for a room chat event. Clients
-// resolve display names from authoritative room participant state; the event
-// keeps only the stable internal sender ID.
+// ChatMessagePayload is the v1 public payload for a chat event. The current
+// production scope is the authenticated `lobby` channel; the event keeps only
+// the stable internal sender ID until profile nicknames exist.
 type ChatMessagePayload struct {
 	MessageID    string      `json:"message_id"`
 	SenderUserID auth.UserID `json:"sender_user_id"`
@@ -27,7 +27,7 @@ type ChatMessagePayload struct {
 	SentAt       string      `json:"sent_at"`
 }
 
-// ChatMessageEvent is the typed v1 room-scoped CHAT_MESSAGE server event.
+// ChatMessageEvent is the typed v1 room_id-scoped CHAT_MESSAGE server event.
 type ChatMessageEvent struct {
 	Version   int                `json:"version"`
 	Direction Direction          `json:"direction"`

@@ -160,6 +160,10 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
 scope를 설정할 때 동일한 bundle staging 계약으로 동작한다. 비어 있지 않은 replay
 event source(ADR-0014)도 후속 구현이다.
 
+`room_id=lobby`의 전체 채팅은 실제 방 생명주기나 match scope가 아닌 독립 영구
+scope다. `SEND_CHAT`/`CHAT_MESSAGE`는 이 sequence 공간만 소비하며 `RECONNECT` bundle에
+포함하지 않는다. 새 연결은 구독 이후의 채팅만 표시한다(ADR-0018).
+
 ## 메시지 원칙
 
 이 절의 envelope는 WebSocket 메시지에만 적용한다. HTTP API 요청과 응답에는 적용하지 않는다.
@@ -174,7 +178,7 @@ event source(ADR-0014)도 후속 구현이다.
 방향과 범위에 따라 다음 필드를 추가로 요구한다.
 
 - 클라이언트 명령은 고유한 `command_id`가 필수다.
-- 서버 이벤트는 해당 방 생명주기 안에서 단조 증가하는 `sequence`가 필수다.
+- 서버 이벤트는 해당 `room_id` scope 안에서 단조 증가하는 `sequence`가 필수다.
 - 모든 서버 이벤트는 sequence 범위를 식별하는 `room_id`가 필수다.
 - 명령 처리 응답은 원래 명령의 `command_id`를 포함하고, 요청과 응답의 상관관계가 필요한 경우 동일한 `request_id`를 사용한다.
 - 방 관련 메시지는 `room_id`가 필수다.
@@ -258,10 +262,11 @@ event source(ADR-0014)도 후속 구현이다.
   `ForgetClosedRoom` 경계를 호출한다. 이 경계는 완료 결과를 제거하고 이미 실행
   중인 한 건은 중복과 결과를 공유한 채 완료한 직후 제거한다. processor는 방 입장
   권한이나 폐쇄 상태 자체를 판정하지 않는다.
-- 서버 이벤트는 방 생성부터 폐쇄까지 방별 단조 증가 `sequence`를 사용한다. 첫
-  이벤트는 `1`이고, 방의 현재 경계 `0`은 아직 이벤트가 없음을 뜻한다. 현재
+- 서버 이벤트는 각 `room_id` scope 안에서 단조 증가 `sequence`를 사용한다. 첫
+  이벤트는 `1`이고, scope의 현재 경계 `0`은 아직 이벤트가 없음을 뜻한다. 현재
   `game_snapshot`은 게임 시작 뒤 상태만 표현하므로 `sequence`가 항상 `1` 이상이다.
-- 대기실, 채팅, 경기와 경기 종료 뒤 대기실 이벤트는 같은 방 sequence를 공유한다.
+- 대기실, 경기와 경기 종료 뒤 대기실 이벤트는 같은 실제 방 sequence를 공유한다.
+  전체 채팅은 영구 `lobby` scope의 별도 sequence를 쓴다.
   경기 시작·종료와 재대결은 값을 초기화하지 않으며 `match_id`는 별도 sequence
   범위를 만들지 않는다.
 - 클라이언트는 마지막 적용 `sequence`를 `room_id`별로 보관한다.

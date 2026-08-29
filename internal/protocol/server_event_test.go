@@ -15,7 +15,7 @@ func TestNewChatMessageEventBuildsCanonicalServerEvent(t *testing.T) {
 	t.Parallel()
 
 	event, err := NewChatMessageEvent(
-		domain.RoomID("prototype-room"),
+		domain.RoomID("lobby"),
 		7,
 		auth.UserID("usr_EREREREREREREREREREREQ"),
 		"안녕하세요 👋",
@@ -28,7 +28,7 @@ func TestNewChatMessageEventBuildsCanonicalServerEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
-	want := `{"version":1,"direction":"server_event","type":"CHAT_MESSAGE","sequence":7,"room_id":"prototype-room","payload":{"message_id":"chat-7","sender_user_id":"usr_EREREREREREREREREREREQ","text":"안녕하세요 👋","sent_at":"2026-08-16T03:34:56.123Z"}}`
+	want := `{"version":1,"direction":"server_event","type":"CHAT_MESSAGE","sequence":7,"room_id":"lobby","payload":{"message_id":"chat-7","sender_user_id":"usr_EREREREREREREREREREREQ","text":"안녕하세요 👋","sent_at":"2026-08-16T03:34:56.123Z"}}`
 	if string(encoded) != want {
 		t.Fatalf("encoded event = %s\nwant = %s", encoded, want)
 	}
@@ -37,7 +37,7 @@ func TestNewChatMessageEventBuildsCanonicalServerEvent(t *testing.T) {
 func TestNewChatMessageEventRejectsInvalidValues(t *testing.T) {
 	t.Parallel()
 
-	validRoom := domain.RoomID("prototype-room")
+	validRoom := domain.RoomID("lobby")
 	validUser := auth.UserID("usr_EREREREREREREREREREREQ")
 	validTime := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 	tests := []struct {

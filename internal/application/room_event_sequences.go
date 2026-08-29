@@ -63,6 +63,22 @@ func (sequences *RoomEventSequences) Boundary(roomID domain.RoomID) (uint64, err
 	return sequences.values[roomID], nil
 }
 
+// RestoreBoundary installs a known committed boundary before a scope accepts
+// new events. It is for durable scopes restored at process start; callers
+// must serialize restoration before concurrent CommitNext calls begin.
+func (sequences *RoomEventSequences) RestoreBoundary(roomID domain.RoomID, boundary uint64) error {
+	if err := roomID.Validate(); err != nil {
+		return fmt.Errorf("%w: room_id: %v", ErrInvalidRoomEventSequence, err)
+	}
+	sequences.mutex.Lock()
+	defer sequences.mutex.Unlock()
+	if current := sequences.values[roomID]; current > boundary {
+		return fmt.Errorf("%w: cannot move %s boundary backwards from %d to %d", ErrInvalidRoomEventSequence, roomID, current, boundary)
+	}
+	sequences.values[roomID] = boundary
+	return nil
+}
+
 // ForgetClosedRoom releases a closed room's in-memory sequence boundary. The
 // room lifecycle owner must stop new event commits and finish any in-flight
 // commit before calling this method. Room identifiers are not reused.

@@ -185,6 +185,34 @@ func (store *SQLiteEventStore) ReadRoomEventsAfter(ctx context.Context, roomID d
 	return events, nil
 }
 
+// LatestRoomEventSequence returns a scope's durable sequence boundary without
+// loading its event payloads. It is used by permanent live-only scopes at
+// process start to avoid duplicate primary keys after restart.
+func (store *SQLiteEventStore) LatestRoomEventSequence(ctx context.Context, roomID domain.RoomID) (uint64, error) {
+	if store == nil || store.db == nil {
+		return 0, errors.New("sqlite event store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if err := roomID.Validate(); err != nil {
+		return 0, fmt.Errorf("invalid room_id: %w", err)
+	}
+	var sequence sql.NullInt64
+	if err := store.db.QueryRowContext(ctx,
+		`SELECT MAX(sequence) FROM room_events WHERE room_id = ?`, string(roomID),
+	).Scan(&sequence); err != nil {
+		return 0, fmt.Errorf("read latest event sequence: %w", err)
+	}
+	if !sequence.Valid {
+		return 0, nil
+	}
+	if sequence.Int64 < 0 {
+		return 0, errors.New("stored event sequence is negative")
+	}
+	return uint64(sequence.Int64), nil
+}
+
 // Close releases the underlying database handle.
 func (store *SQLiteEventStore) Close() error {
 	if store == nil || store.db == nil {

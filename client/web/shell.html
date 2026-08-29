@@ -228,7 +228,7 @@
       <span id="status" role="status">WASM 초기화 중…</span>
     </section>
     <section class="chat" aria-labelledby="chat-heading">
-      <h2 id="chat-heading">프로토타입 전체 채팅</h2>
+      <h2 id="chat-heading">로비 전체 채팅</h2>
       <ol id="chat-messages" aria-live="polite" aria-label="채팅 메시지"></ol>
       <form id="chat-form">
         <label class="visually-hidden" for="chat-input">채팅 메시지</label>
@@ -274,7 +274,7 @@
     const gameSessionTitle = document.getElementById("game-session-title");
     const gameSessionStatus = document.getElementById("game-session-status");
     const roomMembers = document.getElementById("room-members");
-    const PROTOTYPE_ROOM_ID = "prototype-room";
+    const LOBBY_CHAT_ROOM_ID = "lobby";
     const MAX_CHAT_CODE_POINTS = 200;
     const MAX_RENDERED_CHAT_MESSAGES = 100;
     const REALTIME_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 5000];
@@ -696,7 +696,7 @@
         fullResynchronizationAttempted = false;
         realtimeStatus.textContent = "실시간 서버 연결됨";
         setChatAvailable(true);
-        chatStatus.textContent = "prototype-room 전체 채팅에 연결됐습니다.";
+        chatStatus.textContent = "로비 전체 채팅에 연결됐습니다.";
         if (stateReconnectScope !== null) requestStateSynchronization(false);
       });
       socket.addEventListener("message", (event) => { handleRealtimeMessage(socket, event); });
@@ -1546,7 +1546,7 @@
         acceptGameEventCue(message);
         return;
       }
-      if (message.room_id !== PROTOTYPE_ROOM_ID) return;
+      if (message.room_id !== LOBBY_CHAT_ROOM_ID) return;
       if (message.direction === "server_event" && message.type === "CHAT_MESSAGE") {
         const payload = message.payload;
         if (!Number.isInteger(message.sequence) || message.sequence < 1
@@ -1712,7 +1712,7 @@
         direction: "client_command",
         type: "SEND_CHAT",
         command_id: commandID,
-        room_id: PROTOTYPE_ROOM_ID,
+        room_id: LOBBY_CHAT_ROOM_ID,
         payload: { text },
       }));
       chatInput.value = "";
