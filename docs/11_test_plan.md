@@ -194,6 +194,10 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 인증 WebSocket의 Origin 누락·cross-host·세션 누락·만료·저장 실패 거부
 - SQLite를 다시 연 뒤에도 같은 Google `sub`의 내부 사용자 ID와 유효·미폐기 30일
   session digest가 유지되며, 만료·폐기·digest/user ID 충돌은 원자적으로 거부
+- SQLite를 다시 연 뒤에도 nickname·공개 여부가 유지되며, 2~20 Unicode grapheme,
+  제어문자·양끝 공백·중복 nickname을 거부
+- 본인 profile 조회는 비공개 승패를 반환하고 공개 profile 조회는 비공개 사용자의
+  nickname만 반환. 인증 없는 수정과 다른 사용자 ID를 통한 수정은 거부
 - binary `1003`, 과대 메시지 `1009`, 비정상 command `1008` close
 - 유효한 한글 텍스트 command의 transport 왕복
 - 인증 `lobby` scope의 `SEND_CHAT`이 한 sequence만 소비하고 모든 활성 연결에 같은

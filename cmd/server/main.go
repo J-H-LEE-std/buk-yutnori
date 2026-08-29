@@ -63,6 +63,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	profileHandler, err := httpapi.NewProfileHandler(authService, eventStore)
+	if err != nil {
+		return err
+	}
 	roomsRegistry, err := application.NewRoomRegistry(time.Now)
 	if err != nil {
 		return err
@@ -107,7 +111,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	handler, err := server.NewHandler(authHandler, roomsHandler, websocketHandler, config.webRoot)
+	handler, err := server.NewHandler(authHandler, profileHandler, roomsHandler, websocketHandler, config.webRoot)
 	if err != nil {
 		return err
 	}
