@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "http_profiles.schema.json",
+  "title": "HTTP profile request and response payloads",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/saveProfileRequest"
+    },
+    {
+      "$ref": "#/$defs/privateProfileResponse"
+    },
+    {
+      "$ref": "#/$defs/publicProfileResponse"
+    },
+    {
+      "$ref": "#/$defs/errorResponse"
+    }
+  ],
+  "$defs": {
+    "userID": {
+      "type": "string",
+      "pattern": "^usr_[A-Za-z0-9_-]{22}$"
+    },
+    "nickname": {
+      "type": "string",
+      "description": "Server validation requires 2-20 Unicode grapheme clusters, no control character, and no leading or trailing whitespace."
+    },
+    "saveProfileRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nickname",
+        "is_public"
+      ],
+      "properties": {
+        "nickname": {
+          "$ref": "#/$defs/nickname"
+        },
+        "is_public": {
+          "type": "boolean"
+        }
+      }
+    },
+    "privateProfileResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "nickname",
+        "is_public",
+        "wins",
+        "losses"
+      ],
+      "properties": {
+        "user_id": {
+          "$ref": "#/$defs/userID"
+        },
+        "nickname": {
+          "$ref": "#/$defs/nickname"
+        },
+        "is_public": {
+          "type": "boolean"
+        },
+        "wins": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "losses": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "publicProfileResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_id",
+        "nickname"
+      ],
+      "properties": {
+        "user_id": {
+          "$ref": "#/$defs/userID"
+        },
+        "nickname": {
+          "$ref": "#/$defs/nickname"
+        }
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "enum": [
+            "request_not_allowed",
+            "json_required",
+            "invalid_request",
+            "invalid_nickname",
+            "nickname_taken",
+            "unauthenticated",
+            "profile_not_found",
+            "internal_error"
+          ]
+        }
+      }
+    }
+  }
+}

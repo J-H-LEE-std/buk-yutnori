@@ -10,6 +10,7 @@ import (
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
+	"buk-yutnori/internal/profile"
 )
 
 func openTestStore(t *testing.T) *SQLiteEventStore {
@@ -327,6 +328,66 @@ func TestSQLiteAuthSchemaCoexistsWithCanonicalEvents(t *testing.T) {
 	}
 	if foreignKeys != 1 {
 		t.Fatalf("foreign_keys = %d, want enabled", foreignKeys)
+	}
+}
+
+func TestSQLiteProfileStorePersistsProfilesAndEnforcesNicknameUniqueness(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "profile.db")
+	store, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("OpenSQLite() error = %v", err)
+	}
+	ctx := context.Background()
+	firstUserID := auth.UserID("usr_EREREREREREREREREREREQ")
+	secondUserID := auth.UserID("usr_IiIiIiIiIiIiIiIiIiIiIg")
+	issuedAt := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	for _, seed := range []struct {
+		subject string
+		userID  auth.UserID
+		digest  auth.SessionDigest
+	}{
+		{"profile-first-subject", firstUserID, sha256.Sum256([]byte("profile-first-session"))},
+		{"profile-second-subject", secondUserID, sha256.Sum256([]byte("profile-second-session"))},
+	} {
+		if _, err := store.IssueSession(ctx, auth.GoogleSubject(seed.subject), seed.userID, auth.NewSession{
+			Digest: seed.digest, CreatedAt: issuedAt, LastUsedAt: issuedAt, ExpiresAt: issuedAt.Add(auth.SessionLifetime),
+		}); err != nil {
+			t.Fatalf("IssueSession(%s) error = %v", seed.subject, err)
+		}
+	}
+	if err := store.Save(ctx, profile.Profile{UserID: firstUserID, Nickname: "가나다", Public: true}); err != nil {
+		t.Fatalf("Save(first profile) error = %v", err)
+	}
+	if err := store.Save(ctx, profile.Profile{UserID: secondUserID, Nickname: "가나다", Public: false}); !errors.Is(err, profile.ErrNicknameTaken) {
+		t.Fatalf("Save(duplicate nickname) error = %v, want ErrNicknameTaken", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	store, err = OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("reopen SQLite store error = %v", err)
+	}
+	defer store.Close()
+	got, err := store.Lookup(ctx, firstUserID)
+	if err != nil {
+		t.Fatalf("Lookup() error = %v", err)
+	}
+	if got != (profile.Profile{UserID: firstUserID, Nickname: "가나다", Public: true}) {
+		t.Fatalf("Lookup() = %+v", got)
+	}
+	if err := store.Save(ctx, profile.Profile{UserID: firstUserID, Nickname: "나다라", Public: false}); err != nil {
+		t.Fatalf("Save(profile update) error = %v", err)
+	}
+	updated, err := store.Lookup(ctx, firstUserID)
+	if err != nil || updated.Nickname != "나다라" || updated.Public || updated.Wins != 0 || updated.Losses != 0 {
+		t.Fatalf("updated profile = %+v, %v", updated, err)
+	}
+	if _, err := store.Lookup(ctx, secondUserID); !errors.Is(err, profile.ErrNotFound) {
+		t.Fatalf("Lookup(unconfigured profile) error = %v, want ErrNotFound", err)
 	}
 }
 

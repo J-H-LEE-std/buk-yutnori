@@ -10,8 +10,8 @@ import (
 )
 
 // NewHandler mounts versioned APIs before the generated static client.
-func NewHandler(authHandler, roomsHandler, websocketHandler http.Handler, webRoot string) (http.Handler, error) {
-	if authHandler == nil || roomsHandler == nil || websocketHandler == nil || webRoot == "" {
+func NewHandler(authHandler, profileHandler, roomsHandler, websocketHandler http.Handler, webRoot string) (http.Handler, error) {
+	if authHandler == nil || profileHandler == nil || roomsHandler == nil || websocketHandler == nil || webRoot == "" {
 		return nil, errors.New("invalid server configuration")
 	}
 	info, err := os.Stat(webRoot)
@@ -31,6 +31,8 @@ func NewHandler(authHandler, roomsHandler, websocketHandler http.Handler, webRoo
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/v1/auth/", authHandler)
+	mux.Handle("/api/v1/profile/", profileHandler)
+	mux.Handle("/api/v1/profiles/", profileHandler)
 	mux.Handle("/api/v1/rooms", roomsHandler)
 	mux.Handle("/api/v1/rooms/", roomsHandler)
 	mux.Handle("GET /api/v1/ws", websocketHandler)

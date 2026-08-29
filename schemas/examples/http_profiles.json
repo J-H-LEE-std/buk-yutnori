@@ -1,0 +1,20 @@
+[
+  {
+    "nickname": "가나다",
+    "is_public": true
+  },
+  {
+    "user_id": "usr_EREREREREREREREREREREQ",
+    "nickname": "가나다",
+    "is_public": true,
+    "wins": 0,
+    "losses": 0
+  },
+  {
+    "user_id": "usr_EREREREREREREREREREREQ",
+    "nickname": "가나다"
+  },
+  {
+    "error": "nickname_taken"
+  }
+]

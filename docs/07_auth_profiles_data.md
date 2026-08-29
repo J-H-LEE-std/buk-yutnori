@@ -49,7 +49,11 @@ ID로 인증되며, 마지막 사용 시각만 갱신하고 최초 생성 시각
 - 변경 주기 제한 없음
 - 중복 불가
 - 비속어 금칙어 목록은 v1 미지원
-- 길이, 허용 문자, 공백·제어문자 정책은 `docs/12_open_items.md`에 남아 있음
+- 2~20 Unicode extended grapheme cluster
+- UTF-8이어야 하며 제어문자를 포함할 수 없음
+- 앞뒤 공백은 허용하지 않음. 중간 공백은 허용함
+- 중복은 저장된 UTF-8 문자열의 정확한 일치로 판정함. v1은 Unicode case folding이나
+  normalization을 적용하지 않음
 
 ## 프로필
 
@@ -61,6 +65,11 @@ ID로 인증되며, 마지막 사용 시각만 갱신하고 최초 생성 시각
 - 공개 프로필 여부
 
 비공개 프로필은 닉네임만 보이고 승패를 숨긴다.
+
+인증된 사용자는 `GET`/`PUT /api/v1/profile/me`로 본인 profile을 조회·설정한다.
+`PUT`은 `X-Buk-Request: 1` JSON 요청만 받는다. `GET /api/v1/profiles/{user_id}`는
+공개 profile을 조회하며, profile이 비공개여도 닉네임만 반환한다. profile HTTP
+payload는 `schemas/http_profiles.schema.json`을 따른다.
 
 ## 전적
 
@@ -86,6 +95,10 @@ ID로 인증되며, 마지막 사용 시각만 갱신하고 최초 생성 시각
 - 채팅 기록
 - 접속 및 이탈 기록
 - 관리자 조치 기록
+
+`profiles` 행은 `users.user_id`에 1:1로 연결되며 nickname, 공개 여부, 승, 패를
+저장한다. 최초 profile 설정 전에는 행을 만들지 않는다. 승패의 초기값은 0이고,
+경기 종료에 따른 authoritative 갱신은 별도 match-runtime transaction으로 처리한다.
 
 진행 중 경기 이벤트를 저장하더라도 v1은 이를 복구에 사용하지 않는다.
 

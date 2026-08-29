@@ -14,10 +14,11 @@ import (
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
+	"buk-yutnori/internal/profile"
 	_ "modernc.org/sqlite"
 )
 
-const sqliteSchemaVersion = 2
+const sqliteSchemaVersion = 3
 
 // SQLiteEventStore is the canonical room-event and authentication store backed
 // by one local SQLite database file. Open one instance per process; the
@@ -27,6 +28,7 @@ type SQLiteEventStore struct {
 }
 
 var _ auth.Store = (*SQLiteEventStore)(nil)
+var _ profile.Store = (*SQLiteEventStore)(nil)
 
 // OpenSQLite opens or creates the database file and applies the canonical
 // schema. The returned store enables WAL journaling and full synchronous
@@ -78,6 +80,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 	expires_at_ms   INTEGER NOT NULL,
 	last_used_at_ms INTEGER NOT NULL,
 	revoked_at_ms   INTEGER,
+	FOREIGN KEY (user_id) REFERENCES users(user_id)
+) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS profiles (
+	user_id    TEXT    NOT NULL PRIMARY KEY,
+	nickname   TEXT    NOT NULL UNIQUE,
+	is_public  INTEGER NOT NULL DEFAULT 0 CHECK (is_public IN (0, 1)),
+	wins       INTEGER NOT NULL DEFAULT 0 CHECK (wins >= 0),
+	losses     INTEGER NOT NULL DEFAULT 0 CHECK (losses >= 0),
 	FOREIGN KEY (user_id) REFERENCES users(user_id)
 ) WITHOUT ROWID;
 `
@@ -258,6 +269,79 @@ func validateAuthNewSession(session auth.NewSession) error {
 	return nil
 }
 
+// Save creates or updates the caller-owned durable profile. Match result
+// accounting deliberately does not share this path: it is authoritative match
+// runtime work with separate transaction and audit requirements.
+func (store *SQLiteEventStore) Save(ctx context.Context, value profile.Profile) error {
+	if store == nil || store.db == nil {
+		return errors.New("sqlite event store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	public := 0
+	if value.Public {
+		public = 1
+	}
+	_, err := store.db.ExecContext(ctx, `INSERT INTO profiles (user_id, nickname, is_public)
+		VALUES (?, ?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET nickname = excluded.nickname, is_public = excluded.is_public`,
+		string(value.UserID), string(value.Nickname), public,
+	)
+	if err == nil {
+		return nil
+	}
+	if isUniqueViolation(err) {
+		return profile.ErrNicknameTaken
+	}
+	if isForeignKeyViolation(err) {
+		return profile.ErrNotFound
+	}
+	return fmt.Errorf("save profile: %w", err)
+}
+
+// Lookup returns one durable profile, including private statistics for the
+// HTTP boundary to decide which fields a specific response can expose.
+func (store *SQLiteEventStore) Lookup(ctx context.Context, userID auth.UserID) (profile.Profile, error) {
+	if store == nil || store.db == nil {
+		return profile.Profile{}, errors.New("sqlite event store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return profile.Profile{}, err
+	}
+	if err := userID.Validate(); err != nil {
+		return profile.Profile{}, err
+	}
+	var (
+		value    profile.Profile
+		public   int
+		wins     int64
+		losses   int64
+		nickname string
+	)
+	err := store.db.QueryRowContext(ctx,
+		`SELECT nickname, is_public, wins, losses FROM profiles WHERE user_id = ?`, string(userID),
+	).Scan(&nickname, &public, &wins, &losses)
+	if errors.Is(err, sql.ErrNoRows) {
+		return profile.Profile{}, profile.ErrNotFound
+	}
+	if err != nil {
+		return profile.Profile{}, fmt.Errorf("lookup profile: %w", err)
+	}
+	validatedNickname, err := profile.ParseNickname(nickname)
+	if err != nil || (public != 0 && public != 1) || wins < 0 || losses < 0 {
+		return profile.Profile{}, errors.New("stored profile violates canonical constraints")
+	}
+	value = profile.Profile{
+		UserID: userID, Nickname: validatedNickname, Public: public == 1,
+		Wins: uint64(wins), Losses: uint64(losses),
+	}
+	return value, nil
+}
+
 // AppendRoomEvents stores every row in one transaction: readers observe all
 // rows or none, and a duplicate (room_id, sequence) aborts the whole batch.
 func (store *SQLiteEventStore) AppendRoomEvents(ctx context.Context, rows []EventRow) error {
@@ -317,6 +401,10 @@ func (store *SQLiteEventStore) AppendRoomEvents(ctx context.Context, rows []Even
 
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+func isForeignKeyViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
 }
 
 // ReadRoomEventsAfter returns the room's stored events with sequence greater

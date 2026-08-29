@@ -21,6 +21,16 @@
 로그아웃은 같은 origin JavaScript가 보내는 JSON 요청만 사용하며
 `X-Buk-Request: 1` 헤더를 요구한다. 인증 응답은 캐시하지 않는다.
 
+### 프로필 HTTP 경로
+
+- `GET /api/v1/profile/me`: 로그인 세션의 전체 profile을 조회한다.
+- `PUT /api/v1/profile/me`: 로그인 세션의 nickname과 공개 여부를 설정·변경한다.
+- `GET /api/v1/profiles/{user_id}`: 공개 profile을 조회한다. 비공개 profile은
+  nickname만 반환한다.
+
+`PUT`은 `X-Buk-Request: 1` 헤더와 JSON을 요구한다. 모든 profile 응답은 캐시하지
+않으며 payload는 `schemas/http_profiles.schema.json`을 따른다.
+
 ### 방 목록·생성·입장 HTTP 경로
 
 v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구하고 join 타입이
