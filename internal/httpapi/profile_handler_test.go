@@ -83,6 +83,7 @@ func TestProfileHandlerValidatesInputAndMapsNicknameConflict(t *testing.T) {
 	}{
 		"invalid nickname": {`{"nickname":"가","is_public":true}`, http.StatusBadRequest, "invalid_nickname"},
 		"missing public":   {`{"nickname":"가나다"}`, http.StatusBadRequest, "invalid_request"},
+		"injected user id": {`{"user_id":"usr_IiIiIiIiIiIiIiIiIiIiIg","nickname":"가나다","is_public":true}`, http.StatusBadRequest, "invalid_request"},
 		"nickname taken":   {`{"nickname":"가나다","is_public":true}`, http.StatusConflict, "nickname_taken"},
 	} {
 		t.Run(name, func(t *testing.T) {
