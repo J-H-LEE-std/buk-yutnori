@@ -5,6 +5,15 @@ __pycache__/
 /build/
 /external/
 
+# Local SQLite runtime databases and their WAL sidecars. The schema is created
+# by OpenSQLite; these machine-local files are never source artifacts.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
 # Local independent-review guides, reports, and verification artifacts.
 /.local-verification/
 
