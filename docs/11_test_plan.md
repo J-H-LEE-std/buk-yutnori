@@ -194,14 +194,17 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 인증 WebSocket의 Origin 누락·cross-host·세션 누락·만료·저장 실패 거부
 - binary `1003`, 과대 메시지 `1009`, 비정상 command `1008` close
 - 유효한 한글 텍스트 command의 transport 왕복
-- 고정 프로토타입 방의 `SEND_CHAT`이 한 sequence만 소비하고 모든 활성 연결에 같은
-  `CHAT_MESSAGE`를 전달
+- 인증 `lobby` scope의 `SEND_CHAT`이 한 sequence만 소비하고 모든 활성 연결에 같은
+  `CHAT_MESSAGE`를 전달하며 `prototype-room`과 임의 방 scope는 거부
 - 동일 `command_id` 재전송이 채팅 event를 다시 발행하지 않고 최초 응답만 반환
 - sliding 1초 3개, 5초 16번째 시도 1분 차단, 동일 텍스트 5초 제한
 - bounded chat queue가 가득 찬 연결을 종료하고 다른 연결 전달은 유지
 - backpressure 종료가 진행 중인 write context를 먼저 취소하지 않고 실제 WebSocket
   `1013 event_backpressure` close frame을 전달
 - 채팅 DOM 렌더링이 HTML을 실행하지 않고 text로 보존
+- 메인 로비 셸이 `room_id=lobby`만 전송·표시하고 다른 scope의 `CHAT_MESSAGE`를 무시
+- 채팅 로그가 비동기 SQLite 행으로 남고, 프로세스 재시작 뒤 저장된 최대 sequence에서
+  계속되며, append 실패가 승인·전달·경기를 막지 않음
 - 다중 탭
 - 관전자 입퇴장
 - 게임 종료 후 대기실
@@ -242,6 +245,6 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 결과 토큰은 한 번만 소비됨
 - 북 장벽을 건너뛸 수 없음
 - 턴 소유자가 아닌 사용자의 명령은 거부됨
-- 같은 방의 대기실·채팅·경기·재대결 서버 이벤트 sequence가 `1`부터 중복·공백·
-  초기화 없이 증가하고, 서로 다른 방의 sequence는 독립적임
+- 같은 실제 방의 대기실·경기·재대결 서버 이벤트 sequence가 `1`부터 중복·공백·
+  초기화 없이 증가하고, `lobby` 전체 채팅과 서로 다른 방의 sequence는 독립적임
 - 승리 후 추가 이동이 적용되지 않음

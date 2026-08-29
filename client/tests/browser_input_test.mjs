@@ -671,6 +671,48 @@ try {
     throw new Error(`chat renderer did not preserve text safely: ${JSON.stringify(safeChat)}`);
   }
 
+  const lobbyChatFlow = await evaluate(`(() => {
+    const sent = [];
+    const socket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
+    const messages = document.getElementById("chat-messages");
+    const input = document.getElementById("chat-input");
+    const form = document.getElementById("chat-form");
+    realtimeSocket = socket;
+    setChatAvailable(true);
+    input.value = "로비에서 보낸 메시지";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    const command = sent[0];
+    const beforeWrongScope = messages.childElementCount;
+    handleRealtimeMessage(socket, { data: JSON.stringify({
+      version: 1, direction: "server_event", type: "CHAT_MESSAGE", sequence: 1,
+      room_id: "prototype-room", payload: { sender_user_id: "wrong", text: "ignored" },
+    }) });
+    const wrongScopeIgnored = messages.childElementCount === beforeWrongScope;
+    handleRealtimeMessage(socket, { data: JSON.stringify({
+      version: 1, direction: "server_event", type: "CHAT_MESSAGE", sequence: 1,
+      room_id: "lobby", payload: { sender_user_id: "user-lobby", text: "서버 확정" },
+    }) });
+    handleRealtimeMessage(socket, { data: JSON.stringify({
+      version: 1, direction: "server_response", type: "COMMAND_RESULT",
+      command_id: command?.command_id, room_id: "lobby",
+      payload: { status: "accepted" },
+    }) });
+    const result = {
+      command, wrongScopeIgnored, lastMessage: messages.lastElementChild?.textContent,
+      status: document.getElementById("chat-status").textContent, inputCleared: input.value === "",
+    };
+    realtimeSocket = null;
+    setChatAvailable(false);
+    document.getElementById("ime-input").focus();
+    return result;
+  })()`);
+  if (lobbyChatFlow.command?.type !== "SEND_CHAT" || lobbyChatFlow.command?.room_id !== "lobby"
+      || lobbyChatFlow.command?.payload?.text !== "로비에서 보낸 메시지"
+      || !lobbyChatFlow.wrongScopeIgnored || lobbyChatFlow.lastMessage !== "user-lobby: 서버 확정"
+      || lobbyChatFlow.status !== "메시지가 서버에서 확정됐습니다." || !lobbyChatFlow.inputCleared) {
+    throw new Error(`lobby chat UI flow was not scope-safe: ${JSON.stringify(lobbyChatFlow)}`);
+  }
+
   const reconnectRuntime = await evaluate(`(() => {
     Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
     const initial = {

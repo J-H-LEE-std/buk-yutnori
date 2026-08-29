@@ -81,22 +81,22 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	prototypeRuntime, err := application.NewPrototypeRealtimeApplication(time.Now, roomsRegistry)
+	realtimeRuntime, err := application.NewRealtimeApplication(time.Now, roomsRegistry, eventStore)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		closeContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if closeErr := prototypeRuntime.Close(closeContext); closeErr != nil {
-			slog.Error("prototype realtime application shutdown failed", "error", closeErr)
+		if closeErr := realtimeRuntime.Close(closeContext); closeErr != nil {
+			slog.Error("realtime application shutdown failed", "error", closeErr)
 		}
 	}()
-	realtimeSession, err := wsapi.NewRealtimeSession(prototypeRuntime.Processor(), prototypeRuntime.ChatEvents())
+	realtimeSession, err := wsapi.NewRealtimeSession(realtimeRuntime.Processor(), realtimeRuntime.LobbyChatEvents())
 	if err != nil {
 		return err
 	}
-	if err := realtimeSession.SetLobbyEvents(prototypeRuntime.Lobbies()); err != nil {
+	if err := realtimeSession.SetLobbyEvents(realtimeRuntime.Lobbies()); err != nil {
 		return err
 	}
 	websocketHandler, err := wsapi.NewHandler(
@@ -133,8 +133,8 @@ func run() error {
 
 	slog.Warn("using in-memory authentication store; sessions do not survive restart")
 	slog.Warn(
-		"using in-memory prototype room, room registry, and match runtime; state does not survive restart",
-		"room_id", application.PrototypeRoomID,
+		"using in-memory room registry and match runtime; state does not survive restart",
+		"lobby_chat_room_id", application.LobbyChatRoomID,
 	)
 	slog.Info("serving local prototype", "address", config.listenAddr, "web_root", config.webRoot)
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

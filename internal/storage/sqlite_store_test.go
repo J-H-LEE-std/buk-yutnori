@@ -133,6 +133,29 @@ func TestAppendRoomEventsIsAtomicAndRejectsDuplicates(t *testing.T) {
 	}
 }
 
+func TestLatestRoomEventSequenceDoesNotLoadEventPayloads(t *testing.T) {
+	t.Parallel()
+
+	store := openTestStore(t)
+	defer store.Close()
+	roomID := domain.RoomID("lobby")
+	if err := store.AppendRoomEvents(context.Background(), []EventRow{
+		{RoomID: roomID, Sequence: 4, EventType: "CHAT_MESSAGE", PayloadJSON: []byte(`{"text":"first"}`)},
+		{RoomID: roomID, Sequence: 9, EventType: "CHAT_MESSAGE", PayloadJSON: []byte(`{"text":"last"}`)},
+	}); err != nil {
+		t.Fatalf("AppendRoomEvents() error = %v", err)
+	}
+
+	boundary, err := store.LatestRoomEventSequence(context.Background(), roomID)
+	if err != nil || boundary != 9 {
+		t.Fatalf("LatestRoomEventSequence() = %d, %v, want 9, nil", boundary, err)
+	}
+	empty, err := store.LatestRoomEventSequence(context.Background(), domain.RoomID("empty-scope"))
+	if err != nil || empty != 0 {
+		t.Fatalf("LatestRoomEventSequence(empty) = %d, %v, want 0, nil", empty, err)
+	}
+}
+
 func TestClosedStoreRejectsOperations(t *testing.T) {
 	t.Parallel()
 

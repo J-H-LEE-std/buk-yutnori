@@ -113,6 +113,24 @@ func TestRoomEventSequencesForgetClosedRoomRemovesOnlyThatBoundary(t *testing.T)
 	}
 }
 
+func TestRoomEventSequencesRestoreBoundarySeedsNextCommit(t *testing.T) {
+	t.Parallel()
+
+	sequences := NewRoomEventSequences()
+	roomID := domain.RoomID("durable-scope")
+	if err := sequences.RestoreBoundary(roomID, 41); err != nil {
+		t.Fatalf("RestoreBoundary() error = %v", err)
+	}
+	assertBoundary(t, sequences, roomID, 41)
+	next, err := sequences.CommitNext(roomID)
+	if err != nil || next != 42 {
+		t.Fatalf("CommitNext() = %d, %v, want 42, nil", next, err)
+	}
+	if err := sequences.RestoreBoundary(roomID, 1); !errors.Is(err, ErrInvalidRoomEventSequence) {
+		t.Fatalf("backward RestoreBoundary() error = %v, want %v", err, ErrInvalidRoomEventSequence)
+	}
+}
+
 func assertCommittedSequence(t *testing.T, sequences *RoomEventSequences, roomID domain.RoomID, want uint64) {
 	t.Helper()
 	got, err := sequences.CommitNext(roomID)

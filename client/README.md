@@ -70,11 +70,12 @@ BUK_GOOGLE_CLIENT_ID="<web-client-id>.apps.googleusercontent.com" \
 서버 세션은 HttpOnly 쿠키라 JavaScript나 C/WASM에서 읽을 수 없다.
 
 유효한 세션이 확인되면 셸은 같은 origin의 `/api/v1/ws`에 연결하고 로그인 영역에
-실시간 연결 상태를 표시한다. 로그인한 연결은 Milestone 2 전용
-`prototype-room`에 자동 구독하며, HTML 채팅 입력의 `SEND_CHAT`을 멱등 application
-processor로 전달한다. 서버가 확정한 `CHAT_MESSAGE`는 같은 방의 모든 활성 연결에
-전달되고 셸은 내용을 DOM `textContent`로 렌더링한다. 닉네임 경계가 아직 없으므로
-현재 발신자는 내부 `user_id`로 표시한다.
+실시간 연결 상태를 표시한다. 로그인한 연결은 정식 `lobby` 전체 채팅 scope에 자동
+구독하며, HTML 채팅 입력의 `SEND_CHAT`을 멱등 application processor로 전달한다.
+서버가 확정한 `CHAT_MESSAGE`는 모든 활성 인증 연결에 전달되고 셸은 내용을 DOM
+`textContent`로 렌더링한다. 승인 메시지는 비차단 최선노력으로 SQLite 로그에 남지만
+새로고침·재접속 시 과거 목록을 replay하지 않는다. 닉네임 경계가 아직 없으므로 현재
+발신자는 내부 `user_id`로 표시한다.
 
 브라우저는 로그인 시 재접속 scope를 임의로 만들지 않는다(ADR-0013 은퇴, #82).
 재접속 machinery(`setStateReconnectScope` → `RECONNECT` → bundle staging)는 유지되며,

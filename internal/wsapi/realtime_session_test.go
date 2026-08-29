@@ -17,9 +17,9 @@ import (
 )
 
 func TestRealtimeSessionBroadcastsChatAndReplaysOnlyCommandResult(t *testing.T) {
-	room, err := application.NewPrototypeChatRoom(application.NewRoomEventSequences(), time.Now)
+	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
 	if err != nil {
-		t.Fatalf("NewPrototypeChatRoom() error = %v", err)
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
 	}
 	processor, err := application.NewProcessor(room)
 	if err != nil {
@@ -45,14 +45,14 @@ func TestRealtimeSessionBroadcastsChatAndReplaysOnlyCommandResult(t *testing.T) 
 	defer observer.CloseNow()
 
 	// A response proves that the observer session subscribed before the chat.
-	observerReady := []byte(`{"version":1,"direction":"client_command","type":"SET_READY","command_id":"observer-ready","room_id":"prototype-room","payload":{"ready":true}}`)
+	observerReady := []byte(`{"version":1,"direction":"client_command","type":"SET_READY","command_id":"observer-ready","room_id":"lobby","payload":{"ready":true}}`)
 	var readyResult protocol.CommandResult
 	readWebSocketJSON(t, observer, observerReady, &readyResult)
 	if readyResult.Payload.Status != protocol.CommandRejected {
 		t.Fatalf("observer ready result = %+v", readyResult)
 	}
 
-	message := []byte(`{"version":1,"direction":"client_command","type":"SEND_CHAT","command_id":"chat-1","room_id":"prototype-room","payload":{"text":"두 브라우저 한글 채팅"}}`)
+	message := []byte(`{"version":1,"direction":"client_command","type":"SEND_CHAT","command_id":"chat-1","room_id":"lobby","payload":{"text":"두 브라우저 한글 채팅"}}`)
 	writeCommand(t, sender, message)
 	var senderResult protocol.CommandResult
 	var senderEvent protocol.ChatMessageEvent
@@ -95,21 +95,21 @@ func TestRealtimeSessionBroadcastsChatAndReplaysOnlyCommandResult(t *testing.T) 
 	assertNoWebSocketFrame(t, observer)
 }
 
-func TestRealtimeSessionRejectsRetiredPrototypeMatchReconnectOverWebSocket(t *testing.T) {
+func TestRealtimeSessionRejectsLobbyScopeReconnectOverWebSocket(t *testing.T) {
 	lobbies, err := application.NewRoomRegistry(time.Now)
 	if err != nil {
 		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
 	}
-	applicationRuntime, err := application.NewPrototypeRealtimeApplication(time.Now, lobbies)
+	applicationRuntime, err := application.NewRealtimeApplication(time.Now, lobbies, nil)
 	if err != nil {
-		t.Fatalf("NewPrototypeRealtimeApplication() error = %v", err)
+		t.Fatalf("NewRealtimeApplication() error = %v", err)
 	}
 	defer func() {
 		if err := applicationRuntime.Close(context.Background()); err != nil {
 			t.Fatalf("Close() error = %v", err)
 		}
 	}()
-	session, err := NewRealtimeSession(applicationRuntime.Processor(), applicationRuntime.ChatEvents())
+	session, err := NewRealtimeSession(applicationRuntime.Processor(), applicationRuntime.LobbyChatEvents())
 	if err != nil {
 		t.Fatalf("NewRealtimeSession() error = %v", err)
 	}
@@ -122,10 +122,9 @@ func TestRealtimeSessionRejectsRetiredPrototypeMatchReconnectOverWebSocket(t *te
 	}
 	defer client.CloseNow()
 
-	// ADR-0013's fixed prototype-match scope is retired (issue #82): the
-	// WebSocket path must reject RECONNECT for the non-registry prototype
+	// The WebSocket path must reject RECONNECT for the non-registry lobby
 	// room without consuming a sequence and without retaining the result.
-	full := []byte(`{"version":1,"direction":"client_command","type":"RECONNECT","command_id":"sync-full","room_id":"prototype-room","match_id":"prototype-match","payload":{"last_sequence":0}}`)
+	full := []byte(`{"version":1,"direction":"client_command","type":"RECONNECT","command_id":"sync-full","room_id":"lobby","match_id":"prototype-match","payload":{"last_sequence":0}}`)
 	var rejected protocol.CommandResult
 	readWebSocketJSON(t, client, full, &rejected)
 	if rejected.Payload.Status != protocol.CommandRejected || rejected.Payload.Error == nil ||
@@ -146,9 +145,9 @@ func TestRealtimeSessionRejectsRetiredPrototypeMatchReconnectOverWebSocket(t *te
 }
 
 func TestNewRealtimeSessionRejectsMissingDependencies(t *testing.T) {
-	room, err := application.NewPrototypeChatRoom(application.NewRoomEventSequences(), time.Now)
+	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
 	if err != nil {
-		t.Fatalf("NewPrototypeChatRoom() error = %v", err)
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
 	}
 	processor, err := application.NewProcessor(room)
 	if err != nil {
@@ -163,9 +162,9 @@ func TestNewRealtimeSessionRejectsMissingDependencies(t *testing.T) {
 }
 
 func TestRealtimeSessionInitiatesBackpressureCloseBeforeEndingBlockedWrite(t *testing.T) {
-	room, err := application.NewPrototypeChatRoom(application.NewRoomEventSequences(), time.Now)
+	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
 	if err != nil {
-		t.Fatalf("NewPrototypeChatRoom() error = %v", err)
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
 	}
 	processor, err := application.NewProcessor(room)
 	if err != nil {
@@ -218,9 +217,9 @@ func TestRealtimeSessionInitiatesBackpressureCloseBeforeEndingBlockedWrite(t *te
 }
 
 func TestRealtimeSessionSendsTryAgainLaterWhenSubscriptionIsDropped(t *testing.T) {
-	room, err := application.NewPrototypeChatRoom(application.NewRoomEventSequences(), time.Now)
+	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
 	if err != nil {
-		t.Fatalf("NewPrototypeChatRoom() error = %v", err)
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
 	}
 	processor, err := application.NewProcessor(room)
 	if err != nil {
@@ -257,9 +256,9 @@ func TestRealtimeSessionSendsTryAgainLaterWhenSubscriptionIsDropped(t *testing.T
 }
 
 func TestRealtimeSessionClosesInvalidSubscription(t *testing.T) {
-	room, err := application.NewPrototypeChatRoom(application.NewRoomEventSequences(), time.Now)
+	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
 	if err != nil {
-		t.Fatalf("NewPrototypeChatRoom() error = %v", err)
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
 	}
 	processor, err := application.NewProcessor(room)
 	if err != nil {

@@ -13,14 +13,13 @@ import (
 	"buk-yutnori/internal/protocol"
 )
 
-// ADR-0013 retired the fixed prototype-match reconnect scope (issue #82).
-// The prototype room keeps only its chat scope; it is not a registry room,
+// The lobby chat scope is not a registry room,
 // so RECONNECT against it is a retriable ROOM_NOT_FOUND that never consumes
 // a sequence and is not retained as an idempotent result.
-func TestPrototypeRealtimeApplicationRejectsRetiredPrototypeMatchScope(t *testing.T) {
+func TestRealtimeApplicationRejectsLobbyScopeReconnect(t *testing.T) {
 	t.Parallel()
-	application := mustPrototypeRealtimeApplication(t, time.Now)
-	defer closePrototypeRealtimeApplication(t, application)
+	application := mustRealtimeApplication(t, time.Now)
+	defer closeRealtimeApplication(t, application)
 
 	command := reconnectCommand("cmd-reconnect-retired", 0)
 	result, err := application.Processor().Process(context.Background(), auth.User{ID: chatTestUserID}, command)
@@ -42,13 +41,13 @@ func TestPrototypeRealtimeApplicationRejectsRetiredPrototypeMatchScope(t *testin
 		t.Fatalf("retried reconnect Process() error = %v", err)
 	}
 	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
-	assertBoundary(t, application.sequences, PrototypeRoomID, 0)
+	assertBoundary(t, application.sequences, LobbyChatRoomID, 0)
 }
 
-func TestPrototypeRealtimeApplicationChatSequencesStartAtOne(t *testing.T) {
+func TestRealtimeApplicationLobbyChatSequencesStartAtOne(t *testing.T) {
 	t.Parallel()
-	application := mustPrototypeRealtimeApplication(t, time.Now)
-	defer closePrototypeRealtimeApplication(t, application)
+	application := mustRealtimeApplication(t, time.Now)
+	defer closeRealtimeApplication(t, application)
 
 	chatResult, err := application.Processor().Process(
 		context.Background(),
@@ -61,13 +60,13 @@ func TestPrototypeRealtimeApplicationChatSequencesStartAtOne(t *testing.T) {
 	if chatResult.Payload.EventSequenceStart == nil || *chatResult.Payload.EventSequenceStart != 1 {
 		t.Fatalf("chat result = %+v, want sequence 1 without bootstrap event", chatResult)
 	}
-	assertBoundary(t, application.sequences, PrototypeRoomID, 1)
+	assertBoundary(t, application.sequences, LobbyChatRoomID, 1)
 }
 
-func TestPrototypeRealtimeApplicationRoutesUnknownRoomMatchCommandToRegistry(t *testing.T) {
+func TestRealtimeApplicationRoutesUnknownRoomMatchCommandToRegistry(t *testing.T) {
 	t.Parallel()
-	application := mustPrototypeRealtimeApplication(t, time.Now)
-	defer closePrototypeRealtimeApplication(t, application)
+	application := mustRealtimeApplication(t, time.Now)
+	defer closeRealtimeApplication(t, application)
 
 	matchID := domain.MatchID("any-match")
 	command := protocol.ClientCommand{
@@ -83,7 +82,7 @@ func TestPrototypeRealtimeApplicationRoutesUnknownRoomMatchCommandToRegistry(t *
 	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
 }
 
-func TestPrototypeRealtimeApplicationRoutesLobbyCommandsToRegistry(t *testing.T) {
+func TestRealtimeApplicationRoutesRoomLobbyCommandsToRegistry(t *testing.T) {
 	t.Parallel()
 	lobbies, err := NewRoomRegistry(time.Now)
 	if err != nil {
@@ -98,8 +97,8 @@ func TestPrototypeRealtimeApplicationRoutesLobbyCommandsToRegistry(t *testing.T)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	application := mustPrototypeRealtimeApplicationWithLobbies(t, time.Now, lobbies)
-	defer closePrototypeRealtimeApplication(t, application)
+	application := mustRealtimeApplicationWithLobbies(t, time.Now, lobbies)
+	defer closeRealtimeApplication(t, application)
 
 	selectTeam := protocol.ClientCommand{
 		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
@@ -151,7 +150,7 @@ func TestPrototypeRealtimeApplicationRoutesLobbyCommandsToRegistry(t *testing.T)
 	assertReconnectRejection(t, result, "ROOM_NOT_FOUND", true)
 }
 
-func TestPrototypeRealtimeApplicationSerializesChatThroughActor(t *testing.T) {
+func TestRealtimeApplicationSerializesLobbyChatThroughActor(t *testing.T) {
 	clockEntered := make(chan struct{})
 	releaseClock := make(chan struct{})
 	clock := func() time.Time {
@@ -159,13 +158,13 @@ func TestPrototypeRealtimeApplicationSerializesChatThroughActor(t *testing.T) {
 		<-releaseClock
 		return time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
 	}
-	application := mustPrototypeRealtimeApplication(t, clock)
+	application := mustRealtimeApplication(t, clock)
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(releaseClock) }) }
 	defer release()
 	// Registered after release so a failing assertion releases the blocked
 	// chat execution before the actor Close waits on it.
-	defer closePrototypeRealtimeApplication(t, application)
+	defer closeRealtimeApplication(t, application)
 	type processResult struct {
 		result protocol.CommandResult
 		err    error
@@ -205,9 +204,9 @@ func TestPrototypeRealtimeApplicationSerializesChatThroughActor(t *testing.T) {
 	}
 }
 
-func TestPrototypeRealtimeApplicationCloseReleasesRoomLifetimeState(t *testing.T) {
+func TestRealtimeApplicationCloseReleasesLobbyChatLifetimeState(t *testing.T) {
 	t.Parallel()
-	application := mustPrototypeRealtimeApplication(t, time.Now)
+	application := mustRealtimeApplication(t, time.Now)
 	if _, err := application.Processor().Process(
 		context.Background(), auth.User{ID: chatTestUserID}, chatCommand("cmd-retained-before-close", "kept"),
 	); err != nil {
@@ -216,7 +215,7 @@ func TestPrototypeRealtimeApplicationCloseReleasesRoomLifetimeState(t *testing.T
 	if err := application.Close(context.Background()); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
-	assertBoundary(t, application.sequences, PrototypeRoomID, 0)
+	assertBoundary(t, application.sequences, LobbyChatRoomID, 0)
 	application.processor.mu.Lock()
 	entryCount := len(application.processor.entries)
 	application.processor.mu.Unlock()
@@ -235,30 +234,30 @@ func reconnectCommand(commandID string, lastSequence uint64) protocol.ClientComm
 	matchID := domain.MatchID("prototype-match")
 	return protocol.ClientCommand{
 		Version: protocol.Version1, Direction: protocol.DirectionClientCommand,
-		Type: protocol.CommandReconnect, CommandID: commandID, RoomID: PrototypeRoomID,
+		Type: protocol.CommandReconnect, CommandID: commandID, RoomID: LobbyChatRoomID,
 		MatchID: &matchID, Payload: protocol.ReconnectPayload{LastSequence: lastSequence},
 	}
 }
 
-func mustPrototypeRealtimeApplication(t *testing.T, now func() time.Time) *PrototypeRealtimeApplication {
+func mustRealtimeApplication(t *testing.T, now func() time.Time) *RealtimeApplication {
 	t.Helper()
 	lobbies, err := NewRoomRegistry(time.Now)
 	if err != nil {
 		t.Fatalf("NewRoomRegistry(time.Now) error = %v", err)
 	}
-	return mustPrototypeRealtimeApplicationWithLobbies(t, now, lobbies)
+	return mustRealtimeApplicationWithLobbies(t, now, lobbies)
 }
 
-func mustPrototypeRealtimeApplicationWithLobbies(t *testing.T, now func() time.Time, lobbies *RoomRegistry) *PrototypeRealtimeApplication {
+func mustRealtimeApplicationWithLobbies(t *testing.T, now func() time.Time, lobbies *RoomRegistry) *RealtimeApplication {
 	t.Helper()
-	application, err := NewPrototypeRealtimeApplication(now, lobbies)
+	application, err := NewRealtimeApplication(now, lobbies, nil)
 	if err != nil {
-		t.Fatalf("NewPrototypeRealtimeApplication() error = %v", err)
+		t.Fatalf("NewRealtimeApplication() error = %v", err)
 	}
 	return application
 }
 
-func closePrototypeRealtimeApplication(t *testing.T, application *PrototypeRealtimeApplication) {
+func closeRealtimeApplication(t *testing.T, application *RealtimeApplication) {
 	t.Helper()
 	if err := application.Close(context.Background()); err != nil {
 		t.Fatalf("Close() error = %v", err)
