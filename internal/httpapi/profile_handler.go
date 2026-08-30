@@ -110,7 +110,14 @@ func (h *profileHandler) saveMe(response http.ResponseWriter, request *http.Requ
 		}
 		return
 	}
-	writeJSON(response, http.StatusOK, privateResponse(value))
+	persisted, err := h.store.Lookup(request.Context(), user.ID)
+	if err != nil {
+		// The profile write already succeeded. Do not turn that success into an
+		// error merely because the optional confirmation read failed.
+		writeJSON(response, http.StatusOK, privateResponse(value))
+		return
+	}
+	writeJSON(response, http.StatusOK, privateResponse(persisted))
 }
 
 func (h *profileHandler) getPublic(response http.ResponseWriter, request *http.Request) {

@@ -18,7 +18,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const sqliteSchemaVersion = 3
+const sqliteSchemaVersion = 4
 
 // SQLiteEventStore is the canonical room-event and authentication store backed
 // by one local SQLite database file. Open one instance per process; the
@@ -29,6 +29,7 @@ type SQLiteEventStore struct {
 
 var _ auth.Store = (*SQLiteEventStore)(nil)
 var _ profile.Store = (*SQLiteEventStore)(nil)
+var _ MatchResultStore = (*SQLiteEventStore)(nil)
 
 // OpenSQLite opens or creates the database file and applies the canonical
 // schema. The returned store enables WAL journaling and full synchronous
@@ -46,6 +47,11 @@ func OpenSQLite(path string) (*SQLiteEventStore, error) {
 	// cross-connection locking concerns; the application serializes commits.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
+	var priorSchemaVersion int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&priorSchemaVersion); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("read schema version: %w", err)
+	}
 
 	for _, pragma := range []string{
 		"PRAGMA journal_mode = WAL",
@@ -91,10 +97,28 @@ CREATE TABLE IF NOT EXISTS profiles (
 	losses     INTEGER NOT NULL DEFAULT 0 CHECK (losses >= 0),
 	FOREIGN KEY (user_id) REFERENCES users(user_id)
 ) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS user_stats (
+	user_id TEXT    NOT NULL PRIMARY KEY,
+	wins    INTEGER NOT NULL DEFAULT 0 CHECK (wins >= 0),
+	losses  INTEGER NOT NULL DEFAULT 0 CHECK (losses >= 0),
+	FOREIGN KEY (user_id) REFERENCES users(user_id)
+) WITHOUT ROWID;
 `
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("create canonical schema: %w", err)
+	}
+	// Versions before user_stats kept inactive zero-valued statistics on
+	// profiles. Preserve any non-zero data created by an earlier deployment
+	// before making user_stats the authoritative counter location.
+	if priorSchemaVersion < 4 {
+		if _, err := db.Exec(`INSERT OR IGNORE INTO user_stats (user_id, wins, losses)
+			SELECT user_id, wins, losses FROM profiles
+		`); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrate profile statistics: %w", err)
+		}
 	}
 	if _, err := db.Exec(fmt.Sprintf(
 		"PRAGMA user_version = %d", sqliteSchemaVersion,
@@ -323,7 +347,9 @@ func (store *SQLiteEventStore) Lookup(ctx context.Context, userID auth.UserID) (
 		nickname string
 	)
 	err := store.db.QueryRowContext(ctx,
-		`SELECT nickname, is_public, wins, losses FROM profiles WHERE user_id = ?`, string(userID),
+		`SELECT profiles.nickname, profiles.is_public, COALESCE(user_stats.wins, 0), COALESCE(user_stats.losses, 0)
+		 FROM profiles LEFT JOIN user_stats ON user_stats.user_id = profiles.user_id
+		 WHERE profiles.user_id = ?`, string(userID),
 	).Scan(&nickname, &public, &wins, &losses)
 	if errors.Is(err, sql.ErrNoRows) {
 		return profile.Profile{}, profile.ErrNotFound
@@ -361,6 +387,49 @@ func (store *SQLiteEventStore) AppendRoomEvents(ctx context.Context, rows []Even
 	}
 	defer tx.Rollback()
 
+	if err := appendRoomEventsTx(ctx, tx, rows); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit event append: %w", err)
+	}
+	return nil
+}
+
+// AppendMatchFinalization appends the terminal event batch and its outcome in
+// one SQLite transaction. Statistics use user_stats so a player who has not
+// yet configured a nickname/profile still receives their authoritative record.
+func (store *SQLiteEventStore) AppendMatchFinalization(ctx context.Context, rows []EventRow, result MatchResult) error {
+	if store == nil || store.db == nil {
+		return errors.New("sqlite event store is closed")
+	}
+	if len(rows) == 0 {
+		return errors.New("match finalization requires event rows")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := result.Validate(); err != nil {
+		return fmt.Errorf("invalid match result: %w", err)
+	}
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin match finalization: %w", err)
+	}
+	defer tx.Rollback()
+	if err := appendRoomEventsTx(ctx, tx, rows); err != nil {
+		return err
+	}
+	if err := applyMatchResultTx(ctx, tx, result); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit match finalization: %w", err)
+	}
+	return nil
+}
+
+func appendRoomEventsTx(ctx context.Context, tx *sql.Tx, rows []EventRow) error {
 	statement, err := tx.PrepareContext(ctx,
 		`INSERT INTO room_events (room_id, sequence, event_type, payload, created_at_ms)
 		 VALUES (?, ?, ?, ?, ?)`,
@@ -393,8 +462,26 @@ func (store *SQLiteEventStore) AppendRoomEvents(ctx context.Context, rows []Even
 			return fmt.Errorf("insert event %s/%d: %w", row.RoomID, row.Sequence, err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit event append: %w", err)
+	return nil
+}
+
+func applyMatchResultTx(ctx context.Context, tx *sql.Tx, result MatchResult) error {
+	statement, err := tx.PrepareContext(ctx, `INSERT INTO user_stats (user_id, wins, losses)
+		VALUES (?, ?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET wins = wins + excluded.wins, losses = losses + excluded.losses`)
+	if err != nil {
+		return fmt.Errorf("prepare match statistic upsert: %w", err)
+	}
+	defer statement.Close()
+	for _, userID := range result.Winners {
+		if _, err := statement.ExecContext(ctx, string(userID), 1, 0); err != nil {
+			return fmt.Errorf("record winner %s: %w", userID, err)
+		}
+	}
+	for _, userID := range result.Losers {
+		if _, err := statement.ExecContext(ctx, string(userID), 0, 1); err != nil {
+			return fmt.Errorf("record loser %s: %w", userID, err)
+		}
 	}
 	return nil
 }

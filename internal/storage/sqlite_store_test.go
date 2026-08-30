@@ -96,6 +96,74 @@ func TestAppendRoomEventsRoundTripsThroughReplayRead(t *testing.T) {
 	}
 }
 
+func TestAppendMatchFinalizationCommitsEventsAndStatsTogether(t *testing.T) {
+	t.Parallel()
+
+	store := openTestStore(t)
+	defer store.Close()
+	ctx := context.Background()
+	winner := auth.UserID("usr_MzMzMzMzMzMzMzMzMzMzMw")
+	loser := auth.UserID("usr_RERERERERERERERERERERA")
+	for index, userID := range []auth.UserID{winner, loser} {
+		if _, err := store.db.ExecContext(ctx, `INSERT INTO users (user_id, google_subject) VALUES (?, ?)`, string(userID), "stats-subject-"+string(rune('a'+index))); err != nil {
+			t.Fatalf("seed user %s: %v", userID, err)
+		}
+	}
+	roomID := domain.RoomID("room-match-result")
+	rows := []EventRow{{
+		RoomID: roomID, Sequence: 1, EventType: "GAME_ENDED", PayloadJSON: []byte(`{"type":"GAME_ENDED","sequence":1}`),
+	}}
+	result := MatchResult{Winners: []auth.UserID{winner}, Losers: []auth.UserID{loser}}
+	if err := store.AppendMatchFinalization(ctx, rows, result); err != nil {
+		t.Fatalf("AppendMatchFinalization() error = %v", err)
+	}
+	read, err := store.ReadRoomEventsAfter(ctx, roomID, 0)
+	if err != nil || len(read) != 1 || read[0].Sequence != 1 {
+		t.Fatalf("terminal event rows = %+v, %v", read, err)
+	}
+	for userID, want := range map[auth.UserID][2]int64{winner: {1, 0}, loser: {0, 1}} {
+		var wins, losses int64
+		if err := store.db.QueryRowContext(ctx, `SELECT wins, losses FROM user_stats WHERE user_id = ?`, string(userID)).Scan(&wins, &losses); err != nil || [2]int64{wins, losses} != want {
+			t.Fatalf("stats(%s) = [%d %d], %v; want %v", userID, wins, losses, err, want)
+		}
+	}
+	if err := store.Save(ctx, profile.Profile{UserID: winner, Nickname: "가나다", Public: true}); err != nil {
+		t.Fatalf("Save(winner profile) error = %v", err)
+	}
+	configured, err := store.Lookup(ctx, winner)
+	if err != nil || configured.Wins != 1 || configured.Losses != 0 {
+		t.Fatalf("configured winner profile = %+v, %v", configured, err)
+	}
+}
+
+func TestAppendMatchFinalizationRollsBackEventsWhenStatsCannotApply(t *testing.T) {
+	t.Parallel()
+
+	store := openTestStore(t)
+	defer store.Close()
+	ctx := context.Background()
+	known := auth.UserID("usr_MzMzMzMzMzMzMzMzMzMzMw")
+	missing := auth.UserID("usr_RERERERERERERERERERERA")
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO users (user_id, google_subject) VALUES (?, ?)`, string(known), "known-stats-subject"); err != nil {
+		t.Fatalf("seed known user: %v", err)
+	}
+	roomID := domain.RoomID("room-match-result-rollback")
+	err := store.AppendMatchFinalization(ctx, []EventRow{{
+		RoomID: roomID, Sequence: 1, EventType: "GAME_ENDED", PayloadJSON: []byte(`{"type":"GAME_ENDED","sequence":1}`),
+	}}, MatchResult{Winners: []auth.UserID{known}, Losers: []auth.UserID{missing}})
+	if err == nil {
+		t.Fatal("AppendMatchFinalization() error = nil, want foreign-key failure")
+	}
+	read, readErr := store.ReadRoomEventsAfter(ctx, roomID, 0)
+	if readErr != nil || len(read) != 0 {
+		t.Fatalf("rows after rolled-back finalization = %+v, %v", read, readErr)
+	}
+	var count int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM user_stats`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("stats after rolled-back finalization = %d, %v", count, err)
+	}
+}
+
 func TestAppendRoomEventsIsAtomicAndRejectsDuplicates(t *testing.T) {
 	t.Parallel()
 

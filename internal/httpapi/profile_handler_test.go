@@ -126,6 +126,26 @@ func TestProfileHandlerExposesPrivateStatisticsOnlyToOwners(t *testing.T) {
 	}
 }
 
+func TestProfileHandlerSaveReturnsExistingAuthoritativeStatistics(t *testing.T) {
+	t.Parallel()
+
+	userID := auth.UserID("usr_EREREREREREREREREREREQ")
+	store := &stubProfileStore{lookup: profile.Profile{UserID: userID, Nickname: "나다라", Public: true, Wins: 4, Losses: 2}}
+	handler, err := NewProfileHandler(&stubAuthService{authenticateUser: auth.User{ID: userID}}, store)
+	if err != nil {
+		t.Fatalf("NewProfileHandler() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "https://game.example/api/v1/profile/me", strings.NewReader(`{"nickname":"가나다","is_public":false}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(RequestGuardHeader, RequestGuardValue)
+	request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "raw-session-secret"})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"wins":4`) || !strings.Contains(response.Body.String(), `"losses":2`) {
+		t.Fatalf("save response = %d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestNewProfileHandlerRejectsMissingDependencies(t *testing.T) {
 	t.Parallel()
 
@@ -146,6 +166,9 @@ type stubProfileStore struct {
 
 func (store *stubProfileStore) Save(_ context.Context, value profile.Profile) error {
 	store.saved = value
+	value.Wins = store.lookup.Wins
+	value.Losses = store.lookup.Losses
+	store.lookup = value
 	return store.saveErr
 }
 

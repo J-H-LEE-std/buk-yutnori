@@ -101,9 +101,11 @@ payload는 `schemas/http_profiles.schema.json`을 따른다.
 - 접속 및 이탈 기록
 - 관리자 조치 기록
 
-`profiles` 행은 `users.user_id`에 1:1로 연결되며 nickname, 공개 여부, 승, 패를
-저장한다. 최초 profile 설정 전에는 행을 만들지 않는다. 승패의 초기값은 0이고,
-경기 종료에 따른 authoritative 갱신은 별도 match-runtime transaction으로 처리한다.
+`profiles` 행은 `users.user_id`에 1:1로 연결되며 nickname과 공개 여부를 저장한다.
+최초 profile 설정 전에는 행을 만들지 않는다. `user_stats` 행은 nickname과 독립적으로
+사용자 ID에 1:1로 연결되어 승·패를 저장하며, 아직 profile을 설정하지 않은 경기
+참가자도 정상 전적을 잃지 않는다. profile 조회는 두 행을 결합해 승·패를 반환한다.
+경기 종료 이벤트와 전적 갱신은 같은 match-runtime transaction으로 확정한다.
 
 진행 중 경기 이벤트를 저장하더라도 v1은 이를 복구에 사용하지 않는다.
 

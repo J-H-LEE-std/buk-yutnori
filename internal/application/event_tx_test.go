@@ -15,9 +15,10 @@ import (
 // fakeEventStore records appended rows and can be pointed at a failure for
 // injection tests.
 type fakeEventStore struct {
-	mu   sync.Mutex
-	rows []storage.EventRow
-	fail error
+	mu      sync.Mutex
+	rows    []storage.EventRow
+	results []storage.MatchResult
+	fail    error
 }
 
 func (store *fakeEventStore) AppendRoomEvents(ctx context.Context, rows []storage.EventRow) error {
@@ -46,6 +47,19 @@ func (store *fakeEventStore) ReadRoomEventsAfter(ctx context.Context, roomID dom
 		}
 	}
 	return read, nil
+}
+
+func (store *fakeEventStore) AppendMatchFinalization(ctx context.Context, rows []storage.EventRow, result storage.MatchResult) error {
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	if err := store.AppendRoomEvents(ctx, rows); err != nil {
+		return err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.results = append(store.results, result)
+	return nil
 }
 
 func (store *fakeEventStore) count() int {
@@ -109,6 +123,10 @@ func (store *failingStore) AppendRoomEvents(ctx context.Context, rows []storage.
 
 func (store *failingStore) ReadRoomEventsAfter(ctx context.Context, roomID domain.RoomID, afterSequence uint64) ([]storage.EventRow, error) {
 	return nil, store.err
+}
+
+func (store *failingStore) AppendMatchFinalization(context.Context, []storage.EventRow, storage.MatchResult) error {
+	return store.err
 }
 
 // assertNoDuplicateSequences fails the test when any stored batch re-uses a
