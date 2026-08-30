@@ -9,6 +9,7 @@
 package application
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
@@ -173,6 +174,8 @@ type matchRuntime struct {
 	retryAttempt    int
 	pendingMessages []any
 	pendingRows     []storage.EventRow
+	pendingResult   *storage.MatchResult
+	finishAfterSave bool
 }
 
 func (rt *matchRuntime) currentPlayer() domain.PlayerID {
@@ -486,6 +489,7 @@ func (registry *RoomRegistry) armTimerLocked(rt *matchRuntime, kind string, dura
 
 func (registry *RoomRegistry) finishMatchLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) error {
 	winner := rt.game.Snapshot().WinnerTeamID
+	result := matchResultForRuntime(rt, winner)
 	registry.cancelTimerLocked(rt)
 	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewFinishedGameEndedEvent(
@@ -493,19 +497,45 @@ func (registry *RoomRegistry) finishMatchLocked(entry *registeredRoom, rt *match
 		)
 	})
 
-	// Canonical end-of-match return to the same waiting room (docs/05):
-	// release started, close the consumed confirmation, keep teams and
-	// settings, and reset ready states so membership mutations resume.
-	entry.started = false
+	// Canonical end-of-match return to the same waiting room (docs/05): keep
+	// the runtime attached until its terminal event and statistics transaction
+	// commits, then release started state in detachFinishedMatchLocked.
 	entry.confirmation = nil
-	entry.runtime = nil
 	entry.roomStatus = protocol.RoomStatusPostMatch
 	resetReadyStatesLocked(entry)
 	status := entry.roomStatus
 	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(rt.roomID, sequence, status)
 	})
+	tx.recordMatchResult(result)
 	return nil
+}
+
+func (registry *RoomRegistry) detachFinishedMatchLocked(entry *registeredRoom) {
+	entry.started = false
+	entry.confirmation = nil
+	entry.runtime = nil
+}
+
+func matchResultForRuntime(rt *matchRuntime, winner domain.TeamID) storage.MatchResult {
+	result := storage.MatchResult{
+		Winners: make([]auth.UserID, 0, len(rt.order)),
+		Losers:  make([]auth.UserID, 0, len(rt.order)),
+	}
+	// Player IDs originate only at playerIDFromUser before start, and order /
+	// teamOf are the immutable started roster. Finish must therefore never
+	// depend on mutable lobby membership or current connection state.
+	for _, playerID := range rt.order {
+		userID := auth.UserID(playerID)
+		if rt.teamOf[playerID] == winner {
+			result.Winners = append(result.Winners, userID)
+		} else {
+			result.Losers = append(result.Losers, userID)
+		}
+	}
+	sort.Slice(result.Winners, func(left, right int) bool { return result.Winners[left] < result.Winners[right] })
+	sort.Slice(result.Losers, func(left, right int) bool { return result.Losers[left] < result.Losers[right] })
+	return result
 }
 
 // ---------------------------------------------------------------------------
@@ -516,12 +546,21 @@ func (registry *RoomRegistry) finishMatchLocked(entry *registeredRoom, rt *match
 // like a host pause, and canonical retries run on the match clock. The
 // deferred GAME_PAUSED marker rides the same batch so the store and the
 // broadcast stream stay byte-identical (ADR-0017).
-func (registry *RoomRegistry) enterStoragePauseLocked(entry *registeredRoom, rt *matchRuntime, messages []any, rows []storage.EventRow) {
+func (registry *RoomRegistry) enterStoragePauseLocked(entry *registeredRoom, rt *matchRuntime, messages []any, rows []storage.EventRow, result *storage.MatchResult, finishAfterSave bool) {
 	now := registry.matchClock.Now()
 	rt.storagePaused = true
 	rt.retryAttempt = 0
 	rt.pendingMessages = messages
 	rt.pendingRows = rows
+	rt.pendingResult = result
+	rt.finishAfterSave = finishAfterSave
+	if finishAfterSave {
+		roomID := rt.roomID
+		rt.activeTimer = registry.matchClock.AfterFunc(storageRetryDelays[0], func() {
+			registry.fireStorageRetry(roomID, 0)
+		})
+		return
+	}
 	if rt.preservedTimerKind == "" && rt.timerKind != "" {
 		rt.preservedTimerKind = rt.timerKind
 		rt.preservedRemaining = time.Duration(rt.remainingMS(now)) * time.Millisecond
@@ -587,7 +626,19 @@ func (registry *RoomRegistry) fireStorageRetry(roomID domain.RoomID, expectedAtt
 
 	ctx, cancel := eventStoreContext()
 	defer cancel()
-	appendErr := registry.store.AppendRoomEvents(ctx, rt.pendingRows)
+	appendEvents := registry.store.AppendRoomEvents
+	if rt.pendingResult != nil {
+		resultStore, ok := registry.store.(storage.MatchResultStore)
+		if !ok {
+			appendErr := fmt.Errorf("event store cannot persist match results")
+			registry.invalidateMatchLocked(entry, rt, appendErr)
+			return
+		}
+		appendEvents = func(ctx context.Context, rows []storage.EventRow) error {
+			return resultStore.AppendMatchFinalization(ctx, rows, *rt.pendingResult)
+		}
+	}
+	appendErr := appendEvents(ctx, rt.pendingRows)
 	if appendErr != nil {
 		rt.retryAttempt++
 		next := rt.retryAttempt
@@ -618,8 +669,15 @@ func (registry *RoomRegistry) fireStorageRetry(roomID domain.RoomID, expectedAtt
 		}
 	}
 	registry.publishCommittedLocked(entry, rt.pendingMessages)
+	finishAfterSave := rt.finishAfterSave
 	rt.pendingMessages = nil
 	rt.pendingRows = nil
+	rt.pendingResult = nil
+	rt.finishAfterSave = false
+	if finishAfterSave {
+		registry.detachFinishedMatchLocked(entry)
+		return
+	}
 
 	resumedEvent, err := protocol.NewGameResumedEvent(
 		rt.roomID, rt.matchID,

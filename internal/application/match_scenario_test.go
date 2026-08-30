@@ -47,6 +47,21 @@ func TestSeededWholeMatchRunsToGameEndedAndReturnsToWaitingRoom(t *testing.T) {
 	if winner != domain.TeamA && winner != domain.TeamB {
 		t.Fatalf("winner = %q", winner)
 	}
+	if len(fixture.store.results) != 1 {
+		t.Fatalf("stored match results = %+v, want exactly one", fixture.store.results)
+	}
+	result := fixture.store.results[0]
+	if len(result.Winners) != 1 || len(result.Losers) != 1 {
+		t.Fatalf("stored roster = %+v", result)
+	}
+	winnerUser := fixture.users[0]
+	loserUser := fixture.users[1]
+	if winner == domain.TeamB {
+		winnerUser, loserUser = loserUser, winnerUser
+	}
+	if result.Winners[0] != winnerUser || result.Losers[0] != loserUser {
+		t.Fatalf("stored result = %+v, want winner=%s loser=%s", result, winnerUser, loserUser)
+	}
 
 	roomUpdates := fixture.recorder.ofTypes("ROOM_UPDATED")
 	if len(roomUpdates) == 0 || roomUpdates[len(roomUpdates)-1].Payload.Status != "post_match" {

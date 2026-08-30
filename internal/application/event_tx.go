@@ -32,9 +32,11 @@ func eventStoreContext() (context.Context, context.CancelFunc) {
 
 // eventTx stages the events of exactly one serialized registry operation.
 type eventTx struct {
-	registry *RoomRegistry
-	roomID   string
-	builders []func(sequence uint64) (any, error)
+	registry    *RoomRegistry
+	roomID      string
+	builders    []func(sequence uint64) (any, error)
+	matchResult *storage.MatchResult
+	finishMatch bool
 }
 
 func (registry *RoomRegistry) newEventTx(roomID domain.RoomID) *eventTx {
@@ -46,6 +48,13 @@ func (registry *RoomRegistry) newEventTx(roomID domain.RoomID) *eventTx {
 // never observes state mutated after it was staged.
 func (tx *eventTx) emit(build func(sequence uint64) (any, error)) {
 	tx.builders = append(tx.builders, build)
+}
+
+// recordMatchResult binds exactly one normal match outcome to this terminal
+// event transaction. It is persisted atomically with the GAME_ENDED batch.
+func (tx *eventTx) recordMatchResult(result storage.MatchResult) {
+	tx.matchResult = &result
+	tx.finishMatch = true
 }
 
 // flush persists every staged event durably before consuming their room
@@ -90,7 +99,17 @@ func (tx *eventTx) flush() error {
 	if len(rows) > 0 {
 		ctx, cancel := eventStoreContext()
 		defer cancel()
-		if err := registry.store.AppendRoomEvents(ctx, rows); err != nil {
+		appendEvents := registry.store.AppendRoomEvents
+		if tx.matchResult != nil {
+			resultStore, ok := registry.store.(storage.MatchResultStore)
+			if !ok {
+				return fmt.Errorf("%w: event store cannot persist match results", ErrEventStoreUnavailable)
+			}
+			appendEvents = func(ctx context.Context, rows []storage.EventRow) error {
+				return resultStore.AppendMatchFinalization(ctx, rows, *tx.matchResult)
+			}
+		}
+		if err := appendEvents(ctx, rows); err != nil {
 			if entry, exists := registry.rooms[domain.RoomID(tx.roomID)]; exists {
 				// Started rooms degrade into the operational storage pause
 				// with retry schedule and eventual invalidation (#87,
@@ -98,7 +117,7 @@ func (tx *eventTx) flush() error {
 				// lobby-only scopes) keep the fail-closed fence because
 				// there is no match to pause.
 				if entry.started && entry.runtime != nil {
-					registry.enterStoragePauseLocked(entry, entry.runtime, messages, rows)
+					registry.enterStoragePauseLocked(entry, entry.runtime, messages, rows, tx.matchResult, tx.finishMatch)
 				} else {
 					entry.poisoned = true
 				}
@@ -120,6 +139,9 @@ func (tx *eventTx) flush() error {
 		return nil
 	}
 	registry.publishCommittedLocked(entry, messages)
+	if tx.finishMatch {
+		registry.detachFinishedMatchLocked(entry)
+	}
 	return nil
 }
 

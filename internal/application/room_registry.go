@@ -165,6 +165,9 @@ func (registry *RoomRegistry) AttachEventStore(store storage.EventStore) error {
 	if store == nil {
 		return fmt.Errorf("%w: event store is required", ErrInvalidConfiguration)
 	}
+	if _, ok := store.(storage.MatchResultStore); !ok {
+		return fmt.Errorf("%w: event store must persist match results", ErrInvalidConfiguration)
+	}
 	registry.mutex.Lock()
 	defer registry.mutex.Unlock()
 	registry.store = store

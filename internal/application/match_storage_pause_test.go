@@ -12,13 +12,16 @@ import (
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/yut"
+	"buk-yutnori/internal/protocol"
 	"buk-yutnori/internal/storage"
 )
 
 // flakyStore fails the next N appends and then behaves like a healthy store.
 type flakyStore struct {
 	failuresRemaining int
+	finalizationFails int
 	rows              []storage.EventRow
+	results           []storage.MatchResult
 	seen              map[string]struct{}
 }
 
@@ -49,6 +52,62 @@ func (store *flakyStore) ReadRoomEventsAfter(ctx context.Context, roomID domain.
 		}
 	}
 	return read, nil
+}
+
+func (store *flakyStore) AppendMatchFinalization(ctx context.Context, rows []storage.EventRow, result storage.MatchResult) error {
+	if store.finalizationFails > 0 {
+		store.finalizationFails--
+		return errors.New("injected terminal finalization failure")
+	}
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	if err := store.AppendRoomEvents(ctx, rows); err != nil {
+		return err
+	}
+	store.results = append(store.results, result)
+	return nil
+}
+
+func TestTerminalFinalizationRetriesAndDetachesAfterAtomicCommit(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMatchFixture(t, nil)
+	defer fixture.recorder.close()
+	store := &flakyStore{finalizationFails: 1, seen: make(map[string]struct{})}
+	fixture.registry.setEventStoreForTest(store)
+
+	fixture.registry.mutex.Lock()
+	entry := fixture.registry.rooms[fixture.roomID]
+	rt := entry.runtime
+	tx := fixture.registry.newEventTx(fixture.roomID)
+	result := matchResultForRuntime(rt, domain.TeamA)
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewFinishedGameEndedEvent(rt.roomID, rt.matchID, sequence, domain.TeamA, gameEndedReasonAllFinished)
+	})
+	entry.confirmation = nil
+	entry.roomStatus = protocol.RoomStatusPostMatch
+	resetReadyStatesLocked(entry)
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(rt.roomID, sequence, entry.roomStatus)
+	})
+	tx.recordMatchResult(result)
+	err := tx.flush()
+	fixture.registry.mutex.Unlock()
+	if !errors.Is(err, ErrEventStoreUnavailable) {
+		t.Fatalf("terminal flush error = %v, want %v", err, ErrEventStoreUnavailable)
+	}
+	if !rt.storagePaused || !rt.finishAfterSave || fixture.runtime() == nil {
+		t.Fatalf("terminal failure did not retain retryable runtime: paused=%v finish=%v runtime=%v", rt.storagePaused, rt.finishAfterSave, fixture.runtime())
+	}
+
+	fixture.clock.Advance(storageRetryDelays[0])
+	if fixture.runtime() != nil {
+		t.Fatal("runtime survived recovered terminal finalization")
+	}
+	if len(store.results) != 1 || len(store.rows) != 2 {
+		t.Fatalf("recovered terminal storage = results:%+v rows:%+v", store.results, store.rows)
+	}
 }
 
 func newStoragePauseFixture(t *testing.T) *matchFixture {
