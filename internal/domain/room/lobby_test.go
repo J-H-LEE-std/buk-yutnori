@@ -170,6 +170,18 @@ func TestLobbyFailedStartConfirmationIsAtomic(t *testing.T) {
 	assertReady(t, lobby, "player-b", false)
 }
 
+func TestLobbyFailedStartConfirmationKeepsCPUServerReady(t *testing.T) {
+	lobby := readyTwoPlayerLobby(t)
+	if err := lobby.AddCPUPlayer("cpu-1", domain.TeamB); err != nil {
+		t.Fatalf("AddCPUPlayer() error = %v", err)
+	}
+	if err := lobby.FailStartConfirmation([]domain.PlayerID{"player-b"}); err != nil {
+		t.Fatalf("FailStartConfirmation() error = %v", err)
+	}
+	assertReady(t, lobby, "player-a", false)
+	assertReady(t, lobby, "cpu-1", true)
+}
+
 func TestLobbyRejectsInvalidMutationsWithoutChangingState(t *testing.T) {
 	lobby := mustLobby(t)
 	mustAddPlayer(t, lobby, "player-a", domain.TeamA)

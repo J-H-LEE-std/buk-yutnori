@@ -524,7 +524,12 @@ func (registry *RoomRegistry) finishMatchLocked(entry *registeredRoom, rt *match
 	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(rt.roomID, sequence, status)
 	})
-	tx.recordMatchResult(result)
+	// A future lifecycle feature may allow every human to leave while lobby
+	// CPUs finish the match. There is no user statistic to persist in that
+	// case, but the terminal event must still commit normally.
+	if len(result.Winners) != 0 || len(result.Losers) != 0 {
+		tx.recordMatchResult(result)
+	}
 	return nil
 }
 

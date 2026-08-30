@@ -13,6 +13,9 @@ var (
 
 	// ErrPlayerNotFound identifies a lobby command for an absent player.
 	ErrPlayerNotFound = errors.New("player not found in lobby")
+	// ErrCPUPlayerRequired identifies an attempt to remove a human through the
+	// server-owned CPU seat operation.
+	ErrCPUPlayerRequired = errors.New("player is not a CPU player")
 
 	// ErrLobbyFull identifies admission beyond the room's configured capacity.
 	ErrLobbyFull = errors.New("lobby is full")
@@ -122,7 +125,7 @@ func (lobby *Lobby) RemoveCPUPlayer(id domain.PlayerID) error {
 		return err
 	}
 	if !player.CPU {
-		return errors.New("player is not a CPU player")
+		return ErrCPUPlayerRequired
 	}
 	delete(lobby.players, id)
 	return nil
@@ -241,7 +244,9 @@ func (lobby *Lobby) FailStartConfirmation(nonresponders []domain.PlayerID) error
 		delete(lobby.players, id)
 	}
 	for id, player := range lobby.players {
-		player.Ready = false
+		// CPU seats are server-owned and have no client command that could make
+		// them ready again after a failed confirmation.
+		player.Ready = player.CPU
 		lobby.players[id] = player
 	}
 	return nil
