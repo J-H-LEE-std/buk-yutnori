@@ -26,6 +26,7 @@ type roomsService interface {
 	Create(input application.CreateRoomInput) (application.RoomSummary, error)
 	Join(input application.JoinRoomInput) (application.RoomSummary, error)
 	Detail(user auth.UserID, roomID domain.RoomID) (application.RoomDetailSnapshot, error)
+	GameLogs(ctx context.Context, user auth.UserID, roomID domain.RoomID) ([]application.GameLog, error)
 }
 
 type roomsHandler struct {
@@ -56,6 +57,10 @@ type roomListResponse struct {
 	Rooms []application.RoomSummary `json:"rooms"`
 }
 
+type gameLogResponse struct {
+	GameLogs []application.GameLog `json:"game_logs"`
+}
+
 // NewRoomsHandler constructs the versioned lobby lifecycle routes. Every route
 // requires a valid session cookie; mutations additionally require the same-origin
 // request guard.
@@ -69,6 +74,7 @@ func NewRoomsHandler(authenticate roomAuthenticator, rooms roomsService) (http.H
 	mux.HandleFunc("POST /api/v1/rooms", handler.create)
 	mux.HandleFunc("POST /api/v1/rooms/{room_id}/join", handler.join)
 	mux.HandleFunc("GET /api/v1/rooms/{room_id}", handler.detail)
+	mux.HandleFunc("GET /api/v1/rooms/{room_id}/game-logs", handler.gameLogs)
 	return mux, nil
 }
 
@@ -163,6 +169,27 @@ func (h *roomsHandler) detail(response http.ResponseWriter, request *http.Reques
 		return
 	}
 	writeJSON(response, http.StatusOK, detail)
+}
+
+func (h *roomsHandler) gameLogs(response http.ResponseWriter, request *http.Request) {
+	setPrivateJSONHeaders(response)
+	user, ok := h.requireUser(response, request)
+	if !ok {
+		return
+	}
+	logs, err := h.rooms.GameLogs(request.Context(), user.ID, domain.RoomID(request.PathValue("room_id")))
+	if err != nil {
+		switch {
+		case errors.Is(err, application.ErrRoomNotFound):
+			writeError(response, http.StatusNotFound, "room_not_found")
+		case errors.Is(err, application.ErrNotMember):
+			writeError(response, http.StatusForbidden, "not_member")
+		default:
+			writeError(response, http.StatusInternalServerError, "internal_error")
+		}
+		return
+	}
+	writeJSON(response, http.StatusOK, gameLogResponse{GameLogs: logs})
 }
 
 func (h *roomsHandler) requireUser(response http.ResponseWriter, request *http.Request) (auth.User, bool) {

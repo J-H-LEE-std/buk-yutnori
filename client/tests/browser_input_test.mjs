@@ -511,6 +511,9 @@ try {
           role: "spectator",
         }) };
       }
+      if (String(url).endsWith("/game-logs")) {
+        return { ok: true, json: async () => ({ game_logs: [] }) };
+      }
       if (String(url).endsWith("/room-late-entry")) {
         return { ok: true, json: async () => ({
           summary: { room_id: "room-late-entry", title: "진행 중인 방", has_password: false, player_count: 2, max_players: 4 },
@@ -542,12 +545,13 @@ try {
   })()`, true);
   if (!lateSpectatorJoinFlow.joined || lateSpectatorJoinFlow.activeRoomId !== "room-late-entry"
       || lateSpectatorJoinFlow.activeRoomRole !== "spectator"
-      || lateSpectatorJoinFlow.requests.length !== 3
+      || lateSpectatorJoinFlow.requests.length !== 4
       || lateSpectatorJoinFlow.requests[0]?.url !== "/api/v1/rooms/room-late-entry/join"
       || lateSpectatorJoinFlow.requests[0]?.method !== "POST"
       || JSON.parse(lateSpectatorJoinFlow.requests[0]?.body ?? "{}").role !== "spectator"
       || lateSpectatorJoinFlow.requests[1]?.url !== "/api/v1/rooms/room-late-entry"
-      || lateSpectatorJoinFlow.requests[2]?.url !== "/api/v1/rooms"
+      || lateSpectatorJoinFlow.requests[2]?.url !== "/api/v1/rooms/room-late-entry/game-logs"
+      || lateSpectatorJoinFlow.requests[3]?.url !== "/api/v1/rooms"
       || lateSpectatorJoinFlow.reconnect?.type !== "RECONNECT"
       || lateSpectatorJoinFlow.reconnect?.room_id !== "room-late-entry"
       || lateSpectatorJoinFlow.reconnect?.match_id !== "match-late-entry"
@@ -657,6 +661,28 @@ try {
   }))()`);
   if (invalidRoomSummary.invalidCount || invalidRoomSummary.invalidShape || invalidRoomSummary.invalidMissingNickname) {
     throw new Error(`room summary validator accepted invalid payload: ${JSON.stringify(invalidRoomSummary)}`);
+  }
+
+  const gameLogs = await evaluate(`(() => {
+    const logs = [{
+      match_id: "match-done", started_sequence: 2, ended_sequence: 9, status: "finished",
+      winner_team_id: "A", reason: "all_pieces_finished",
+      entries: [{ sequence: 4, notation: "<img src=x onerror=alert(1)>" }],
+    }];
+    renderGameLogs(logs);
+    const list = document.getElementById("game-log-list");
+    return {
+      valid: validateGameLogs({ game_logs: logs }),
+      invalid: validateGameLogs({ game_logs: [{ ...logs[0], status: "invalid", winner_team_id: "A" }] }),
+      status: document.getElementById("game-log-status").textContent,
+      text: list.textContent,
+      imageCount: list.querySelectorAll("img").length,
+    };
+  })()`);
+  if (!gameLogs.valid || gameLogs.invalid || gameLogs.status !== "1개의 완료된 경기 기록"
+      || gameLogs.text !== "A팀 승리 · all_pieces_finished<img src=x onerror=alert(1)>"
+      || gameLogs.imageCount !== 0) {
+    throw new Error(`game log renderer was not safe/deterministic: ${JSON.stringify(gameLogs)}`);
   }
 
   const safeChat = await evaluate(`(() => {

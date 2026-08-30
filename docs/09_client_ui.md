@@ -105,6 +105,11 @@ room/match scope를 결합해 `SELECT_ROUTE`를 전송한다. 관전자, 상대 
    참가자 표시는 서버가 넣은 `game_snapshot.participants[].nickname`을 사용하며,
    profile 부재·읽기 실패 시 서버가 넣은 `user_id` fallback을 그대로 표시한다.
 
+방 상세 화면은 `GET /api/v1/rooms/{room_id}/game-logs`의 종료된 경기 로그를 별도의
+스크롤 가능한 텍스트 영역으로 표시한다. 항목은 서버가 만든 `notation`을
+`textContent`로만 넣으며, 빈 목록·권한 오류·서버 오류를 구분해 표시한다. 클라이언트는
+경기 이벤트를 조합하거나 기보를 추론하지 않는다.
+
 모든 화면 데이터는 로그인 세션을 전제로 하고, 방 스코프 화면(3·4)은 멤버십을
 전제로 한다.
 

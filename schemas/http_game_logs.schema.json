@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "http_game_logs.schema.json",
+  "title": "HTTP derived game log response payloads",
+  "oneOf": [
+    { "$ref": "#/$defs/gameLogResponse" },
+    { "$ref": "#/$defs/errorResponse" }
+  ],
+  "$defs": {
+    "gameLogEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "notation"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 1 },
+        "notation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gameLog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["match_id", "started_sequence", "ended_sequence", "status", "reason", "entries"],
+      "properties": {
+        "match_id": { "type": "string", "minLength": 1 },
+        "started_sequence": { "type": "integer", "minimum": 1 },
+        "ended_sequence": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["finished", "invalid"] },
+        "winner_team_id": { "enum": ["A", "B"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/gameLogEntry" } }
+      }
+    },
+    "gameLogResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["game_logs"],
+      "properties": {
+        "game_logs": { "type": "array", "items": { "$ref": "#/$defs/gameLog" } }
+      }
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error"],
+      "properties": {
+        "error": { "enum": ["unauthenticated", "room_not_found", "not_member", "internal_error"] }
+      }
+    }
+  }
+}

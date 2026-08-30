@@ -1,0 +1,16 @@
+{
+  "game_logs": [
+    {
+      "match_id": "match_example",
+      "started_sequence": 12,
+      "ended_sequence": 48,
+      "status": "finished",
+      "winner_team_id": "A",
+      "reason": "all_pieces_finished",
+      "entries": [
+        { "sequence": 14, "notation": "{도}" },
+        { "sequence": 17, "notation": "{[A-1][-][space_1]}" }
+      ]
+    }
+  ]
+}
