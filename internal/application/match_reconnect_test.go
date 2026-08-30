@@ -5,11 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/yut"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 )
 
@@ -112,6 +114,88 @@ func TestReconnectReturnsRealAssembledSnapshotForStartedRoom(t *testing.T) {
 
 	if got := boundaryOf(t, fixture.registry, fixture.roomID); got != boundary {
 		t.Fatalf("approved RECONNECT consumed a sequence: %d -> %d", boundary, got)
+	}
+}
+
+func TestReconnectSnapshotResolvesPersistentParticipantNicknames(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMatchFixture(t, nil)
+	defer fixture.recorder.close()
+	profiles := &snapshotProfileStore{values: map[auth.UserID]profile.Profile{
+		fixture.users[0]: {UserID: fixture.users[0], Nickname: "가나다", Public: true},
+		// A valid record for another identity is not allowed to be displayed
+		// as this participant or to make RECONNECT fail.
+		fixture.users[1]: {UserID: fixture.users[0], Nickname: "나다라", Public: false},
+	}}
+	if err := fixture.registry.AttachProfileStore(profiles); err != nil {
+		t.Fatalf("AttachProfileStore() error = %v", err)
+	}
+
+	command := reconnectCommandFor(fixture.roomID, fixture.matchID, "cmd-reconnect-nicknames", 0)
+	result, err := fixture.processor.Process(context.Background(), auth.User{ID: fixture.users[0]}, command)
+	if err != nil || result.Payload.Synchronization == nil {
+		t.Fatalf("RECONNECT = %+v error = %v", result, err)
+	}
+	snapshot, _ := decodeSnapshotScope(t, result.Payload.Synchronization.Snapshot)
+	byUser := make(map[auth.UserID]string, len(snapshot.Participants))
+	for _, participant := range snapshot.Participants {
+		byUser[participant.UserID] = participant.Nickname
+	}
+	if byUser[fixture.users[0]] != "가나다" {
+		t.Fatalf("configured nickname = %q, want 가나다", byUser[fixture.users[0]])
+	}
+	if byUser[fixture.users[1]] != string(fixture.users[1]) {
+		t.Fatalf("mismatched profile fallback = %q, want %q", byUser[fixture.users[1]], fixture.users[1])
+	}
+}
+
+func TestReconnectRevalidatesMatchScopeAfterProfileLookup(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMatchFixture(t, nil)
+	defer fixture.recorder.close()
+	profiles := &blockingSnapshotProfileStore{started: make(chan struct{}), release: make(chan struct{})}
+	if err := fixture.registry.AttachProfileStore(profiles); err != nil {
+		t.Fatalf("AttachProfileStore() error = %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := fixture.registry.ReconnectBundle(fixture.users[0], fixture.roomID, fixture.matchID, 0)
+		done <- err
+	}()
+	<-profiles.started
+	fixture.registry.mutex.Lock()
+	fixture.registry.rooms[fixture.roomID].runtime = nil
+	fixture.registry.mutex.Unlock()
+	close(profiles.release)
+	if err := <-done; !errors.Is(err, ErrMatchNotActive) {
+		t.Fatalf("ReconnectBundle() after match changed = %v, want %v", err, ErrMatchNotActive)
+	}
+}
+
+func TestResolveSnapshotNicknamesFallsBackForMissingAndReadFailure(t *testing.T) {
+	t.Parallel()
+
+	configured := auth.UserID(matchHostID)
+	missing := auth.UserID(matchGuestID)
+	failed := auth.UserID(reconnectSpectatorID)
+	profiles := &snapshotProfileStore{
+		values: map[auth.UserID]profile.Profile{
+			configured: {UserID: configured, Nickname: "나다라", Public: false},
+		},
+		errors: map[auth.UserID]error{failed: errors.New("profile database unavailable")},
+	}
+	nicknames := resolveSnapshotNicknames(context.Background(), profiles, []auth.UserID{configured, missing, failed})
+	if nicknames[configured] != "나다라" {
+		t.Fatalf("configured nickname = %q", nicknames[configured])
+	}
+	if _, ok := nicknames[missing]; ok {
+		t.Fatalf("missing profile unexpectedly resolved = %q", nicknames[missing])
+	}
+	if _, ok := nicknames[failed]; ok {
+		t.Fatalf("failed profile unexpectedly resolved = %q", nicknames[failed])
 	}
 }
 
@@ -318,4 +402,43 @@ func boundaryOf(t *testing.T, registry *RoomRegistry, roomID domain.RoomID) uint
 		t.Fatalf("Boundary(%s) error = %v", roomID, err)
 	}
 	return boundary
+}
+
+type snapshotProfileStore struct {
+	values map[auth.UserID]profile.Profile
+	errors map[auth.UserID]error
+}
+
+type blockingSnapshotProfileStore struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (store *blockingSnapshotProfileStore) Save(context.Context, profile.Profile) error {
+	return errors.New("unexpected profile save")
+}
+
+func (store *blockingSnapshotProfileStore) Lookup(ctx context.Context, _ auth.UserID) (profile.Profile, error) {
+	store.once.Do(func() { close(store.started) })
+	select {
+	case <-store.release:
+		return profile.Profile{}, profile.ErrNotFound
+	case <-ctx.Done():
+		return profile.Profile{}, ctx.Err()
+	}
+}
+
+func (store *snapshotProfileStore) Save(context.Context, profile.Profile) error {
+	return errors.New("unexpected profile save")
+}
+
+func (store *snapshotProfileStore) Lookup(_ context.Context, userID auth.UserID) (profile.Profile, error) {
+	if err := store.errors[userID]; err != nil {
+		return profile.Profile{}, err
+	}
+	if value, ok := store.values[userID]; ok {
+		return value, nil
+	}
+	return profile.Profile{}, profile.ErrNotFound
 }

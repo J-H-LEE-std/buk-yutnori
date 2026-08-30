@@ -18,6 +18,7 @@ import (
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/board"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 	"buk-yutnori/internal/storage"
 )
@@ -103,6 +104,7 @@ type RoomRegistry struct {
 	matchClock       matchClock
 	boardGraph       *board.Graph
 	store            storage.EventStore
+	profiles         profile.Store
 	sequences        *RoomEventSequences
 	rooms            map[domain.RoomID]*registeredRoom
 	ordering         []domain.RoomID
@@ -166,6 +168,19 @@ func (registry *RoomRegistry) AttachEventStore(store storage.EventStore) error {
 	registry.mutex.Lock()
 	defer registry.mutex.Unlock()
 	registry.store = store
+	return nil
+}
+
+// AttachProfileStore installs the server-owned profile boundary used for
+// display-only snapshot nicknames. Registries without one retain the stable
+// user_id fallback used by memory-only tests.
+func (registry *RoomRegistry) AttachProfileStore(store profile.Store) error {
+	if store == nil {
+		return fmt.Errorf("%w: profile store is required", ErrInvalidConfiguration)
+	}
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	registry.profiles = store
 	return nil
 }
 

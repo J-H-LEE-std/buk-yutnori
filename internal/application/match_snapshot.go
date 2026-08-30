@@ -5,9 +5,11 @@
 package application
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"buk-yutnori/internal/domain/match"
 	"buk-yutnori/internal/domain/room"
 	"buk-yutnori/internal/domain/turn"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 	"buk-yutnori/internal/storage"
 )
@@ -140,6 +143,13 @@ type snapshotPauseJSON struct {
 // assembleGameSnapshotLocked builds the atomic snapshot at the given room
 // sequence boundary while the registry mutex is held.
 func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, sequence uint64) (gameSnapshotJSON, error) {
+	return registry.assembleGameSnapshotWithNicknamesLocked(entry, sequence, nil)
+}
+
+// assembleGameSnapshotWithNicknamesLocked builds a snapshot with display names
+// resolved before the registry mutex is acquired. Missing entries deliberately
+// fall back to their stable user_id.
+func (registry *RoomRegistry) assembleGameSnapshotWithNicknamesLocked(entry *registeredRoom, sequence uint64, nicknames map[auth.UserID]string) (gameSnapshotJSON, error) {
 	rt := entry.runtime
 	if rt == nil {
 		return gameSnapshotJSON{}, fmt.Errorf("%w: assembled game snapshot requires a live runtime", ErrInvalidConfiguration)
@@ -193,9 +203,10 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 			reason := cpuControlReasonTimeout
 			cpuControl = snapshotCPUControlJSON{Active: true, Reason: &reason}
 		}
+		userID := auth.UserID(id)
 		participants = append(participants, snapshotParticipant{
-			UserID:      auth.UserID(id),
-			Nickname:    string(id),
+			UserID:      userID,
+			Nickname:    snapshotNickname(nicknames, userID),
 			Role:        RolePlayer,
 			TeamID:      &team,
 			Permissions: permissions,
@@ -211,7 +222,7 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 	for _, id := range spectatorIDs {
 		participants = append(participants, snapshotParticipant{
 			UserID:      id,
-			Nickname:    string(id),
+			Nickname:    snapshotNickname(nicknames, id),
 			Role:        RoleSpectator,
 			TeamID:      nil,
 			Permissions: []string{participantPermissionChat},
@@ -281,6 +292,47 @@ func (registry *RoomRegistry) assembleGameSnapshotLocked(entry *registeredRoom, 
 		},
 		Pause: pauseView,
 	}, nil
+}
+
+func snapshotNickname(nicknames map[auth.UserID]string, userID auth.UserID) string {
+	if nickname := nicknames[userID]; nickname != "" {
+		return nickname
+	}
+	return string(userID)
+}
+
+func snapshotParticipantIDsLocked(entry *registeredRoom) []auth.UserID {
+	players := entry.lobby.Players()
+	ids := make([]auth.UserID, 0, len(players)+len(entry.spectators))
+	for id := range players {
+		ids = append(ids, auth.UserID(id))
+	}
+	for id := range entry.spectators {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func resolveSnapshotNicknames(ctx context.Context, store profile.Store, userIDs []auth.UserID) map[auth.UserID]string {
+	nicknames := make(map[auth.UserID]string, len(userIDs))
+	if store == nil {
+		return nicknames
+	}
+	for _, userID := range userIDs {
+		value, err := store.Lookup(ctx, userID)
+		if err != nil {
+			if !errors.Is(err, profile.ErrNotFound) {
+				slog.Warn("falling back to internal snapshot participant identifier after profile lookup failure", "user_id", userID, "error", err)
+			}
+			continue
+		}
+		if err := value.Validate(); err != nil || value.UserID != userID {
+			slog.Warn("falling back to internal snapshot participant identifier after invalid profile lookup", "user_id", userID)
+			continue
+		}
+		nicknames[userID] = string(value.Nickname)
+	}
+	return nicknames
 }
 
 func (rt *matchRuntime) snapshotMoveRequest(machine turn.Snapshot) (*protocol.MoveRequiredPayload, error) {
@@ -447,9 +499,39 @@ func (registry *RoomRegistry) ReconnectBundle(user auth.UserID, roomID domain.Ro
 	}
 
 	registry.mutex.Lock()
-	defer registry.mutex.Unlock()
 
 	entry, exists := registry.rooms[roomID]
+	if !exists {
+		registry.mutex.Unlock()
+		return nil, ErrRoomNotFound
+	}
+	if entry.poisoned {
+		registry.mutex.Unlock()
+		return nil, ErrEventStoreUnavailable
+	}
+	if !entry.hasMember(user) {
+		registry.mutex.Unlock()
+		return nil, ErrNotMember
+	}
+	if !entry.started || entry.runtime == nil {
+		registry.mutex.Unlock()
+		return nil, ErrMatchNotActive
+	}
+	if entry.runtime.matchID != matchID {
+		registry.mutex.Unlock()
+		return nil, ErrMatchScopeMismatch
+	}
+	profileStore := registry.profiles
+	participantIDs := snapshotParticipantIDsLocked(entry)
+	registry.mutex.Unlock()
+
+	ctx, cancel := eventStoreContext()
+	nicknames := resolveSnapshotNicknames(ctx, profileStore, participantIDs)
+	cancel()
+
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	entry, exists = registry.rooms[roomID]
 	if !exists {
 		return nil, ErrRoomNotFound
 	}
@@ -472,7 +554,7 @@ func (registry *RoomRegistry) ReconnectBundle(user auth.UserID, roomID domain.Ro
 	if lastSequence > boundary {
 		return nil, ErrClientSequenceAhead
 	}
-	snapshot, err := registry.assembleGameSnapshotLocked(entry, boundary)
+	snapshot, err := registry.assembleGameSnapshotWithNicknamesLocked(entry, boundary, nicknames)
 	if err != nil {
 		return nil, err
 	}

@@ -100,6 +100,8 @@ room/match scope를 결합해 `SELECT_ROUTE`를 전송한다. 관전자, 상대 
    구독과 팀·준비·시작 확인 명령이 데이터 소스다. 전체 채팅은 계속 `lobby` scope를
    사용하며 방 membership를 요구하지 않는다.
 4. 게임 화면 — 경기 런타임 확정 후 접근하며 snapshot과 경기 이벤트를 소비한다.
+   참가자 표시는 서버가 넣은 `game_snapshot.participants[].nickname`을 사용하며,
+   profile 부재·읽기 실패 시 서버가 넣은 `user_id` fallback을 그대로 표시한다.
 
 모든 화면 데이터는 로그인 세션을 전제로 하고, 방 스코프 화면(3·4)은 멤버십을
 전제로 한다.
