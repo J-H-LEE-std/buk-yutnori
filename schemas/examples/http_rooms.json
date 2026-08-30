@@ -67,12 +67,14 @@
     "members": [
       {
         "user_id": "usr_MzMzMzMzMzMzMzMzMzMzMw",
+        "nickname": "가나다",
         "role": "player",
         "team": "A",
         "ready": true
       },
       {
         "user_id": "usr_VVVVVVVVVVVVVVVVVVVVVQ",
+        "nickname": "관전자",
         "role": "spectator",
         "ready": false
       }
@@ -93,6 +95,7 @@
     "members": [
       {
         "user_id": "usr_RERERERERERERERERERERA",
+        "nickname": "나다라",
         "role": "player",
         "team": "A",
         "ready": false
@@ -110,12 +113,14 @@
     "members": [
       {
         "user_id": "usr_QkJCQkJCQkJCQkJCQkJCQg",
+        "nickname": "마바사",
         "role": "player",
         "team": "A",
         "ready": true
       },
       {
         "user_id": "usr_U1NTU1NTU1NTU1NTU1NTUw",
+        "nickname": "구경꾼",
         "role": "spectator",
         "ready": false
       }

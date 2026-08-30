@@ -2,13 +2,16 @@ package application
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/profile"
 	"time"
 )
 
@@ -625,7 +628,8 @@ func TestDetailVisibilityContract(t *testing.T) {
 		t.Fatalf("idle response serialized active_match: %s", encoded)
 	}
 	if len(detail.Members) != 2 || detail.Members[0].Role != RoleSpectator ||
-		detail.Members[1].Team != domain.TeamA {
+		detail.Members[0].Nickname != string(startRosterIDs[1]) ||
+		detail.Members[1].Team != domain.TeamA || detail.Members[1].Nickname != string(lobbyCreatorID) {
 		t.Fatalf("members = %+v, want deterministic spectator-first roster", detail.Members)
 	}
 
@@ -672,4 +676,207 @@ func TestDetailVisibilityContract(t *testing.T) {
 	if bytes.Contains(encoded, []byte(`"active_start"`)) || !bytes.Contains(encoded, []byte(`"active_match"`)) {
 		t.Fatalf("post-start detail scope serialization = %s, want active_match only", encoded)
 	}
+}
+
+func TestDetailResolvesPersistentNicknamesAndFallsBack(t *testing.T) {
+	registry := newTestRegistryWithClock(t, time.Now)
+	summary := createDefaultRoom(t, registry, lobbyCreatorID)
+	spectator := auth.UserID(startRosterIDs[1])
+	if _, err := registry.Join(JoinRoomInput{User: spectator, RoomID: summary.RoomID, Role: RoleSpectator}); err != nil {
+		t.Fatalf("Join(spectator) error = %v", err)
+	}
+	failed := auth.UserID(startRosterIDs[2])
+	if _, err := registry.Join(JoinRoomInput{User: failed, RoomID: summary.RoomID, Role: RoleSpectator}); err != nil {
+		t.Fatalf("Join(failed-profile spectator) error = %v", err)
+	}
+	profiles := &snapshotProfileStore{values: map[auth.UserID]profile.Profile{
+		lobbyCreatorID: {UserID: lobbyCreatorID, Nickname: "가나다", Public: true},
+		// A record for another account must not become the spectator display name.
+		spectator: {UserID: lobbyCreatorID, Nickname: "나다라", Public: false},
+	}, errors: map[auth.UserID]error{failed: errors.New("profile store unavailable")}}
+	if err := registry.AttachProfileStore(profiles); err != nil {
+		t.Fatalf("AttachProfileStore() error = %v", err)
+	}
+
+	detail, err := registry.Detail(lobbyCreatorID, summary.RoomID)
+	if err != nil {
+		t.Fatalf("Detail() error = %v", err)
+	}
+	byUser := make(map[auth.UserID]string, len(detail.Members))
+	for _, member := range detail.Members {
+		byUser[member.UserID] = member.Nickname
+	}
+	if byUser[lobbyCreatorID] != "가나다" {
+		t.Fatalf("configured nickname = %q, want 가나다", byUser[lobbyCreatorID])
+	}
+	if byUser[spectator] != string(spectator) {
+		t.Fatalf("mismatched profile fallback = %q, want %q", byUser[spectator], spectator)
+	}
+	if byUser[failed] != string(failed) {
+		t.Fatalf("failed profile fallback = %q, want %q", byUser[failed], failed)
+	}
+}
+
+func TestDetailRevalidatesMembershipAfterProfileLookup(t *testing.T) {
+	registry := newTestRegistryWithClock(t, time.Now)
+	summary := createDefaultRoom(t, registry, lobbyCreatorID)
+	spectator := auth.UserID(startRosterIDs[1])
+	if _, err := registry.Join(JoinRoomInput{User: spectator, RoomID: summary.RoomID, Role: RoleSpectator}); err != nil {
+		t.Fatalf("Join(spectator) error = %v", err)
+	}
+	profiles := &blockingSnapshotProfileStore{started: make(chan struct{}), release: make(chan struct{})}
+	if err := registry.AttachProfileStore(profiles); err != nil {
+		t.Fatalf("AttachProfileStore() error = %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := registry.Detail(spectator, summary.RoomID)
+		done <- err
+	}()
+	<-profiles.started
+	registry.mutex.Lock()
+	delete(registry.rooms[summary.RoomID].spectators, spectator)
+	registry.mutex.Unlock()
+	close(profiles.release)
+	if err := <-done; !errors.Is(err, ErrNotMember) {
+		t.Fatalf("Detail() after membership changed = %v, want %v", err, ErrNotMember)
+	}
+}
+
+func TestDetailRetriesProfileLookupWhenRosterChanges(t *testing.T) {
+	registry := newTestRegistryWithClock(t, time.Now)
+	summary := createDefaultRoom(t, registry, lobbyCreatorID)
+	spectator := auth.UserID(startRosterIDs[1])
+	if _, err := registry.Join(JoinRoomInput{User: spectator, RoomID: summary.RoomID, Role: RoleSpectator}); err != nil {
+		t.Fatalf("Join(spectator) error = %v", err)
+	}
+	joiner := auth.UserID(startRosterIDs[2])
+	profiles := &roomDetailBlockingProfileStore{
+		snapshotProfileStore: snapshotProfileStore{values: map[auth.UserID]profile.Profile{
+			lobbyCreatorID: {UserID: lobbyCreatorID, Nickname: "가나다", Public: true},
+			spectator:      {UserID: spectator, Nickname: "나다라", Public: true},
+			joiner:         {UserID: joiner, Nickname: "새 관전자", Public: true},
+		}},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	if err := registry.AttachProfileStore(profiles); err != nil {
+		t.Fatalf("AttachProfileStore() error = %v", err)
+	}
+
+	details := make(chan RoomDetailSnapshot, 1)
+	errs := make(chan error, 1)
+	go func() {
+		detail, err := registry.Detail(lobbyCreatorID, summary.RoomID)
+		details <- detail
+		errs <- err
+	}()
+	<-profiles.started
+	if _, err := registry.Join(JoinRoomInput{User: joiner, RoomID: summary.RoomID, Role: RoleSpectator}); err != nil {
+		t.Fatalf("Join(joiner) error = %v", err)
+	}
+	close(profiles.release)
+	if err := <-errs; err != nil {
+		t.Fatalf("Detail() error = %v", err)
+	}
+	for _, member := range (<-details).Members {
+		if member.UserID == joiner && member.Nickname == "새 관전자" {
+			return
+		}
+	}
+	t.Fatal("Detail() omitted the resolved nickname for a member that joined during profile lookup")
+}
+
+func TestDetailBoundsRetriesDuringRosterChurn(t *testing.T) {
+	registry := newTestRegistryWithClock(t, time.Now)
+	summary := createDefaultRoom(t, registry, lobbyCreatorID)
+	firstJoiner := auth.UserID(startRosterIDs[1])
+	secondJoiner := auth.UserID(startRosterIDs[2])
+	profiles := &roomDetailRetryProfileStore{
+		snapshotProfileStore: snapshotProfileStore{values: map[auth.UserID]profile.Profile{
+			lobbyCreatorID: {UserID: lobbyCreatorID, Nickname: "가나다", Public: true},
+			firstJoiner:    {UserID: firstJoiner, Nickname: "나다라", Public: true},
+			secondJoiner:   {UserID: secondJoiner, Nickname: "마바사", Public: true},
+		}},
+		started: make(chan struct{}, roomDetailNicknameLookupAttempts),
+		release: make(chan struct{}, roomDetailNicknameLookupAttempts),
+	}
+	if err := registry.AttachProfileStore(profiles); err != nil {
+		t.Fatalf("AttachProfileStore() error = %v", err)
+	}
+
+	details := make(chan RoomDetailSnapshot, 1)
+	errs := make(chan error, 1)
+	go func() {
+		detail, err := registry.Detail(lobbyCreatorID, summary.RoomID)
+		details <- detail
+		errs <- err
+	}()
+	<-profiles.started
+	if _, err := registry.Join(JoinRoomInput{User: firstJoiner, RoomID: summary.RoomID, Role: RoleSpectator}); err != nil {
+		t.Fatalf("Join(first joiner) error = %v", err)
+	}
+	profiles.release <- struct{}{}
+	<-profiles.started
+	if _, err := registry.Join(JoinRoomInput{User: secondJoiner, RoomID: summary.RoomID, Role: RoleSpectator}); err != nil {
+		t.Fatalf("Join(second joiner) error = %v", err)
+	}
+	profiles.release <- struct{}{}
+	if err := <-errs; err != nil {
+		t.Fatalf("Detail() error = %v", err)
+	}
+	for _, member := range (<-details).Members {
+		if member.UserID == secondJoiner && member.Nickname == string(secondJoiner) {
+			return
+		}
+	}
+	t.Fatal("Detail() did not return the final roster with a safe fallback after bounded retries")
+}
+
+type roomDetailBlockingProfileStore struct {
+	snapshotProfileStore
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (store *roomDetailBlockingProfileStore) Lookup(ctx context.Context, userID auth.UserID) (profile.Profile, error) {
+	shouldWait := false
+	store.once.Do(func() {
+		close(store.started)
+		shouldWait = true
+	})
+	if shouldWait {
+		select {
+		case <-store.release:
+		case <-ctx.Done():
+			return profile.Profile{}, ctx.Err()
+		}
+	}
+	return store.snapshotProfileStore.Lookup(ctx, userID)
+}
+
+type roomDetailRetryProfileStore struct {
+	snapshotProfileStore
+	started chan struct{}
+	release chan struct{}
+	mutex   sync.Mutex
+	lookups int
+}
+
+func (store *roomDetailRetryProfileStore) Lookup(ctx context.Context, userID auth.UserID) (profile.Profile, error) {
+	store.mutex.Lock()
+	store.lookups++
+	lookup := store.lookups
+	store.mutex.Unlock()
+	if lookup <= roomDetailNicknameLookupAttempts {
+		store.started <- struct{}{}
+		select {
+		case <-store.release:
+		case <-ctx.Done():
+			return profile.Profile{}, ctx.Err()
+		}
+	}
+	return store.snapshotProfileStore.Lookup(ctx, userID)
 }

@@ -347,7 +347,8 @@
     function validateRoomDetail(payload) {
       return payload && validateRoomSummary(payload.summary) && Array.isArray(payload.members)
         && payload.members.every((member) => member && typeof member.user_id === "string"
-          && member.user_id.length > 0 && ["player", "spectator"].includes(member.role)
+          && member.user_id.length > 0 && typeof member.nickname === "string" && member.nickname.length > 0
+          && ["player", "spectator"].includes(member.role)
           && (member.team === undefined || member.team === "A" || member.team === "B")
           && typeof member.ready === "boolean")
         && (payload.active_start === undefined || (payload.active_start && typeof payload.active_start.match_id === "string"
@@ -383,7 +384,7 @@
       roomMembers.replaceChildren();
       for (const member of detail.members) {
         const item = document.createElement("li");
-        item.textContent = `${member.user_id} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
+        item.textContent = `${member.nickname} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
         roomMembers.append(item);
       }
     }

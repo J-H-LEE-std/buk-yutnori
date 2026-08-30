@@ -452,7 +452,7 @@ try {
     renderRoomDetail({
       summary: { room_id: "room-already-live", title: "진행 중인 방", has_password: false,
         player_count: 2, max_players: 4 },
-      members: [{ user_id: "late-spectator", role: "spectator", ready: false }],
+      members: [{ user_id: "late-spectator", nickname: "늦은 관전자", role: "spectator", ready: false }],
       active_match: { match_id: "match-already-live" },
     });
     const snapshot = makeTestGameSnapshot("room-already-live", "match-already-live", 10);
@@ -463,7 +463,7 @@ try {
     renderMatchSession(snapshot);
     renderRoomDetail({
       summary: { room_id: "room-already-live", title: "오래된 상세", has_password: false, player_count: 2, max_players: 4 },
-      members: [{ user_id: "late-spectator", role: "spectator", ready: false }],
+      members: [{ user_id: "late-spectator", nickname: "오래된 관전자", role: "spectator", ready: false }],
       active_match: { match_id: "stale-match" },
     });
     const result = {
@@ -514,7 +514,7 @@ try {
       if (String(url).endsWith("/room-late-entry")) {
         return { ok: true, json: async () => ({
           summary: { room_id: "room-late-entry", title: "진행 중인 방", has_password: false, player_count: 2, max_players: 4 },
-          members: [{ user_id: "late-joiner", role: "spectator", ready: false }],
+          members: [{ user_id: "late-joiner", nickname: "새 관전자", role: "spectator", ready: false }],
           active_match: { match_id: "match-late-entry" },
         }) };
       }
@@ -570,7 +570,7 @@ try {
     renderRoomDetail({
       summary: { room_id: activeRoomId, title: "모바일 상세 화면의 긴 방 제목", has_password: false,
         player_count: 4, max_players: 8 },
-      members: [{ user_id: "mobile-user-with-a-long-id", role: "player", team: "A", ready: false }],
+      members: [{ user_id: "mobile-user-with-a-long-id", nickname: "모바일 사용자", role: "player", team: "A", ready: false }],
     });
     const roomCreate = document.getElementById("room-create-form");
     const chatForm = document.getElementById("chat-form");
@@ -624,7 +624,7 @@ try {
   const roomDetail = await evaluate(`(() => {
     renderRoomDetail({
       summary: { room_id: "r-1", title: "방", has_password: false, player_count: 1, max_players: 2 },
-      members: [{ user_id: "user-1", role: "player", team: "A", ready: true }],
+      members: [{ user_id: "user-1", nickname: "<img src=x onerror=alert(1)>", role: "player", team: "A", ready: true }],
       active_start: undefined,
     });
     return {
@@ -632,13 +632,15 @@ try {
       title: document.getElementById("room-detail-title").textContent,
       status: document.getElementById("room-detail-status").textContent,
       member: document.getElementById("room-members").textContent,
+      memberImageCount: document.querySelectorAll("#room-members img").length,
       controlsDisabled: ["room-team-a", "room-team-b", "room-ready", "room-start"]
         .every((id) => document.getElementById(id).disabled),
     };
   })()`);
   if (roomDetail.hidden || roomDetail.title !== "방"
       || roomDetail.status !== "1/2명 · 대기 중"
-      || roomDetail.member !== "user-1 · player · A팀 · 준비 완료"
+      || roomDetail.member !== "<img src=x onerror=alert(1)> · player · A팀 · 준비 완료"
+      || roomDetail.memberImageCount !== 0
       || !roomDetail.controlsDisabled) {
     throw new Error(`room detail renderer failed: ${JSON.stringify(roomDetail)}`);
   }
@@ -648,8 +650,12 @@ try {
       player_count: 5, max_players: 4,
     }),
     invalidShape: validateRoomSummary({ room_id: "r-3" }),
+    invalidMissingNickname: validateRoomDetail({
+      summary: { room_id: "r-4", title: "bad", has_password: false, player_count: 1, max_players: 2 },
+      members: [{ user_id: "user-1", role: "player", team: "A", ready: false }],
+    }),
   }))()`);
-  if (invalidRoomSummary.invalidCount || invalidRoomSummary.invalidShape) {
+  if (invalidRoomSummary.invalidCount || invalidRoomSummary.invalidShape || invalidRoomSummary.invalidMissingNickname) {
     throw new Error(`room summary validator accepted invalid payload: ${JSON.stringify(invalidRoomSummary)}`);
   }
 

@@ -97,7 +97,9 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   구독하는 클라이언트에게 최신 ROOM_UPDATED와 함께 재전달한다.
 - 대기실 상태 변경 알림도 ADR-0015로 확정되었다. 멤버십·팀·준비 변화와 상태 전이마다
   ROOM_UPDATED(revision=해당 이벤트의 방 sequence, status 생명주기 매핑)를 방송하고,
-  클라이언트는 신호를 받으면 HTTP 방 상세 조회로 상세를 당겨온다(pull-on-notify).
+  클라이언트는 신호를 받으면 HTTP 방 상세 조회로 상세를 당겨온다(pull-on-notify). member
+  항목의 `nickname`은 서버가 profile에서 해석하며 profile 부재·읽기 실패 시 `user_id`를
+  쓴다.
   창 진행 중 상세 조회 응답에는 활성 시작 확인 정보(match_id,
   confirmation_deadline_at)가 포함된다. `in_match` 중에는 같은 member-only 상세
   응답이 활성 런타임의 `active_match.match_id`를 제공한다. 이는 이미 방 멤버인
