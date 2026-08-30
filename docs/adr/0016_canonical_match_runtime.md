@@ -71,8 +71,9 @@ room/match registry·참가자 상태·게임 snapshot 조립으로 대체해야
 - 거부 매핑: 멤버 아님=`ROOM_NOT_MEMBER`(재시도 불가), 방 없음=`ROOM_NOT_FOUND`
   (재시도 가능), 스코프 불일치·진행 중 경기 없음·last_sequence 초과=
   retriable `RESYNC_REQUIRED`. 승인 결과만 멱등 보존한다.
-- 참가자 표현의 connected=true와 nickname=user_id는 presence·프로필 구현 전
-  임시값이다(docs/12 기록).
+- #139부터 참가자 nickname은 snapshot 조립 전에 server-owned profile store에서 해석한다.
+  profile이 없거나 읽기 실패·손상 record면 snapshot을 거부하지 않고 `user_id`를 쓴다.
+  `connected=true`만 실제 presence 추적 전의 임시값으로 남는다(docs/12 기록).
 
 ### 직렬화 경계
 

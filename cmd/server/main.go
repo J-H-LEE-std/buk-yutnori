@@ -18,6 +18,7 @@ import (
 	"buk-yutnori/internal/auth/googleid"
 	"buk-yutnori/internal/domain/board"
 	"buk-yutnori/internal/httpapi"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/server"
 	"buk-yutnori/internal/storage"
 	"buk-yutnori/internal/wsapi"
@@ -55,6 +56,10 @@ func run() error {
 			slog.Error("event store shutdown failed", "error", closeErr)
 		}
 	}()
+	// One canonical SQLite handle implements distinct storage boundaries. Keep
+	// the profile-facing use explicitly typed so room snapshots cannot depend on
+	// the event-store interface alone.
+	var profileStore profile.Store = eventStore
 	authService, err := auth.NewService(verifier, eventStore, rand.Reader, time.Now)
 	if err != nil {
 		return err
@@ -63,7 +68,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	profileHandler, err := httpapi.NewProfileHandler(authService, eventStore)
+	profileHandler, err := httpapi.NewProfileHandler(authService, profileStore)
 	if err != nil {
 		return err
 	}
@@ -81,11 +86,14 @@ func run() error {
 	if err := roomsRegistry.AttachEventStore(eventStore); err != nil {
 		return err
 	}
+	if err := roomsRegistry.AttachProfileStore(profileStore); err != nil {
+		return err
+	}
 	roomsHandler, err := httpapi.NewRoomsHandler(authService, roomsRegistry)
 	if err != nil {
 		return err
 	}
-	realtimeRuntime, err := application.NewRealtimeApplicationWithProfiles(time.Now, roomsRegistry, eventStore, eventStore)
+	realtimeRuntime, err := application.NewRealtimeApplicationWithProfiles(time.Now, roomsRegistry, eventStore, profileStore)
 	if err != nil {
 		return err
 	}

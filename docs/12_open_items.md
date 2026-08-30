@@ -48,8 +48,9 @@
   타입이 없으므로 이동 가능한 말이 없는 일반 토큰을 런타임이 자동 폐기하고
   RESULT_QUEUE_UPDATED로 알린다(docs/03 discard_only_that_token과 결과 동일).
   클라이언트 명시 폐기 계약이 필요해지면 퇴장·강퇴 전송 계약과 함께 정의한다.
-- game_snapshot 참가자 표현의 임시값. v1은 presence 추적과 닉네임 저장이 없어
-  connected=true, nickname=user_id를 채워 넣는다. presence와 프로필 구현 시 교체한다.
+- game_snapshot 참가자의 `nickname`은 #139부터 profile nickname(없거나 읽기 실패·손상
+  record면 `user_id`)으로 해석한다. `connected=true`는 실제 presence 추적 전의 임시값으로
+  남는다.
 
 ## 구현 전 ADR 필요
 
@@ -64,9 +65,10 @@
 
 ## 제품 세부 정책 미결정
 
-- 닉네임 설정 전 사용자의 방 참가자 표시 정책. #137은 전체 채팅의 표시명만 profile
-  nickname(없거나 조회 실패 시 `user_id`)으로 정했다. `game_snapshot` 참가자 nickname과
-  presence의 정식 연결 상태는 별도 구현에서 확정한다.
+- 닉네임 설정 전 사용자의 방 대기실 참가자 표시와 실제 presence 연결 상태. #137은 전체
+  채팅, #139는 `game_snapshot`의 nickname을 profile nickname(없거나 읽기 실패 시
+  `user_id`)으로 정했다. pre-match room detail 표시와 presence의 정식 연결 상태는 별도
+  구현에서 확정한다.
 - 방 비밀번호 실패 시도 제한
 - 채팅·게임 로그 보존 기간
 - 사용자 계정 삭제 정책
