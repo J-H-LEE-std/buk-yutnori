@@ -383,12 +383,15 @@ type RoomDetailSnapshot struct {
 	ActiveMatch *ActiveMatchSnapshot `json:"active_match,omitempty"`
 }
 
+const roomDetailNicknameLookupAttempts = 2
+
 // RoomMemberView is one member's visible lobby state.
 type RoomMemberView struct {
-	UserID auth.UserID   `json:"user_id"`
-	Role   string        `json:"role"`
-	Team   domain.TeamID `json:"team,omitempty"`
-	Ready  bool          `json:"ready"`
+	UserID   auth.UserID   `json:"user_id"`
+	Nickname string        `json:"nickname"`
+	Role     string        `json:"role"`
+	Team     domain.TeamID `json:"team,omitempty"`
+	Ready    bool          `json:"ready"`
 }
 
 // ActiveStartSnapshot describes the open confirmation window.
@@ -412,19 +415,81 @@ func (registry *RoomRegistry) Detail(user auth.UserID, roomID domain.RoomID) (Ro
 		return RoomDetailSnapshot{}, err
 	}
 
-	registry.mutex.Lock()
-	defer registry.mutex.Unlock()
+	for attempt := 0; ; attempt++ {
+		registry.mutex.Lock()
+		entry, exists := registry.rooms[roomID]
+		if !exists {
+			registry.mutex.Unlock()
+			return RoomDetailSnapshot{}, ErrRoomNotFound
+		}
+		if _, spectator := entry.spectators[user]; !spectator {
+			if _, player := entry.lobby.Player(playerID); !player {
+				registry.mutex.Unlock()
+				return RoomDetailSnapshot{}, ErrNotMember
+			}
+		}
+		profileStore := registry.profiles
+		memberIDs := roomDetailMemberIDsLocked(entry)
+		registry.mutex.Unlock()
 
-	entry, exists := registry.rooms[roomID]
-	if !exists {
-		return RoomDetailSnapshot{}, ErrRoomNotFound
+		nicknames := resolveRoomDetailNicknames(profileStore, memberIDs)
+
+		registry.mutex.Lock()
+		entry, exists = registry.rooms[roomID]
+		if !exists {
+			registry.mutex.Unlock()
+			return RoomDetailSnapshot{}, ErrRoomNotFound
+		}
+		if _, spectator := entry.spectators[user]; !spectator {
+			if _, player := entry.lobby.Player(playerID); !player {
+				registry.mutex.Unlock()
+				return RoomDetailSnapshot{}, ErrNotMember
+			}
+		}
+		// A changed roster gets one fresh profile lookup. Under sustained churn,
+		// return the current authoritative roster on the final attempt; users that
+		// arrived after its lookup safely use the user ID fallback.
+		if sameRoomDetailMemberIDs(memberIDs, roomDetailMemberIDsLocked(entry)) || attempt+1 >= roomDetailNicknameLookupAttempts {
+			detail := registry.assembleRoomDetailWithNicknamesLocked(entry, nicknames)
+			registry.mutex.Unlock()
+			return detail, nil
+		}
+		registry.mutex.Unlock()
 	}
-	if _, spectator := entry.spectators[user]; !spectator {
-		if _, player := entry.lobby.Player(playerID); !player {
-			return RoomDetailSnapshot{}, ErrNotMember
+}
+
+func roomDetailMemberIDsLocked(entry *registeredRoom) []auth.UserID {
+	players := entry.lobby.Players()
+	ids := make([]auth.UserID, 0, len(players)+len(entry.spectators))
+	for id := range players {
+		ids = append(ids, auth.UserID(id))
+	}
+	for id := range entry.spectators {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
+	return ids
+}
+
+func sameRoomDetailMemberIDs(left, right []auth.UserID) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
 		}
 	}
+	return true
+}
 
+func resolveRoomDetailNicknames(store profile.Store, memberIDs []auth.UserID) map[auth.UserID]string {
+	ctx, cancel := eventStoreContext()
+	defer cancel()
+	return resolveSnapshotNicknames(ctx, store, memberIDs)
+}
+
+func (registry *RoomRegistry) assembleRoomDetailWithNicknamesLocked(entry *registeredRoom, nicknames map[auth.UserID]string) RoomDetailSnapshot {
 	detail := RoomDetailSnapshot{Summary: entry.summary}
 	spectatorIDs := make([]auth.UserID, 0, len(entry.spectators))
 	for id := range entry.spectators {
@@ -432,7 +497,7 @@ func (registry *RoomRegistry) Detail(user auth.UserID, roomID domain.RoomID) (Ro
 	}
 	sort.Slice(spectatorIDs, func(left, right int) bool { return spectatorIDs[left] < spectatorIDs[right] })
 	for _, id := range spectatorIDs {
-		detail.Members = append(detail.Members, RoomMemberView{UserID: id, Role: RoleSpectator})
+		detail.Members = append(detail.Members, RoomMemberView{UserID: id, Nickname: snapshotNickname(nicknames, id), Role: RoleSpectator})
 	}
 	players := entry.lobby.Players()
 	ids := make([]domain.PlayerID, 0, len(players))
@@ -442,8 +507,9 @@ func (registry *RoomRegistry) Detail(user auth.UserID, roomID domain.RoomID) (Ro
 	sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
 	for _, id := range ids {
 		player := players[id]
+		userID := auth.UserID(id)
 		detail.Members = append(detail.Members, RoomMemberView{
-			UserID: auth.UserID(id), Role: RolePlayer,
+			UserID: userID, Nickname: snapshotNickname(nicknames, userID), Role: RolePlayer,
 			Team: player.Team, Ready: player.Ready,
 		})
 	}
@@ -459,7 +525,7 @@ func (registry *RoomRegistry) Detail(user auth.UserID, roomID domain.RoomID) (Ro
 	if entry.started && entry.runtime != nil {
 		detail.ActiveMatch = &ActiveMatchSnapshot{MatchID: entry.runtime.matchID}
 	}
-	return detail, nil
+	return detail
 }
 
 // ChangeTeam moves the authenticated player to the requested team through the

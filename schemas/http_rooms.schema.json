@@ -287,11 +287,16 @@
       "additionalProperties": false,
       "required": [
         "user_id",
+        "nickname",
         "role",
         "ready"
       ],
       "properties": {
         "user_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nickname": {
           "type": "string",
           "minLength": 1
         },

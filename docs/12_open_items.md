@@ -65,10 +65,9 @@
 
 ## 제품 세부 정책 미결정
 
-- 닉네임 설정 전 사용자의 방 대기실 참가자 표시와 실제 presence 연결 상태. #137은 전체
-  채팅, #139는 `game_snapshot`의 nickname을 profile nickname(없거나 읽기 실패 시
-  `user_id`)으로 정했다. pre-match room detail 표시와 presence의 정식 연결 상태는 별도
-  구현에서 확정한다.
+- 실제 presence 연결 상태. #137은 전체 채팅, #139는 `game_snapshot`, #141은 member-only
+  room detail의 nickname을 profile nickname(없거나 읽기 실패 시 `user_id`)으로 정했다.
+  연결 여부의 정식 추적과 nickname 변경 realtime push는 별도 구현에서 확정한다.
 - 방 비밀번호 실패 시도 제한
 - 채팅·게임 로그 보존 기간
 - 사용자 계정 삭제 정책

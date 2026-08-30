@@ -71,9 +71,10 @@ ID로 인증되며, 마지막 사용 시각만 갱신하고 최초 생성 시각
 공개 profile을 조회하며, profile이 비공개여도 닉네임만 반환한다. profile HTTP
 payload는 `schemas/http_profiles.schema.json`을 따른다.
 
-인증된 전체 채팅과 진행 중 경기의 `game_snapshot.participants[].nickname`은 서버가
-snapshot/event 확정 시점에 profile에서 해석한다. profile이 아직 없거나 읽기 실패·손상
-record면 동작을 막지 않고 안정적인 내부 `user_id`를 표시명으로 사용한다.
+인증된 전체 채팅, member-only room detail, 진행 중 경기의
+`game_snapshot.participants[].nickname`은 서버가 응답/event 확정 시점에 profile에서
+해석한다. profile이 아직 없거나 읽기 실패·손상 record면 동작을 막지 않고 안정적인 내부
+`user_id`를 표시명으로 사용한다.
 
 ## 전적
 

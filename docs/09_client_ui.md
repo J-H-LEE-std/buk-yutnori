@@ -88,7 +88,7 @@ room/match scope를 결합해 `SELECT_ROUTE`를 전송한다. 관전자, 상대 
    인증 세션에서만 조회하며 loading/empty/error 상태를 DOM에 표시하고, 서버가
    반환한 방 요약 필드를 `textContent`로 렌더링한다. 새로고침은 명시적 버튼으로
    재조회한다. 방 생성·플레이어 참여·관전은 같은 HTTP 세로 흐름으로 연결하며,
-   성공하면 서버가 반환한 방 상세의 멤버·역할·팀·준비·시작 확인 상태를 표시한다.
+   성공하면 서버가 반환한 방 상세의 멤버 nickname·역할·팀·준비·시작 확인 상태를 표시한다.
    방 상세에 진입한 뒤에는 인증된 WebSocket으로 ROOM_UPDATED/GAME_STARTING을 수신해
    상세를 다시 조회하고, 플레이어의 팀 선택·준비 및 방장의 게임 시작 요청을 서버에
    전달한다. 명령 결과가 거부되면 서버 오류를 표시하며 클라이언트는 상태를 추론하지 않는다.
@@ -98,7 +98,9 @@ room/match scope를 결합해 `SELECT_ROUTE`를 전송한다. 관전자, 상대 
    브라우저는 이를 `textContent`로 렌더링한다.
 3. 방 로비 — 입장 성공 후 도달한다. 방 상세 조회(멤버 전용), ROOM_UPDATED/GAME_STARTING
    구독과 팀·준비·시작 확인 명령이 데이터 소스다. 전체 채팅은 계속 `lobby` scope를
-   사용하며 방 membership를 요구하지 않는다.
+   사용하며 방 membership를 요구하지 않는다. 멤버 표시는 서버 `nickname`을
+   `textContent`로 렌더링하고, profile 부재·읽기 실패 시 서버가 넣은 `user_id` fallback을
+   그대로 사용한다.
 4. 게임 화면 — 경기 런타임 확정 후 접근하며 snapshot과 경기 이벤트를 소비한다.
    참가자 표시는 서버가 넣은 `game_snapshot.participants[].nickname`을 사용하며,
    profile 부재·읽기 실패 시 서버가 넣은 `user_id` fallback을 그대로 표시한다.
