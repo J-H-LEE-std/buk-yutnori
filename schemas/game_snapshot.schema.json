@@ -123,7 +123,7 @@
             "active": { "type": "boolean" },
             "reason": {
               "type": ["string", "null"],
-              "enum": ["disconnected", "timeout", null]
+              "enum": ["disconnected", "timeout", "lobby_player", null]
             }
           }
         }

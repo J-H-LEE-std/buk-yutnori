@@ -66,8 +66,9 @@ const (
 	matchTimerKindThrow = "throw"
 	matchTimerKindMove  = "move"
 
-	cpuControlReasonTimeout    = "timeout"
-	gameEndedReasonAllFinished = "all_pieces_finished"
+	cpuControlReasonTimeout     = "timeout"
+	cpuControlReasonLobbyPlayer = "lobby_player"
+	gameEndedReasonAllFinished  = "all_pieces_finished"
 )
 
 type matchTimer interface {
@@ -142,8 +143,9 @@ type matchRuntime struct {
 	matchID  domain.MatchID
 	settings room.Settings
 
-	order  []domain.PlayerID
-	teamOf map[domain.PlayerID]domain.TeamID
+	order      []domain.PlayerID
+	teamOf     map[domain.PlayerID]domain.TeamID
+	cpuPlayers map[domain.PlayerID]bool
 
 	game        *match.Game
 	cpu         *cpu.Policy
@@ -251,6 +253,7 @@ func (registry *RoomRegistry) newMatchRuntime(entry *registeredRoom, roomID doma
 	}
 
 	teamOf := make(map[domain.PlayerID]domain.TeamID, len(order))
+	cpuPlayers := make(map[domain.PlayerID]bool)
 	setups := make([]match.TeamSetup, 0, 2)
 	for _, team := range []domain.TeamID{domain.TeamA, domain.TeamB} {
 		pieceIDs := make([]domain.PieceID, 0, settings.PieceCount)
@@ -260,6 +263,9 @@ func (registry *RoomRegistry) newMatchRuntime(entry *registeredRoom, roomID doma
 		setups = append(setups, match.TeamSetup{TeamID: team, PieceIDs: pieceIDs})
 		for _, id := range teamPlayers[team] {
 			teamOf[id] = team
+			if players[id].CPU {
+				cpuPlayers[id] = true
+			}
 		}
 	}
 
@@ -283,6 +289,7 @@ func (registry *RoomRegistry) newMatchRuntime(entry *registeredRoom, roomID doma
 		settings:    settings,
 		order:       order,
 		teamOf:      teamOf,
+		cpuPlayers:  cpuPlayers,
 		game:        game,
 		cpu:         policy,
 		throwResult: sampler.Throw,
@@ -316,12 +323,22 @@ func (registry *RoomRegistry) beginTurnLocked(entry *registeredRoom, rt *matchRu
 	}
 	rt.machine = machine
 	rt.pendingMovePiece = ""
-	rt.cpuControlled = false
+	rt.cpuControlled = rt.cpuPlayers[rt.currentPlayer()]
 	if err := machine.Start(); err != nil {
 		return fmt.Errorf("%w: start turn: %v", ErrInvalidConfiguration, err)
 	}
-	registry.scheduleThrowTimerLocked(rt)
 	registry.stageTurnStarted(tx, rt)
+	if rt.cpuControlled {
+		player := rt.currentPlayer()
+		tx.emit(func(sequence uint64) (any, error) {
+			return protocol.NewCPUControlStartedEvent(rt.roomID, rt.matchID, sequence, protocol.CPUControlStartedPayload{
+				PlayerID: player, Reason: cpuControlReasonLobbyPlayer,
+			})
+		})
+		registry.runCpuTurnLocked(entry, rt, tx)
+		return nil
+	}
+	registry.scheduleThrowTimerLocked(rt)
 	return nil
 }
 
@@ -526,6 +543,9 @@ func matchResultForRuntime(rt *matchRuntime, winner domain.TeamID) storage.Match
 	// teamOf are the immutable started roster. Finish must therefore never
 	// depend on mutable lobby membership or current connection state.
 	for _, playerID := range rt.order {
+		if rt.cpuPlayers[playerID] {
+			continue
+		}
 		userID := auth.UserID(playerID)
 		if rt.teamOf[playerID] == winner {
 			result.Winners = append(result.Winners, userID)

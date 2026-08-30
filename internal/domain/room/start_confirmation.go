@@ -68,8 +68,10 @@ func NewStartConfirmation(lobby *Lobby, matchID domain.MatchID, startedAt time.T
 	}
 
 	confirmed := make(map[domain.PlayerID]bool, len(lobby.players))
-	for id := range lobby.players {
-		confirmed[id] = false
+	for id, player := range lobby.players {
+		if !player.CPU {
+			confirmed[id] = false
+		}
 	}
 	return &StartConfirmation{
 		matchID:    matchID,

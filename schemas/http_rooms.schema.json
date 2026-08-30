@@ -308,6 +308,12 @@
         },
         "ready": {
           "type": "boolean"
+        },
+        "is_cpu": {
+          "type": "boolean"
+        },
+        "is_host": {
+          "type": "boolean"
         }
       }
     },

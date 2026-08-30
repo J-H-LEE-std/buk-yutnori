@@ -513,7 +513,7 @@ type CPUControlStartedEvent struct {
 }
 
 // NewCPUControlStartedEvent constructs a validated immutable event. Reason is
-// restricted to the schema enum disconnected|timeout.
+// restricted to the schema enum disconnected|timeout|lobby_player.
 func NewCPUControlStartedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence uint64, payload CPUControlStartedPayload) (CPUControlStartedEvent, error) {
 	if err := validateMatchEventScope(roomID, matchID, sequence); err != nil {
 		return CPUControlStartedEvent{}, err
@@ -522,7 +522,7 @@ func NewCPUControlStartedEvent(roomID domain.RoomID, matchID domain.MatchID, seq
 		return CPUControlStartedEvent{}, fmt.Errorf("%w: player_id: %v", ErrInvalidServerEvent, err)
 	}
 	switch payload.Reason {
-	case "disconnected", "timeout":
+	case "disconnected", "timeout", "lobby_player":
 	default:
 		return CPUControlStartedEvent{}, fmt.Errorf("%w: reason %q", ErrInvalidServerEvent, payload.Reason)
 	}

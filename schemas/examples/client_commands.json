@@ -22,6 +22,26 @@
   {
     "version": 1,
     "direction": "client_command",
+    "type": "ADD_CPU_PLAYER",
+    "command_id": "cmd-cpu-add",
+    "room_id": "room-1",
+    "payload": {
+      "team_id": "B"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "REMOVE_CPU_PLAYER",
+    "command_id": "cmd-cpu-remove",
+    "room_id": "room-1",
+    "payload": {
+      "player_id": "cpu-1"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
     "type": "START_GAME",
     "request_id": "req-start",
     "command_id": "cmd-003",

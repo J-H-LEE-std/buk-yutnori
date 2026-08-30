@@ -51,8 +51,8 @@ type MatchResult struct {
 // Validate rejects malformed or overlapping result rosters before a durable
 // finalization transaction begins.
 func (result MatchResult) Validate() error {
-	if len(result.Winners) == 0 || len(result.Losers) == 0 {
-		return errors.New("match result requires winners and losers")
+	if len(result.Winners) == 0 && len(result.Losers) == 0 {
+		return errors.New("match result requires at least one human player")
 	}
 	seen := make(map[auth.UserID]struct{}, len(result.Winners)+len(result.Losers))
 	for _, side := range [][]auth.UserID{result.Winners, result.Losers} {

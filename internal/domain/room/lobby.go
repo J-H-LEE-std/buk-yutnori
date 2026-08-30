@@ -41,6 +41,7 @@ type Player struct {
 	ID    domain.PlayerID
 	Team  domain.TeamID
 	Ready bool
+	CPU   bool
 }
 
 // Lobby contains pure pre-match room state. Its application actor owns
@@ -98,6 +99,32 @@ func (lobby *Lobby) AddPlayer(id domain.PlayerID, team domain.TeamID) error {
 	}
 
 	lobby.players[id] = Player{ID: id, Team: team, Ready: false}
+	return nil
+}
+
+// AddCPUPlayer admits a server-owned player. CPU players are always ready;
+// they have no account and never answer a start confirmation.
+func (lobby *Lobby) AddCPUPlayer(id domain.PlayerID, team domain.TeamID) error {
+	if err := lobby.AddPlayer(id, team); err != nil {
+		return err
+	}
+	player := lobby.players[id]
+	player.CPU = true
+	player.Ready = true
+	lobby.players[id] = player
+	return nil
+}
+
+// RemoveCPUPlayer removes only a server-owned player.
+func (lobby *Lobby) RemoveCPUPlayer(id domain.PlayerID) error {
+	player, err := lobby.player(id)
+	if err != nil {
+		return err
+	}
+	if !player.CPU {
+		return errors.New("player is not a CPU player")
+	}
+	delete(lobby.players, id)
 	return nil
 }
 
@@ -184,7 +211,7 @@ func (lobby *Lobby) ValidateStart() error {
 	}
 
 	for _, player := range lobby.players {
-		if !player.Ready {
+		if !player.CPU && !player.Ready {
 			return ErrStartPlayersNotReady
 		}
 	}

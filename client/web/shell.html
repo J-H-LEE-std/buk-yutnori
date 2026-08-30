@@ -214,6 +214,8 @@
           <button id="room-ready" type="button" disabled>준비</button>
           <button id="room-start" type="button" disabled>게임 시작</button>
           <button id="room-confirm-start" type="button" disabled>시작 확인</button>
+		  <button id="room-add-cpu-a" type="button" disabled>A팀 CPU 추가</button>
+		  <button id="room-add-cpu-b" type="button" disabled>B팀 CPU 추가</button>
         </div>
         <span id="room-lobby-status" role="status"></span>
         <ul id="room-members" aria-label="방 멤버"></ul>
@@ -279,6 +281,8 @@
     const roomReady = document.getElementById("room-ready");
     const roomStart = document.getElementById("room-start");
     const roomConfirmStart = document.getElementById("room-confirm-start");
+	const roomAddCPUA = document.getElementById("room-add-cpu-a");
+	const roomAddCPUB = document.getElementById("room-add-cpu-b");
     const roomLobbyStatus = document.getElementById("room-lobby-status");
     const gameLogStatus = document.getElementById("game-log-status");
     const gameLogList = document.getElementById("game-log-list");
@@ -306,7 +310,7 @@
     const RESULT_ORIGINS = new Set(["initial_throw", "yut_extra", "mo_extra", "capture_extra"]);
     const PARTICIPANT_ROLES = new Set(["player", "spectator"]);
     const PERMISSIONS = new Set(["control_game", "chat", "pause_game", "manage_room"]);
-    const CPU_REASONS = new Set(["disconnected", "timeout", null]);
+    const CPU_REASONS = new Set(["disconnected", "timeout", "lobby_player", null]);
     const ROUTES = new Set(["normal", "shortcut"]);
     let composing = false;
     let chatComposing = false;
@@ -348,6 +352,8 @@
       roomReady.disabled = !player;
       roomStart.disabled = !enabled;
       roomConfirmStart.disabled = !player || activeStartScope?.roomId !== activeRoomId;
+	  roomAddCPUA.disabled = true;
+	  roomAddCPUB.disabled = true;
       if (!player) roomReady.textContent = "준비";
     }
 
@@ -362,7 +368,9 @@
           && member.user_id.length > 0 && typeof member.nickname === "string" && member.nickname.length > 0
           && ["player", "spectator"].includes(member.role)
           && (member.team === undefined || member.team === "A" || member.team === "B")
-          && typeof member.ready === "boolean")
+          && typeof member.ready === "boolean"
+          && (member.is_cpu === undefined || typeof member.is_cpu === "boolean")
+          && (member.is_host === undefined || typeof member.is_host === "boolean"))
         && (payload.active_start === undefined || (payload.active_start && typeof payload.active_start.match_id === "string"
           && payload.active_start.match_id.length > 0 && typeof payload.active_start.confirmation_deadline_at === "string"
           && payload.active_start.confirmation_deadline_at.length > 0))
@@ -414,6 +422,10 @@
       const self = detail.members.find((member) => member.user_id === authenticatedUserId);
       activeRoomRole = self?.role ?? null;
       setRoomLobbyControls(roomListAuthenticated && activeRoomId === detail.summary.room_id, self);
+	  const canEditCPUs = roomListAuthenticated && activeRoomId === detail.summary.room_id
+		  && self?.is_host === true && !detail.active_start && !detail.active_match;
+	  roomAddCPUA.disabled = !canEditCPUs;
+	  roomAddCPUB.disabled = !canEditCPUs;
       if (self?.role === "player") {
         roomReady.textContent = self.ready ? "준비 취소" : "준비";
       }
@@ -432,7 +444,13 @@
       roomMembers.replaceChildren();
       for (const member of detail.members) {
         const item = document.createElement("li");
-        item.textContent = `${member.nickname} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
+		item.textContent = `${member.nickname}${member.is_host ? " · 방장" : ""}${member.is_cpu ? " · CPU" : ""} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
+		if (canEditCPUs && member.is_cpu) {
+		  const remove = document.createElement("button");
+		  remove.type = "button"; remove.textContent = "CPU 제거";
+		  remove.addEventListener("click", () => sendRoomLobbyCommand("REMOVE_CPU_PLAYER", { player_id: member.user_id }));
+		  item.append(" ", remove);
+		}
         roomMembers.append(item);
       }
     }
@@ -652,6 +670,8 @@
     });
     roomStart.addEventListener("click", () => sendRoomLobbyCommand("START_GAME"));
     roomConfirmStart.addEventListener("click", sendStartConfirmation);
+	roomAddCPUA.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "A" }));
+	roomAddCPUB.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "B" }));
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
