@@ -214,8 +214,8 @@
           <button id="room-ready" type="button" disabled>준비</button>
           <button id="room-start" type="button" disabled>게임 시작</button>
           <button id="room-confirm-start" type="button" disabled>시작 확인</button>
-      <button id="room-add-cpu-a" type="button" disabled>A팀 CPU 추가</button>
-      <button id="room-add-cpu-b" type="button" disabled>B팀 CPU 추가</button>
+          <button id="room-add-cpu-a" type="button" disabled>A팀 CPU 추가</button>
+          <button id="room-add-cpu-b" type="button" disabled>B팀 CPU 추가</button>
         </div>
         <span id="room-lobby-status" role="status"></span>
         <ul id="room-members" aria-label="방 멤버"></ul>
@@ -444,13 +444,13 @@
       roomMembers.replaceChildren();
       for (const member of detail.members) {
         const item = document.createElement("li");
-    item.textContent = `${member.nickname}${member.is_host ? " · 방장" : ""}${member.is_cpu ? " · CPU" : ""} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
-    if (canEditCPUs && member.is_cpu) {
-      const remove = document.createElement("button");
-      remove.type = "button"; remove.textContent = "CPU 제거";
-      remove.addEventListener("click", () => sendRoomLobbyCommand("REMOVE_CPU_PLAYER", { player_id: member.user_id }));
-      item.append(" ", remove);
-    }
+        item.textContent = `${member.nickname}${member.is_host ? " · 방장" : ""}${member.is_cpu ? " · CPU" : ""} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
+        if (canEditCPUs && member.is_cpu) {
+          const remove = document.createElement("button");
+          remove.type = "button"; remove.textContent = "CPU 제거";
+          remove.addEventListener("click", () => sendRoomLobbyCommand("REMOVE_CPU_PLAYER", { player_id: member.user_id }));
+          item.append(" ", remove);
+        }
         roomMembers.append(item);
       }
     }

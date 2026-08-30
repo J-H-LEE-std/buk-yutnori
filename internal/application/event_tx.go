@@ -54,8 +54,12 @@ func (tx *eventTx) emit(build func(sequence uint64) (any, error)) {
 // event transaction. It is persisted atomically with the GAME_ENDED batch.
 func (tx *eventTx) recordMatchResult(result storage.MatchResult) {
 	tx.matchResult = &result
-	tx.finishMatch = true
+	tx.markMatchFinished()
 }
+
+// finishMatch marks this transaction as terminal independently of whether
+// there are human statistics to persist.
+func (tx *eventTx) markMatchFinished() { tx.finishMatch = true }
 
 // flush persists every staged event durably before consuming their room
 // sequences and delivering them. With no store attached it degrades to the
