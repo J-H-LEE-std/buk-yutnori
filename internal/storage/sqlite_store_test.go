@@ -136,6 +136,30 @@ func TestAppendMatchFinalizationCommitsEventsAndStatsTogether(t *testing.T) {
 	}
 }
 
+func TestAppendMatchFinalizationAllowsCPUOnlyOpponent(t *testing.T) {
+	t.Parallel()
+
+	store := openTestStore(t)
+	defer store.Close()
+	ctx := context.Background()
+	human := auth.UserID("usr_MzMzMzMzMzMzMzMzMzMzMw")
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO users (user_id, google_subject) VALUES (?, ?)`, string(human), "human-vs-cpu-subject"); err != nil {
+		t.Fatalf("seed human user: %v", err)
+	}
+
+	err := store.AppendMatchFinalization(ctx, []EventRow{{
+		RoomID: domain.RoomID("room-human-vs-cpu"), Sequence: 1, EventType: "GAME_ENDED", PayloadJSON: []byte(`{"type":"GAME_ENDED","sequence":1}`),
+	}}, MatchResult{Winners: []auth.UserID{human}})
+	if err != nil {
+		t.Fatalf("AppendMatchFinalization() against CPU error = %v", err)
+	}
+
+	var wins, losses int64
+	if err := store.db.QueryRowContext(ctx, `SELECT wins, losses FROM user_stats WHERE user_id = ?`, string(human)).Scan(&wins, &losses); err != nil || wins != 1 || losses != 0 {
+		t.Fatalf("human stats = [%d %d], %v; want [1 0]", wins, losses, err)
+	}
+}
+
 func TestAppendMatchFinalizationRollsBackEventsWhenStatsCannotApply(t *testing.T) {
 	t.Parallel()
 

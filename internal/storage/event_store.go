@@ -42,7 +42,8 @@ type EventStore interface {
 
 // MatchResult applies one finished match's outcome to its player roster.
 // Winners and losers are the authoritative starting roster, not the current
-// connection/presence set. A user can appear in exactly one side.
+// connection/presence set. CPU-only sides are omitted, so one side may be
+// empty; a human user can appear in exactly one side.
 type MatchResult struct {
 	Winners []auth.UserID
 	Losers  []auth.UserID
