@@ -3,6 +3,7 @@
 package application
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -459,6 +460,44 @@ func (registry *RoomRegistry) Detail(user auth.UserID, roomID domain.RoomID) (Ro
 		}
 		registry.mutex.Unlock()
 	}
+}
+
+// GameLogs returns the completed, server-derived records visible to a current
+// room member. It scans the canonical room event sequence by ADR-0014; it
+// intentionally does not create a second log store or an index.
+func (registry *RoomRegistry) GameLogs(ctx context.Context, user auth.UserID, roomID domain.RoomID) ([]GameLog, error) {
+	playerID, err := playerIDFromUser(user)
+	if err != nil {
+		return nil, err
+	}
+
+	registry.mutex.Lock()
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		registry.mutex.Unlock()
+		return nil, ErrRoomNotFound
+	}
+	if _, spectator := entry.spectators[user]; !spectator {
+		if _, player := entry.lobby.Player(playerID); !player {
+			registry.mutex.Unlock()
+			return nil, ErrNotMember
+		}
+	}
+	store := registry.store
+	registry.mutex.Unlock()
+	if store == nil {
+		return nil, fmt.Errorf("%w: game log reader is not configured", ErrEventStoreUnavailable)
+	}
+
+	rows, err := store.ReadRoomEventsAfter(ctx, roomID, 0)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read room events: %v", ErrEventStoreUnavailable, err)
+	}
+	logs, err := deriveGameLogs(rows)
+	if err != nil {
+		return nil, fmt.Errorf("%w: derive room events: %v", ErrEventStoreUnavailable, err)
+	}
+	return logs, nil
 }
 
 func roomDetailMemberIDsLocked(entry *registeredRoom) []auth.UserID {

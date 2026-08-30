@@ -35,6 +35,8 @@ type stubRoomsService struct {
 	joinInput    application.JoinRoomInput
 	joinResult   application.RoomSummary
 	joinErr      error
+	gameLogs     []application.GameLog
+	gameLogsErr  error
 }
 
 func (s *stubRoomsService) List() []application.RoomSummary {
@@ -53,6 +55,10 @@ func (s *stubRoomsService) Detail(_ auth.UserID, _ domain.RoomID) (application.R
 func (s *stubRoomsService) Join(input application.JoinRoomInput) (application.RoomSummary, error) {
 	s.joinInput = input
 	return s.joinResult, s.joinErr
+}
+
+func (s *stubRoomsService) GameLogs(_ context.Context, _ auth.UserID, _ domain.RoomID) ([]application.GameLog, error) {
+	return s.gameLogs, s.gameLogsErr
 }
 
 func newRoomsTestHandler(authenticate roomAuthenticator, rooms roomsService) http.Handler {
@@ -117,6 +123,7 @@ func TestRoomsRoutesRequireSession(t *testing.T) {
 			// body omitted: authentication precedes decoding
 		},
 		{name: "join", method: http.MethodPost, target: "/api/v1/rooms/some-room/join"},
+		{name: "game logs", method: http.MethodGet, target: "/api/v1/rooms/some-room/game-logs"},
 	}
 
 	for _, tt := range tests {
@@ -393,3 +400,42 @@ func TestRoomDetailMapsMembershipVisibility(t *testing.T) {
 		t.Fatalf("member detail active_match = %+v, want live match scope", payload.ActiveMatch)
 	}
 }
+
+func TestGameLogsRequireMembershipAndReturnOnlyServerDerivedPayload(t *testing.T) {
+	authenticator := &stubRoomAuthenticator{user: auth.User{ID: "user-1"}}
+	log := application.GameLog{
+		MatchID: "match-done", StartedSequence: 2, EndedSequence: 9, Status: "finished",
+		WinnerTeamID: roomTestTeam(domain.TeamB), Reason: "all_pieces_finished",
+		Entries: []application.GameLogEntry{{Sequence: 4, Notation: "{개}"}},
+	}
+
+	service := &stubRoomsService{gameLogsErr: application.ErrNotMember}
+	handler := newRoomsTestHandler(authenticator, service)
+	response := roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms/r1/game-logs", nil)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("non-member status = %d, want 403", response.Code)
+	}
+
+	service = &stubRoomsService{gameLogsErr: errors.New("storage failed")}
+	handler = newRoomsTestHandler(authenticator, service)
+	response = roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms/r1/game-logs", nil)
+	if response.Code != http.StatusInternalServerError || !bytes.Contains(response.Body.Bytes(), []byte("internal_error")) {
+		t.Fatalf("storage status/body = %d/%s", response.Code, response.Body.String())
+	}
+
+	service = &stubRoomsService{gameLogs: []application.GameLog{log}}
+	handler = newRoomsTestHandler(authenticator, service)
+	response = roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms/r1/game-logs", nil)
+	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("member status/cache = %d/%q", response.Code, response.Header().Get("Cache-Control"))
+	}
+	var payload gameLogResponse
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("Decode(log payload) error = %v", err)
+	}
+	if len(payload.GameLogs) != 1 || payload.GameLogs[0].MatchID != "match-done" || len(payload.GameLogs[0].Entries) != 1 || payload.GameLogs[0].Entries[0].Notation != "{개}" {
+		t.Fatalf("game log payload = %+v", payload)
+	}
+}
+
+func roomTestTeam(value domain.TeamID) *domain.TeamID { return &value }

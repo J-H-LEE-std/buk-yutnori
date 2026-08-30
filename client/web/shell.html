@@ -152,6 +152,11 @@
     .room-row strong { max-height: 4.5em; overflow-y: auto; }
     #room-detail-title { max-height: 4.5em; overflow-y: auto; }
     #room-members { max-height: 12rem; overflow-y: auto; }
+    .game-logs { display: grid; gap: 6px; }
+    .game-logs h3 { margin: 0; font-size: 1rem; }
+    #game-log-list { max-height: 12rem; margin: 0; padding: 10px 10px 10px 28px; overflow-y: auto; border-radius: 8px; background: rgb(0 0 0 / 22%); }
+    #game-log-list li { overflow-wrap: anywhere; }
+    #game-log-list ol { margin: 6px 0 0; padding-left: 20px; }
     .room-detail[hidden] { display: none; }
     .room-lobby-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .game-session { display: grid; gap: 6px; margin: 18px 0; padding: 14px 16px; border: 1px solid #6f5b4e; border-radius: 12px; background: rgb(255 250 240 / 8%); }
@@ -212,6 +217,11 @@
         </div>
         <span id="room-lobby-status" role="status"></span>
         <ul id="room-members" aria-label="방 멤버"></ul>
+        <section class="game-logs" aria-labelledby="game-log-heading">
+          <h3 id="game-log-heading">완료한 경기 기록</h3>
+          <span id="game-log-status" class="room-meta" role="status">방 상세를 불러온 뒤 경기 기록을 확인합니다.</span>
+          <ol id="game-log-list" aria-live="polite" aria-label="완료한 경기 기록"></ol>
+        </section>
       </div>
     </section>
     <section id="game-session" class="game-session" hidden aria-live="polite" aria-label="게임 화면 상태">
@@ -270,6 +280,8 @@
     const roomStart = document.getElementById("room-start");
     const roomConfirmStart = document.getElementById("room-confirm-start");
     const roomLobbyStatus = document.getElementById("room-lobby-status");
+    const gameLogStatus = document.getElementById("game-log-status");
+    const gameLogList = document.getElementById("game-log-list");
     const gameSession = document.getElementById("game-session");
     const gameSessionTitle = document.getElementById("game-session-title");
     const gameSessionStatus = document.getElementById("game-session-status");
@@ -359,6 +371,42 @@
         && !(payload.active_start && payload.active_match);
     }
 
+    function validateGameLogs(payload) {
+      return payload && Array.isArray(payload.game_logs) && payload.game_logs.every((log) => log
+        && typeof log.match_id === "string" && log.match_id.length > 0
+        && Number.isSafeInteger(log.started_sequence) && log.started_sequence >= 1
+        && Number.isSafeInteger(log.ended_sequence) && log.ended_sequence >= log.started_sequence
+        && ["finished", "invalid"].includes(log.status)
+        && typeof log.reason === "string" && log.reason.length > 0
+        && ((log.status === "finished" && ["A", "B"].includes(log.winner_team_id))
+          || (log.status === "invalid" && log.winner_team_id === undefined))
+        && Array.isArray(log.entries) && log.entries.every((entry) => entry
+          && Number.isSafeInteger(entry.sequence) && entry.sequence >= log.started_sequence
+          && entry.sequence <= log.ended_sequence && typeof entry.notation === "string" && entry.notation.length > 0));
+    }
+
+    function renderGameLogs(logs) {
+      gameLogList.replaceChildren();
+      if (logs.length === 0) {
+        gameLogStatus.textContent = "완료된 경기 기록이 없습니다.";
+        return;
+      }
+      gameLogStatus.textContent = `${logs.length}개의 완료된 경기 기록`;
+      for (const log of logs) {
+        const item = document.createElement("li");
+        const heading = document.createElement("strong");
+        heading.textContent = `${log.status === "finished" ? `${log.winner_team_id}팀 승리` : "무효 경기"} · ${log.reason}`;
+        const entries = document.createElement("ol");
+        for (const entry of log.entries) {
+          const line = document.createElement("li");
+          line.textContent = entry.notation;
+          entries.append(line);
+        }
+        item.append(heading, entries);
+        gameLogList.append(item);
+      }
+    }
+
     function renderRoomDetail(detail) {
       roomDetail.hidden = false;
       roomDetailTitle.textContent = detail.summary.title;
@@ -397,6 +445,7 @@
         if (generation !== roomDetailRequestGeneration || !roomListAuthenticated) return false;
         if (!validateRoomDetail(payload)) throw new Error("invalid room detail payload");
         renderRoomDetail(payload);
+        await loadGameLogs(roomId, generation);
         return true;
       } catch (error) {
         console.error(error);
@@ -405,7 +454,36 @@
           roomDetailTitle.textContent = "방 상세를 확인할 수 없습니다.";
           roomDetailStatus.textContent = "방 상세를 불러오지 못했습니다. 다시 시도하세요.";
           roomMembers.replaceChildren();
+          gameLogList.replaceChildren();
+          gameLogStatus.textContent = "방 상세를 불러오지 못해 경기 기록을 확인할 수 없습니다.";
           setRoomLobbyControls(false);
+        }
+        return false;
+      }
+    }
+
+    async function loadGameLogs(roomId, generation) {
+      gameLogStatus.textContent = "경기 기록을 불러오는 중…";
+      gameLogList.replaceChildren();
+      try {
+        const response = await fetch(`/api/v1/rooms/${encodeURIComponent(roomId)}/game-logs`, { credentials: "same-origin", cache: "no-store" });
+        if (!response.ok) {
+          if (generation === roomDetailRequestGeneration && roomListAuthenticated) {
+            gameLogStatus.textContent = response.status === 403 || response.status === 404
+              ? "경기 기록 조회 권한이 없거나 방이 종료되었습니다."
+              : "경기 기록을 불러오지 못했습니다. 다시 시도하세요.";
+          }
+          return false;
+        }
+        const payload = await response.json();
+        if (generation !== roomDetailRequestGeneration || !roomListAuthenticated) return false;
+        if (!validateGameLogs(payload)) throw new Error("invalid game log payload");
+        renderGameLogs(payload.game_logs);
+        return true;
+      } catch (error) {
+        console.error(error);
+        if (generation === roomDetailRequestGeneration && roomListAuthenticated) {
+          gameLogStatus.textContent = "경기 기록을 불러오지 못했습니다. 다시 시도하세요.";
         }
         return false;
       }
@@ -527,6 +605,8 @@
       pendingStartConfirmationCommands.clear();
       roomDetail.hidden = true;
       roomMembers.replaceChildren();
+      gameLogList.replaceChildren();
+      gameLogStatus.textContent = "방 상세를 불러온 뒤 경기 기록을 확인합니다.";
       roomLobbyStatus.textContent = "";
       setRoomLobbyControls(false);
       setRoomEntryEnabled(false);
