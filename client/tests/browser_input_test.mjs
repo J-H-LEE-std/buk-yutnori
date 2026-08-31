@@ -648,6 +648,27 @@ try {
       || !roomDetail.controlsDisabled) {
     throw new Error(`room detail renderer failed: ${JSON.stringify(roomDetail)}`);
   }
+  const cpuLobbyDetail = await evaluate(`(() => {
+    roomListAuthenticated = true;
+    activeRoomId = "cpu-room";
+    authenticatedUserId = "host";
+    renderRoomDetail({
+      summary: { room_id: "cpu-room", title: "CPU 방", has_password: false, player_count: 2, max_players: 2 },
+      members: [
+        { user_id: "host", nickname: "방장", role: "player", team: "A", ready: true, is_host: true, is_cpu: false },
+        { user_id: "cpu-1", nickname: "CPU", role: "player", team: "B", ready: true, is_host: false, is_cpu: true },
+      ],
+    });
+    return {
+      member: document.getElementById("room-members").textContent,
+      addEnabled: !document.getElementById("room-add-cpu-a").disabled,
+      removeCount: [...document.querySelectorAll("#room-members button")].filter((button) => button.textContent === "CPU 제거").length,
+    };
+  })()`);
+  if (!cpuLobbyDetail.member.includes("CPU · CPU · player · B팀 · 준비 완료")
+      || !cpuLobbyDetail.addEnabled || cpuLobbyDetail.removeCount !== 1) {
+    throw new Error(`CPU lobby detail renderer was not authoritative: ${JSON.stringify(cpuLobbyDetail)}`);
+  }
   const invalidRoomSummary = await evaluate(`(() => ({
     invalidCount: validateRoomSummary({
       room_id: "r-2", title: "bad", has_password: false,

@@ -42,7 +42,8 @@ type EventStore interface {
 
 // MatchResult applies one finished match's outcome to its player roster.
 // Winners and losers are the authoritative starting roster, not the current
-// connection/presence set. A user can appear in exactly one side.
+// connection/presence set. CPU-only sides are omitted, so one side may be
+// empty; a human user can appear in exactly one side.
 type MatchResult struct {
 	Winners []auth.UserID
 	Losers  []auth.UserID
@@ -51,8 +52,8 @@ type MatchResult struct {
 // Validate rejects malformed or overlapping result rosters before a durable
 // finalization transaction begins.
 func (result MatchResult) Validate() error {
-	if len(result.Winners) == 0 || len(result.Losers) == 0 {
-		return errors.New("match result requires winners and losers")
+	if len(result.Winners) == 0 && len(result.Losers) == 0 {
+		return errors.New("match result requires at least one human player")
 	}
 	seen := make(map[auth.UserID]struct{}, len(result.Winners)+len(result.Losers))
 	for _, side := range [][]auth.UserID{result.Winners, result.Losers} {

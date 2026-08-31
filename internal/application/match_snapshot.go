@@ -195,22 +195,32 @@ func (registry *RoomRegistry) assembleGameSnapshotWithNicknamesLocked(entry *reg
 		player := players[id]
 		team := player.Team
 		permissions := []string{participantPermissionControl, participantPermissionChat}
+		if player.CPU {
+			permissions = []string{}
+		}
 		if auth.UserID(id) == entry.host {
 			permissions = append(permissions, participantPermissionPause, participantPermissionManage)
 		}
 		cpuControl := snapshotCPUControlJSON{Active: false}
-		if rt.cpuControlled && id == currentPlayer {
+		if player.CPU {
+			reason := cpuControlReasonLobbyPlayer
+			cpuControl = snapshotCPUControlJSON{Active: true, Reason: &reason}
+		} else if rt.cpuControlled && id == currentPlayer {
 			reason := cpuControlReasonTimeout
 			cpuControl = snapshotCPUControlJSON{Active: true, Reason: &reason}
 		}
 		userID := auth.UserID(id)
+		nickname := snapshotNickname(nicknames, userID)
+		if player.CPU {
+			nickname = "CPU"
+		}
 		participants = append(participants, snapshotParticipant{
 			UserID:      userID,
-			Nickname:    snapshotNickname(nicknames, userID),
+			Nickname:    nickname,
 			Role:        RolePlayer,
 			TeamID:      &team,
 			Permissions: permissions,
-			Connected:   true,
+			Connected:   !player.CPU,
 			CPUControl:  cpuControl,
 		})
 	}

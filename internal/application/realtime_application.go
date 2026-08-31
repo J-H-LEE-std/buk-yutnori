@@ -127,7 +127,7 @@ func (router *realtimeRouter) Execute(ctx context.Context, user auth.User, comma
 		return protocol.CommandOutcome{}, fmt.Errorf("%w: lobby chat actor is required", ErrInvalidConfiguration)
 	}
 	switch command.Type {
-	case protocol.CommandSelectTeam, protocol.CommandSetReady,
+	case protocol.CommandSelectTeam, protocol.CommandSetReady, protocol.CommandAddCPUPlayer, protocol.CommandRemoveCPUPlayer,
 		protocol.CommandStartGame, protocol.CommandConfirmGameStart:
 		return router.lobby.Execute(ctx, user, command)
 	case protocol.CommandThrowYut, protocol.CommandSelectResult,

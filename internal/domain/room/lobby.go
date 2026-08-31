@@ -13,6 +13,9 @@ var (
 
 	// ErrPlayerNotFound identifies a lobby command for an absent player.
 	ErrPlayerNotFound = errors.New("player not found in lobby")
+	// ErrCPUPlayerRequired identifies an attempt to remove a human through the
+	// server-owned CPU seat operation.
+	ErrCPUPlayerRequired = errors.New("player is not a CPU player")
 
 	// ErrLobbyFull identifies admission beyond the room's configured capacity.
 	ErrLobbyFull = errors.New("lobby is full")
@@ -41,6 +44,7 @@ type Player struct {
 	ID    domain.PlayerID
 	Team  domain.TeamID
 	Ready bool
+	CPU   bool
 }
 
 // Lobby contains pure pre-match room state. Its application actor owns
@@ -98,6 +102,32 @@ func (lobby *Lobby) AddPlayer(id domain.PlayerID, team domain.TeamID) error {
 	}
 
 	lobby.players[id] = Player{ID: id, Team: team, Ready: false}
+	return nil
+}
+
+// AddCPUPlayer admits a server-owned player. CPU players are always ready;
+// they have no account and never answer a start confirmation.
+func (lobby *Lobby) AddCPUPlayer(id domain.PlayerID, team domain.TeamID) error {
+	if err := lobby.AddPlayer(id, team); err != nil {
+		return err
+	}
+	player := lobby.players[id]
+	player.CPU = true
+	player.Ready = true
+	lobby.players[id] = player
+	return nil
+}
+
+// RemoveCPUPlayer removes only a server-owned player.
+func (lobby *Lobby) RemoveCPUPlayer(id domain.PlayerID) error {
+	player, err := lobby.player(id)
+	if err != nil {
+		return err
+	}
+	if !player.CPU {
+		return ErrCPUPlayerRequired
+	}
+	delete(lobby.players, id)
 	return nil
 }
 
@@ -184,7 +214,7 @@ func (lobby *Lobby) ValidateStart() error {
 	}
 
 	for _, player := range lobby.players {
-		if !player.Ready {
+		if !player.CPU && !player.Ready {
 			return ErrStartPlayersNotReady
 		}
 	}
@@ -214,7 +244,9 @@ func (lobby *Lobby) FailStartConfirmation(nonresponders []domain.PlayerID) error
 		delete(lobby.players, id)
 	}
 	for id, player := range lobby.players {
-		player.Ready = false
+		// CPU seats are server-owned and have no client command that could make
+		// them ready again after a failed confirmation.
+		player.Ready = player.CPU
 		lobby.players[id] = player
 	}
 	return nil

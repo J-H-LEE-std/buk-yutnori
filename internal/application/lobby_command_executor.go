@@ -71,6 +71,26 @@ func (executor *LobbyCommandExecutor) Execute(ctx context.Context, user auth.Use
 		}
 		return acceptedLobbyOutcome(), nil
 
+	case protocol.CommandAddCPUPlayer:
+		payload, ok := command.Payload.(protocol.AddCPUPlayerPayload)
+		if !ok {
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid ADD_CPU_PLAYER payload", ErrInvalidCommand)
+		}
+		if _, err := executor.lobbies.AddCPUPlayer(user.ID, command.RoomID, payload.TeamID); err != nil {
+			return executor.rejectLobbyError(err), nil
+		}
+		return acceptedLobbyOutcome(), nil
+
+	case protocol.CommandRemoveCPUPlayer:
+		payload, ok := command.Payload.(protocol.RemoveCPUPlayerPayload)
+		if !ok {
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid REMOVE_CPU_PLAYER payload", ErrInvalidCommand)
+		}
+		if err := executor.lobbies.RemoveCPUPlayer(user.ID, command.RoomID, payload.PlayerID); err != nil {
+			return executor.rejectLobbyError(err), nil
+		}
+		return acceptedLobbyOutcome(), nil
+
 	case protocol.CommandStartGame:
 		if _, ok := command.Payload.(protocol.EmptyPayload); !ok {
 			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid START_GAME payload", ErrInvalidCommand)
@@ -106,6 +126,8 @@ func (executor *LobbyCommandExecutor) rejectLobbyError(err error) protocol.Comma
 		return rejectedLobbyOutcome("ROOM_NOT_FOUND", "lobby room not found", true)
 	case errors.Is(err, room.ErrPlayerNotFound):
 		return rejectedLobbyOutcome(roomPlayerRequiredCode, "방 플레이어만 팀과 준비 상태를 변경할 수 있습니다.", false)
+	case errors.Is(err, ErrNotRoomHost):
+		return rejectedLobbyOutcome(roomHostRequiredCode, "방장만 CPU 플레이어를 변경할 수 있습니다.", false)
 	case errors.Is(err, room.ErrReadyPlayerTeamChange):
 		return rejectedLobbyOutcome(readyTeamChangeBlockedCode, "준비 완료 상태에서는 팀을 변경할 수 없습니다.", false)
 	case errors.Is(err, ErrStartAlreadyRequested):

@@ -127,6 +127,7 @@ type registeredRoom struct {
 	expiryTimer        *time.Timer
 	lastRoomUpdated    any
 	activeGameStarting any
+	cpuSequence        uint64
 }
 
 // NewRoomRegistry constructs an empty registry keyed by crypto-random room IDs.
@@ -396,6 +397,8 @@ type RoomMemberView struct {
 	Role     string        `json:"role"`
 	Team     domain.TeamID `json:"team,omitempty"`
 	Ready    bool          `json:"ready"`
+	CPU      bool          `json:"is_cpu"`
+	Host     bool          `json:"is_host"`
 }
 
 // ActiveStartSnapshot describes the open confirmation window.
@@ -503,8 +506,10 @@ func (registry *RoomRegistry) GameLogs(ctx context.Context, user auth.UserID, ro
 func roomDetailMemberIDsLocked(entry *registeredRoom) []auth.UserID {
 	players := entry.lobby.Players()
 	ids := make([]auth.UserID, 0, len(players)+len(entry.spectators))
-	for id := range players {
-		ids = append(ids, auth.UserID(id))
+	for id, player := range players {
+		if !player.CPU {
+			ids = append(ids, auth.UserID(id))
+		}
 	}
 	for id := range entry.spectators {
 		ids = append(ids, id)
@@ -550,9 +555,13 @@ func (registry *RoomRegistry) assembleRoomDetailWithNicknamesLocked(entry *regis
 	for _, id := range ids {
 		player := players[id]
 		userID := auth.UserID(id)
+		nickname := snapshotNickname(nicknames, userID)
+		if player.CPU {
+			nickname = "CPU"
+		}
 		detail.Members = append(detail.Members, RoomMemberView{
-			UserID: userID, Nickname: snapshotNickname(nicknames, userID), Role: RolePlayer,
-			Team: player.Team, Ready: player.Ready,
+			UserID: userID, Nickname: nickname, Role: RolePlayer,
+			Team: player.Team, Ready: player.Ready, CPU: player.CPU, Host: userID == entry.host,
 		})
 	}
 	if entry.confirmation != nil && !entry.started {
@@ -622,6 +631,65 @@ func (registry *RoomRegistry) SetReady(user auth.UserID, roomID domain.RoomID, r
 	if err := entry.lobby.SetReady(playerID, ready); err != nil {
 		return err
 	}
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
+	})
+	return tx.flush()
+}
+
+// AddCPUPlayer adds one server-owned, automatically-ready player before a
+// match starts. Only the current room host can alter CPU seats.
+func (registry *RoomRegistry) AddCPUPlayer(host auth.UserID, roomID domain.RoomID, team domain.TeamID) (domain.PlayerID, error) {
+	if err := team.Validate(); err != nil {
+		return "", err
+	}
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		return "", ErrRoomNotFound
+	}
+	if entry.host != host {
+		return "", ErrNotRoomHost
+	}
+	if err := registry.guardLobbyMutation(entry); err != nil {
+		return "", err
+	}
+	entry.cpuSequence++
+	playerID := domain.PlayerID(fmt.Sprintf("cpu-%d", entry.cpuSequence))
+	if err := entry.lobby.AddCPUPlayer(playerID, team); err != nil {
+		return "", err
+	}
+	entry.summary.PlayerCount = len(entry.lobby.Players())
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
+	})
+	if err := tx.flush(); err != nil {
+		return "", err
+	}
+	return playerID, nil
+}
+
+// RemoveCPUPlayer removes a server-owned lobby player before a match starts.
+func (registry *RoomRegistry) RemoveCPUPlayer(host auth.UserID, roomID domain.RoomID, playerID domain.PlayerID) error {
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		return ErrRoomNotFound
+	}
+	if entry.host != host {
+		return ErrNotRoomHost
+	}
+	if err := registry.guardLobbyMutation(entry); err != nil {
+		return err
+	}
+	if err := entry.lobby.RemoveCPUPlayer(playerID); err != nil {
+		return err
+	}
+	entry.summary.PlayerCount = len(entry.lobby.Players())
 	tx := registry.newEventTx(roomID)
 	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)

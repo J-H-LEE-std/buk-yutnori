@@ -153,7 +153,7 @@ func resetReadyStatesLocked(entry *registeredRoom) error {
 	}
 	sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
 	for _, id := range ids {
-		if err := entry.lobby.SetReady(id, false); err != nil {
+		if err := entry.lobby.SetReady(id, players[id].CPU); err != nil {
 			return err
 		}
 	}

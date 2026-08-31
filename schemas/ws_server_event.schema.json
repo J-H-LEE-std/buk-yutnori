@@ -372,7 +372,7 @@
               "required": ["player_id", "reason"],
               "properties": {
                 "player_id": { "type": "string", "minLength": 1 },
-                "reason": { "enum": ["disconnected", "timeout"] }
+                "reason": { "enum": ["disconnected", "timeout", "lobby_player"] }
               }
             }
           }
