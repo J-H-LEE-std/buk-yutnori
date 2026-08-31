@@ -2,7 +2,7 @@
 
 - 상태: 채택
 - 결정일: 2026-08-31
-- 추적: #149
+- 대상: #149 (후속 구현 #151)
 
 ## 배경
 
@@ -23,6 +23,8 @@
 - 서버는 `SELECT_MOVE` 하나를 하나의 상태 전이·한 SQLite transaction으로 처리한다.
   이 transaction 안에서는 `RESULT_SELECTED` 다음 `PIECE_SELECTED`를 순서대로
   저장·방송한다. 두 이벤트의 sequence는 같지 않으며 단조 증가한다.
+  두 sequence 사이에는 다른 room event가 끼어들 수 없고, 재접속 snapshot도 이
+  pair의 앞 또는 뒤 경계에서만 조립한다.
 - 선택한 조합에 normal/shortcut 모두 가능하면 그 뒤에만 `SELECT_ROUTE`를 요청한다.
   경로가 하나면 서버가 같은 상태 전이에서 이동을 확정한다.
 - `movement_order=fifo`에서 후보 token은 선두 하나뿐이므로 토큰 UI를 열지 않고
@@ -35,5 +37,7 @@
 
 기존 공개 계약의 `SELECT_RESULT`와 `SELECT_PIECE`는 `SELECT_MOVE`로 대체한다.
 후속 구현은 schema, 이벤트 replay reducer, C/WASM staging과 서버 executor를 한
-변경에서 이 결정에 맞춰 이행한다. 구현 전까지 현 서버 동작은 이전 두 command
-계약을 유지하므로, 이 ADR과 동기화한 문서·schema는 구현 목표 정본이다.
+변경에서 이 결정에 맞춰 이행한다(#151). 실제 신규 GUI resource를 추가하면 같은
+변경에서 `tools/check_assets.py` manifest와 asset test도 갱신한다. 구현 전까지 현
+서버 동작은 이전 두 command 계약을 유지하므로, 이 ADR은 구현 목표 정본이고 활성
+schema는 현재 계약을 따른다.

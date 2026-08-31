@@ -206,6 +206,10 @@ scope다. `SEND_CHAT`/`CHAT_MESSAGE`는 이 sequence 공간만 소비하며 `REC
 
 ### 최소 클라이언트 명령
 
+아래 목록은 현재 v1 실행 계약이다. ADR-0019의 후속 구현(#151)에서
+`SELECT_RESULT`·`SELECT_PIECE`는 서버 권위 후보를 쓰는 `SELECT_MOVE`로 함께
+대체하며, 그 이행 전에는 현재 schema와 이 목록을 그대로 따른다.
+
 - `SELECT_TEAM`
 - `SET_READY`
 - `START_GAME`

@@ -221,7 +221,7 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 자유 순서에서 말 선택 뒤 복수 token 후보를 표시하고 서버 제공 token만 선택
 - `SELECT_MOVE` 하나가 `RESULT_SELECTED` 다음 `PIECE_SELECTED`를 단조 sequence로
   같은 저장 transaction에 확정하며, 중복 command·재접속에서 둘 중 하나만 적용되는
-  상태가 없음
+  상태가 없음. 두 event 사이에는 다른 room event나 reconnect snapshot 경계가 없음
 - 대기 장소 말 선택, 완주 말의 완료 표시·선택 불가, 서버 비후보 말·token·route 거부
 - 방 나가기, 시작 전 방장 강퇴, CPU 제거의 권한·대상 분리
 - 방장만 보이는 일시정지 확인 팝업, 전원 정지 오버레이·남은 시간, 방장 조기 재개,

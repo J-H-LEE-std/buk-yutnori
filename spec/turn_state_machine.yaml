@@ -1,5 +1,9 @@
 version: 1
 
+# This is the active v1 state machine. ADR-0019 / Issue #151 will replace the
+# result-then-piece selection states with SELECT_MOVE only in the same change
+# that updates the active schemas, server, client, replay reducer, and tests.
+
 states:
   - turn_start
   - wait_throw
