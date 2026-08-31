@@ -25,7 +25,9 @@ func TestGameSnapshotCarriesAuthoritativeRouteRequest(t *testing.T) {
 	rt := fixture.runtime()
 	first := rt.machine.Snapshot()
 	candidates, _, err := rt.moveCandidates(first)
-	if err != nil || len(candidates) == 0 { t.Fatalf("first candidates = %v, error = %v", candidates, err) }
+	if err != nil || len(candidates) == 0 {
+		t.Fatalf("first candidates = %v, error = %v", candidates, err)
+	}
 	selected := candidates[0]
 	if err := fixture.registry.SelectMove(auth.UserID(player), fixture.roomID, fixture.matchID, selected.TokenID, selected.PieceID); err != nil {
 		t.Fatalf("SELECT_MOVE error = %v", err)
@@ -39,7 +41,9 @@ func TestGameSnapshotCarriesAuthoritativeRouteRequest(t *testing.T) {
 		t.Fatalf("assembleGameSnapshotLocked() error = %v", err)
 	}
 	request := snapshot.CurrentTurn.MoveRequest
-	if request == nil { t.Fatalf("current turn = %+v, want move request", snapshot.CurrentTurn) }
+	if request == nil {
+		t.Fatalf("current turn = %+v, want move request", snapshot.CurrentTurn)
+	}
 	if snapshot.CurrentTurn.RequiredInput != string(request.RequiredInput) {
 		t.Fatalf("current turn input = %q, request = %q", snapshot.CurrentTurn.RequiredInput, request.RequiredInput)
 	}

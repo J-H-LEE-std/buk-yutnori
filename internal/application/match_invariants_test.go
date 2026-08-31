@@ -79,9 +79,9 @@ func TestBukHeadResolvesAutomaticallyWithoutPieceSelection(t *testing.T) {
 // FIFO resolves strictly head-first. Same scripted throws, different input.
 func TestQueueOrderingBarrierFreeVersusFIFO(t *testing.T) {
 	cases := []struct {
-		name         string
-		order        room.MovementOrder
-		required     string
+		name           string
+		order          room.MovementOrder
+		required       string
 		wantCandidates int
 	}{
 		{name: "free exposes tokens before buk barrier", order: room.MovementFree, required: "select_move", wantCandidates: 2},
@@ -240,10 +240,19 @@ func TestStackingDisabledKeepsSameSpacePiecesIndependent(t *testing.T) {
 			t.Fatal("mover has no waiting piece left to enter")
 		}
 		candidates, _, err := rt.moveCandidates(snapshot)
-		if err != nil { t.Fatalf("moveCandidates() error = %v", err) }
+		if err != nil {
+			t.Fatalf("moveCandidates() error = %v", err)
+		}
 		var tokenID domain.ResultTokenID
-		for _, candidate := range candidates { if candidate.PieceID == target { tokenID = candidate.TokenID; break } }
-		if tokenID == "" { t.Fatalf("target %s is not selectable", target) }
+		for _, candidate := range candidates {
+			if candidate.PieceID == target {
+				tokenID = candidate.TokenID
+				break
+			}
+		}
+		if tokenID == "" {
+			t.Fatalf("target %s is not selectable", target)
+		}
 		if err := fixture.registry.SelectMove(auth.UserID(mover), fixture.roomID, fixture.matchID, tokenID, target); err != nil {
 			t.Fatalf("SELECT_MOVE(%s) error = %v", target, err)
 		}
