@@ -4,7 +4,7 @@
 - 결정일: 2026-08-31
 - 대상: #149 (후속 구현 #151)
 
-## 배경
+## 맥락
 
 결과 큐의 `movement_order=free`에서는 한 턴에 여러 `ResultToken`이 남을 수 있다.
 기존 `SELECT_RESULT` 뒤 `SELECT_PIECE` 두 command 경계는 서버에는 단순하지만,
