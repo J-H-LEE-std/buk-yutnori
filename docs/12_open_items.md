@@ -26,13 +26,15 @@
   `RESULT_QUEUE_UPDATED`는 이벤트 토큰에 `generated_by_player_id`가 없어
   `game_snapshot` 토큰으로 완전하게 투영할 수 없으므로, 비어 있지 않은 큐는
   현재 fail-closed 처리하고 서버·스냅샷 스키마 통합 시 재검토한다.
-- Milestone 4 지름길 UI 구현에서 `MOVE_REQUIRED`에 허용 경로가 없고 snapshot에는
-  선택 중인 토큰·말 ID가 없어 재접속 클라이언트가 후보를 복원할 수 없는 빈칸이
-  확인되었다. #96에서 `MOVE_REQUIRED.payload`와
-  `game_snapshot.current_turn.move_request`를 같은 서버 권위형 선택 요청으로 맞추고,
-  `select_route`의 `normal`/`shortcut` 후보를 명시해 이 빈칸을 닫는다.
-- 방 퇴장·강퇴의 전송 계약. v1 WebSocket command에 leave/kick 타입이 없고 마지막
-  사용자 퇴장 시 빈 방 즉시 삭제(docs/05)와 강퇴(docs/05)가 이를 필요로 한다.
+- 말 우선 `SELECT_MOVE`와 `(token_id, piece_id, routes)` 후보 계약, 결과·말 선택의
+  원자 저장 순서는 ADR-0019와 #149에서 정본으로 확정했다. #151은 JSON schema·예시·
+  turn state machine·서버·replay reducer·C/WASM staging을 한 변경으로 이행하고,
+  pair 중간에 다른 event나 reconnect snapshot이 없음을 테스트한다.
+- 방 퇴장·강퇴는 `LEAVE_ROOM`·`KICK_PLAYER`·`REMOVE_CPU_PLAYER`로 구분해 #149에서
+  정본 계약을 확정했다. 서버·클라이언트 구현은 후속 PR이다.
+- `menu_frame`·`modal_frame`·`finished_crown` 실제 PNG를 추가하는 구현 PR은 같은
+  변경에서 `tools/check_assets.py` manifest 규칙과 asset test를 갱신한다. 현재
+  checker는 존재하는 asset 목록만 검증하므로, 파일 없는 선행 manifest 변경은 하지 않는다.
 
 ## 방·운영 흐름 미결정
 

@@ -125,6 +125,8 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 테스트 시드 재현
 - CPU 행동 중 재접속
 - 확정 이벤트 롤백 금지
+- 독립 CPU 플레이어가 CPU 선공·연속 CPU 턴에서 시간 초과·연결 이탈 대체와 같은
+  정책으로 던지기와 FIFO 결과 처리를 완료
 
 ## 방·네트워크
 
@@ -214,6 +216,16 @@ fail closed 처리하는지 실제 HTTP/WebSocket 통합 테스트로 확인한�
 - 채팅 로그가 비동기 SQLite 행으로 남고, 프로세스 재시작 뒤 저장된 최대 sequence에서
   계속되며, append 실패가 승인·전달·경기를 막지 않음
 - 다중 탭
+- FIFO에서 선두 token의 말 우선 `SELECT_MOVE`
+- 자유 순서에서 말 선택 뒤 단일 token 후보의 즉시 `SELECT_MOVE`
+- 자유 순서에서 말 선택 뒤 복수 token 후보를 표시하고 서버 제공 token만 선택
+- `SELECT_MOVE` 하나가 `RESULT_SELECTED` 다음 `PIECE_SELECTED`를 단조 sequence로
+  같은 저장 transaction에 확정하며, 중복 command·재접속에서 둘 중 하나만 적용되는
+  상태가 없음. 두 event 사이에는 다른 room event나 reconnect snapshot 경계가 없음
+- 대기 장소 말 선택, 완주 말의 완료 표시·선택 불가, 서버 비후보 말·token·route 거부
+- 방 나가기, 시작 전 방장 강퇴, CPU 제거의 권한·대상 분리
+- 방장만 보이는 일시정지 확인 팝업, 전원 정지 오버레이·남은 시간, 방장 조기 재개,
+  사용 완료 메뉴 표시와 방장 연결 이탈 자동 재개
 - 관전자 입퇴장
 - 게임 종료 후 대기실
 - 재대결 순서·선공 재추첨

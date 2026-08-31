@@ -19,3 +19,7 @@ __pycache__/
 
 # Location of wireframe - for documentation
 /assets/wireframe
+
+# Local browser OAuth configuration. This file contains only a public web
+# client ID, but is machine-specific and must never grow into a secret store.
+google.yaml
