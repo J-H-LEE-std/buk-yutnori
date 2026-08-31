@@ -40,7 +40,19 @@ func TestSelectMovePersistsConsecutiveAtomicSelectionEvents(t *testing.T) {
 			events[index+1].Payload.PieceID != selected.PieceID {
 			t.Fatalf("atomic selection event pair = %#v %#v", events[index], events[index+1])
 		}
-		return
+		rows := fixture.store.rows
+		for rowIndex := range rows {
+			if rows[rowIndex].Sequence != events[index].Sequence {
+				continue
+			}
+			if rowIndex+1 >= len(rows) || rows[rowIndex].EventType != "RESULT_SELECTED" ||
+				rows[rowIndex+1].EventType != "PIECE_SELECTED" ||
+				rows[rowIndex+1].Sequence != rows[rowIndex].Sequence+1 {
+				t.Fatalf("stored atomic selection rows = %#v %#v", rows[rowIndex], rows[rowIndex+1])
+			}
+			return
+		}
+		t.Fatalf("RESULT_SELECTED sequence %d was not persisted", events[index].Sequence)
 	}
 	t.Fatal("RESULT_SELECTED was not emitted")
 }
