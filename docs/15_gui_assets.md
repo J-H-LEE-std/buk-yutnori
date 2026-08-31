@@ -40,12 +40,13 @@
 client/assets/
   gui/common/    panel.png button_normal.png button_hover.png button_pressed.png
                  button_disabled.png slot_frame.png badge_ready.png badge_watch.png
-                 marker_team_a.png marker_team_b.png stack_count.png
+                 marker_team_a.png marker_team_b.png stack_count.png menu_frame.png
+                 modal_frame.png
   screen/game/   hud_frame.png result_queue_panel.png turn_banner.png
   board/         board_main.png node_marker.png node_marker_last.png path_highlight.png
   piece/         a_on_board.png a_home_checkpoint.png a_finished.png a_waiting.png
                  b_on_board.png b_home_checkpoint.png b_finished.png b_waiting.png
-                 movable_outline.png
+                 movable_outline.png finished_crown.png
   yut/           result_do.png result_gae.png result_geol.png result_yut.png
                  result_mo.png result_backdo.png result_buk.png
                  toss_00.png ... toss_07.png
@@ -97,7 +98,7 @@ client/assets/
 | waiting | 판 밖 대기 | 화면 하단 대기 슬롯 아이콘 |
 | on_board | 판 위 | 노드 위 말 스프라이트 |
 | home_checkpoint | 참먹이 도착 | chammeogi 위치 스택 |
-| finished | 완주 | 완주 슬롯 처리(판 밖) |
+| finished | 완주 | 완주 슬롯 처리(판 밖) + `finished_crown` 완료 표시, 선택 불가 |
 
 윷 결과는 서버가 확정한 값 7종(do/gae/geol/yut/mo/backdo/buk)에 1:1 대응하는
 결과 프레임을 쓴다. 윷가락 4개 개별 앞뒤 조합 애니메이션은 v1에서 생략하고
@@ -117,6 +118,7 @@ client/assets/
 | buk_resolve | BUK_RESOLVED | result_buk + piece_move 재사용 | piece_move 한도 내 | 전용 연출은 미결 |
 | turn_pulse | TURN_STARTED / MOVE_REQUIRED | movable_outline | ≤300ms | 이동 가능 말 강조 |
 | pause_veil | GAME_PAUSED / GAME_RESUMED | 코드 드로잉 반투명 veil | 즉시 | 타이머 표시는 보존값 |
+| pause_modal | 방장 일시정지 메뉴 | gui/common/modal_frame.png | 정지 전까지 | 브라우저 기본 dialog 사용 금지 |
 
 버퍼링 규칙: 큐에 이벤트가 밀리면 같은 종류 연출을 병합하거나 스킵해 총 지연이
 1.5초를 넘지 않게 한다. 초과 시 즉시 최신 확정 상태로 스냅샷 렌더링한다.
@@ -131,6 +133,7 @@ client/assets/
 | path_highlight | board/path_highlight.png | 48×48 | 선택 가능 경로 |
 | piece_a/b × 4상태 | piece/*.png | 96×96 | 앵커 하단 중앙 |
 | movable_outline | piece/movable_outline.png | 112×112 | 말보다 한 라운드 큼 |
+| finished_crown | piece/finished_crown.png | 64×64 | 완주 말 위 완료 표시 |
 | yut result ×7 | yut/result_*.png | 256×256 | |
 | yut toss ×8 | yut/toss_00~07.png | 256×256 | 던지기 모션 |
 | fx ×2 | fx/*.png | 256×256 | capture/stack |

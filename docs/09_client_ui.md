@@ -64,11 +64,16 @@ payload 불일치는 전체 bundle을 거부하고 기존 확정 상태를 유�
 - 동일 팀 말의 `stacks`/`position_groups` 정합성을 확인한 뒤 같은 칸의 말 겹침과
   업기 개수 배지를 코드 드로잉으로 표시한다. 정합성이 깨진 snapshot은 원자 적용하지 않는다.
 
-지름길 선택 UI는 `game_snapshot.current_turn.move_request` 또는 같은 의미의
-`MOVE_REQUIRED`가 제공한 `routes`만 표시한다. C/raylib는 경로 선택 intent만 만들고,
-HTML/JavaScript 셸이 확정 snapshot의 opaque `token_id`·`piece_id`와 실제
-room/match scope를 결합해 `SELECT_ROUTE`를 전송한다. 관전자, 상대 턴, CPU 제어,
-재동기화 중과 응답 대기 중에는 선택을 잠근다.
+ADR-0019 후속 구현의 게임 입력은 서버 권위 `move_request`만 소비한다. `wait_throw`에는 우하단의 윷 던지기
+버튼을 표시해 `THROW_YUT`를 보낸다. `select_move`에는 후보 말만 클릭 가능하게
+표시한다. 같은 말에 가능한 결과 토큰이 둘 이상이면 해당 토큰만 추가로 표시하고,
+선택 뒤 HTML/JavaScript 셸이 확정 snapshot의 opaque `token_id`·`piece_id`와 실제
+room/match scope를 결합해 `SELECT_MOVE`를 전송한다. 대기 장소 말도 서버 후보이면
+선택 가능하며, 완주 말은 완주 영역의 왕관 등 완료 리소스로 표시하고 선택 불가다.
+
+지름길 선택 UI는 서버가 같은 요청에 제공한 `routes`만 표시하고 `SELECT_ROUTE`를
+전송한다. 관전자, 상대 턴, CPU 제어, 재동기화 중과 응답 대기 중에는 모든 게임 입력을
+잠근다.
 
 ## 서버 판정과 애니메이션
 
@@ -104,6 +109,18 @@ room/match scope를 결합해 `SELECT_ROUTE`를 전송한다. 관전자, 상대 
 4. 게임 화면 — 경기 런타임 확정 후 접근하며 snapshot과 경기 이벤트를 소비한다.
    참가자 표시는 서버가 넣은 `game_snapshot.participants[].nickname`을 사용하며,
    profile 부재·읽기 실패 시 서버가 넣은 `user_id` fallback을 그대로 표시한다.
+
+ADR-0019 후속 구현의 방 로비 멤버 프로필 메뉴에는 자신에게 `방 나가기`, 방장에게만 시작 전 인간 멤버의
+`강퇴`, CPU 멤버의 `CPU 제거`를 보인다. 메뉴 UI를 공유해도 각각
+`LEAVE_ROOM`, `KICK_PLAYER`, `REMOVE_CPU_PLAYER`로 전송한다.
+
+ADR-0019 후속 구현의 게임 화면 자기 프로필 메뉴에는 방장에게만 `일시정지`를 보인다. 선택하면 브라우저
+기본 dialog가 아닌 클라이언트 리소스 기반 확인 팝업에서 1~30분을 고른 뒤
+`PAUSE_GAME`을 전송한다. `GAME_PAUSED` 또는 paused snapshot을 받은 모든 플레이어와
+관전자는 남은 시간을 포함한 정지 오버레이를 보고, 방장만 `RESUME_GAME` 버튼을 본다.
+재개 뒤 방장 메뉴의 일시정지는 `일시정지(사용 완료)` 비활성 항목으로 남긴다. 방장
+연결 이탈에 따른 자동 재개는 서버 이벤트를 표시할 뿐 클라이언트가 임의 command를
+만들지 않는다.
 
 방 상세 화면은 `GET /api/v1/rooms/{room_id}/game-logs`의 종료된 경기 로그를 별도의
 스크롤 가능한 텍스트 영역으로 표시한다. 항목은 서버가 만든 `notation`을

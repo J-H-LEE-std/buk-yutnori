@@ -22,6 +22,18 @@
 - `BUK_LISTEN_ADDR`: 프로토타입 서버 주소, 기본 `127.0.0.1:8080`
 - `BUK_WEB_ROOT`: 생성된 WASM 정적 파일 경로, 기본 `build/client/web`
 
+로컬 수동 테스트는 저장소 루트의 ignored `google.yaml`에 아래처럼 공개 OAuth web
+client ID만 둘 수 있다.
+
+```yaml
+web_client_id: "example.apps.googleusercontent.com"
+```
+
+이 파일은 개발 환경 설정일 뿐 비밀 저장소가 아니다. `client_secret`, refresh token,
+서비스 계정 키 또는 다른 credential 필드는 금지하며, 후속 구현은 `web_client_id`
+하나만 읽고 그 값을 `BUK_GOOGLE_CLIENT_ID`에 연결한다. 테스트 origin은 Google OAuth
+설정의 허용 JavaScript origin에도 등록해야 한다.
+
 인증 계정과 세션은 SQLite에 영구 저장하므로 유효한 30일 쿠키는 서버 재시작 뒤에도
 계속 인증된다. 다만 진행 중 방·경기 런타임은 v1에서 재시작 복구 대상이 아니며,
 운영 배포의 Docker·HTTPS/WSS·모니터링·부하 시험 요구는 Milestone 6에서 별도로
