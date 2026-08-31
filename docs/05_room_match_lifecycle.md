@@ -93,6 +93,8 @@ command는 이를 별도 행동으로 바꾸지 않는다.
 - `LEAVE_ROOM`·`KICK_PLAYER`·`REMOVE_CPU_PLAYER`의 대상 분리와 메뉴 계약은
   ADR-0019 후속 구현에서 적용한다. UI는 같은 멤버 메뉴를 사용해도 CPU를 사람
   강퇴 command로 처리하지 않는다.
+- 인간 플레이어 강퇴 확정 시 `PLAYER_KICKED`를 대상과 남은 멤버에게 전송한다. 대상은
+  이 신호를 받으면 즉시 방 화면을 닫으며, 이후 `ROOM_UPDATED` 수신에 의존하지 않는다.
 
 ## 경기 진행
 

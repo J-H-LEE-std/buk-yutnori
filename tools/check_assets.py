@@ -39,6 +39,7 @@ DEFAULT_RULES = (
       for team in ("a", "b")
       for state in ("on_board", "home_checkpoint", "finished", "waiting")),
     AssetRule("piece/movable_outline.png", "png", 112, 112, True),
+    AssetRule("piece/finished_crown.png", "png", 64, 64, True),
     *(AssetRule(f"yut/result_{result}.png", "png", 256, 256, True)
       for result in ("do", "gae", "geol", "yut", "mo", "backdo", "buk")),
     *(AssetRule(f"yut/toss_{index:02d}.png", "png", 256, 256, True)
@@ -56,6 +57,8 @@ DEFAULT_RULES = (
     AssetRule("gui/common/marker_team_a.png", "png"),
     AssetRule("gui/common/marker_team_b.png", "png"),
     AssetRule("gui/common/stack_count.png", "png"),
+    AssetRule("gui/common/menu_frame.png", "png"),
+    AssetRule("gui/common/modal_frame.png", "png"),
     AssetRule("screen/game/hud_frame.png", "png"),
     AssetRule("screen/game/result_queue_panel.png", "png"),
     AssetRule("screen/game/turn_banner.png", "png"),

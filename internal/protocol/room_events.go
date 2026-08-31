@@ -9,12 +9,46 @@ import (
 
 const (
 	EventRoomUpdated    = "ROOM_UPDATED"
+	EventPlayerKicked   = "PLAYER_KICKED"
 	EventGameStarting   = "GAME_STARTING"
 	RoomStatusLobby     = "lobby"
 	RoomStatusStarting  = "starting"
 	RoomStatusInMatch   = "in_match"
 	RoomStatusPostMatch = "post_match"
 )
+
+// PlayerKickedPayload identifies the human lobby player removed by the host.
+type PlayerKickedPayload struct {
+	PlayerID domain.PlayerID `json:"player_id"`
+}
+
+// PlayerKickedEvent is delivered to the kicked player as well as remaining
+// room members even though membership has already been removed.
+type PlayerKickedEvent struct {
+	Version   int                 `json:"version"`
+	Direction Direction           `json:"direction"`
+	Type      string              `json:"type"`
+	Sequence  uint64              `json:"sequence"`
+	RoomID    domain.RoomID       `json:"room_id"`
+	Payload   PlayerKickedPayload `json:"payload"`
+}
+
+// NewPlayerKickedEvent constructs a validated lobby-scoped kick signal.
+func NewPlayerKickedEvent(roomID domain.RoomID, sequence uint64, playerID domain.PlayerID) (PlayerKickedEvent, error) {
+	if err := roomID.Validate(); err != nil {
+		return PlayerKickedEvent{}, fmt.Errorf("%w: room_id: %v", ErrInvalidServerEvent, err)
+	}
+	if sequence == 0 {
+		return PlayerKickedEvent{}, fmt.Errorf("%w: sequence must start at one", ErrInvalidServerEvent)
+	}
+	if err := playerID.Validate(); err != nil {
+		return PlayerKickedEvent{}, fmt.Errorf("%w: player_id: %v", ErrInvalidServerEvent, err)
+	}
+	return PlayerKickedEvent{
+		Version: Version1, Direction: DirectionServerEvent, Type: EventPlayerKicked,
+		Sequence: sequence, RoomID: roomID, Payload: PlayerKickedPayload{PlayerID: playerID},
+	}, nil
+}
 
 // RoomUpdatedPayload is the v1 public payload of a room lifecycle signal.
 type RoomUpdatedPayload struct {

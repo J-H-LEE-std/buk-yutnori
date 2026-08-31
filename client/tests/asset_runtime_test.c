@@ -27,6 +27,9 @@ int main(void)
     assert(BukClientAssetRuntimeFallbackCount(&runtime) == 0U);
     assert(strcmp(BukClientAssetRuntimePath(0U), "board/board_main.png") == 0);
     assert(BukClientAssetRuntimeAvailable(&runtime, 0U));
+    assert(strcmp(BukClientAssetRuntimePath(13U), "piece/finished_crown.png") == 0);
+    assert(strcmp(BukClientAssetRuntimePath(42U), "gui/common/menu_frame.png") == 0);
+    assert(strcmp(BukClientAssetRuntimePath(43U), "gui/common/modal_frame.png") == 0);
     assert(!BukClientAssetRuntimeAvailable(&runtime, BUK_CLIENT_ASSET_COUNT));
 
     BukClientAssetRuntimeInit(&runtime, "assets", ExistsBoardOnly, NULL);

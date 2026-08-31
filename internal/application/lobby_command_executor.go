@@ -91,6 +91,25 @@ func (executor *LobbyCommandExecutor) Execute(ctx context.Context, user auth.Use
 		}
 		return acceptedLobbyOutcome(), nil
 
+	case protocol.CommandLeaveRoom:
+		if _, ok := command.Payload.(protocol.EmptyPayload); !ok {
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid LEAVE_ROOM payload", ErrInvalidCommand)
+		}
+		if err := executor.lobbies.LeaveRoom(user.ID, command.RoomID); err != nil {
+			return executor.rejectLobbyError(err), nil
+		}
+		return acceptedLobbyOutcome(), nil
+
+	case protocol.CommandKickPlayer:
+		payload, ok := command.Payload.(protocol.KickPlayerPayload)
+		if !ok {
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid KICK_PLAYER payload", ErrInvalidCommand)
+		}
+		if err := executor.lobbies.KickPlayer(user.ID, command.RoomID, payload.PlayerID); err != nil {
+			return executor.rejectLobbyError(err), nil
+		}
+		return acceptedLobbyOutcome(), nil
+
 	case protocol.CommandStartGame:
 		if _, ok := command.Payload.(protocol.EmptyPayload); !ok {
 			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid START_GAME payload", ErrInvalidCommand)
@@ -124,10 +143,20 @@ func (executor *LobbyCommandExecutor) rejectLobbyError(err error) protocol.Comma
 		return rejectedLobbyOutcome("EVENT_STORE_UNAVAILABLE", "일시적 저장 장애입니다. 잠시 후 다시 시도하세요.", true)
 	case errors.Is(err, ErrRoomNotFound):
 		return rejectedLobbyOutcome("ROOM_NOT_FOUND", "lobby room not found", true)
+	case errors.Is(err, ErrNotMember):
+		return rejectedLobbyOutcome("ROOM_MEMBER_REQUIRED", "방 멤버만 이 요청을 실행할 수 있습니다.", false)
+	case errors.Is(err, room.ErrLobbyFull):
+		return rejectedLobbyOutcome("ROOM_FULL", "방의 플레이어 자리가 가득 찼습니다.", false)
 	case errors.Is(err, room.ErrPlayerNotFound):
-		return rejectedLobbyOutcome(roomPlayerRequiredCode, "방 플레이어만 팀과 준비 상태를 변경할 수 있습니다.", false)
+		return rejectedLobbyOutcome(roomPlayerRequiredCode, "요청 대상 플레이어가 이 방에 없습니다.", false)
 	case errors.Is(err, ErrNotRoomHost):
-		return rejectedLobbyOutcome(roomHostRequiredCode, "방장만 CPU 플레이어를 변경할 수 있습니다.", false)
+		return rejectedLobbyOutcome(roomHostRequiredCode, "방장만 대기실 멤버를 관리할 수 있습니다.", false)
+	case errors.Is(err, ErrCannotKickRoomHost):
+		return rejectedLobbyOutcome("CANNOT_KICK_ROOM_HOST", "방장은 강퇴할 수 없습니다. 방 나가기를 사용하세요.", false)
+	case errors.Is(err, room.ErrCPUPlayerRequired):
+		return rejectedLobbyOutcome("CPU_PLAYER_REQUIRED", "CPU 플레이어만 CPU 제거할 수 있습니다.", false)
+	case errors.Is(err, room.ErrHumanPlayerRequired):
+		return rejectedLobbyOutcome("HUMAN_PLAYER_REQUIRED", "인간 플레이어만 강퇴할 수 있습니다.", false)
 	case errors.Is(err, room.ErrReadyPlayerTeamChange):
 		return rejectedLobbyOutcome(readyTeamChangeBlockedCode, "준비 완료 상태에서는 팀을 변경할 수 없습니다.", false)
 	case errors.Is(err, ErrStartAlreadyRequested):

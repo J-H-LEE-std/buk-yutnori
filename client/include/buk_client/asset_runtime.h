@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 #define BUK_CLIENT_ASSET_PATH_MAX 128
-#define BUK_CLIENT_ASSET_COUNT 46
+#define BUK_CLIENT_ASSET_COUNT 49
 
 enum {
     BUK_CLIENT_ASSET_BOARD_MAIN = 0,

@@ -32,11 +32,11 @@
   `PIECE_SELECTED`는 한 transaction에서 연속 sequence로 저장하며, 후속 GUI 클릭
   affordance 변경도 이 서버 후보만 소비해야 한다.
 - 방 퇴장·강퇴는 `LEAVE_ROOM`·`KICK_PLAYER`·`REMOVE_CPU_PLAYER`로 구분해 #149에서
-  정본 계약을 확정했다. `REMOVE_CPU_PLAYER`는 기존 구현에 있으나, `LEAVE_ROOM`·
-  `KICK_PLAYER`와 통합 멤버 메뉴·세분화 거부 코드는 #153 후속 구현이다.
-- `menu_frame`·`modal_frame`·`finished_crown` 실제 PNG를 추가하는 구현 PR은 같은
-  변경에서 `tools/check_assets.py` manifest 규칙과 asset test를 갱신한다. 현재
-  checker는 존재하는 asset 목록만 검증하므로, 파일 없는 선행 manifest 변경은 하지 않는다.
+  정본 계약을 확정했고 #153에서 `LEAVE_ROOM`·`KICK_PLAYER`, 강퇴 대상 직접 통지,
+  통합 멤버 메뉴와 대상별 거부 코드까지 구현했다.
+- `menu_frame`·`modal_frame`·`finished_crown` 임시 AI PNG와 대응 checker manifest,
+  C asset runtime test는 #153에서 함께 추가했다. 배포용 최종 아트워크는 같은 경로와
+  검증 규격을 유지한 파일 교체로 남는다.
 
 ## 방·운영 흐름 미결정
 
@@ -45,8 +45,8 @@
   경기 런타임을 조립하고(ADR-0016), THROW_YUT·SELECT_* 명령과 던지기·이동 제한
   시간 CPU 대체, GAME_ENDED 뒤 post_match 대기실 복귀와 started 해제가 동작한다.
   조립 실패 시 보상 전이로 방이 고착하지 않고, 팀 교대 순서와 post_match 유지
-  규칙도 ADR-0016에 명시되었다. 남는 후속 과제는 방장 위임(퇴장 시)을 퇴장
-  구현과 함께 연결하는 것이다.
+  규칙도 ADR-0016에 명시되었다. 시작 전 방장 퇴장 시 남은 인간 플레이어 무작위
+  위임과 인간 플레이어가 없을 때 방 폐쇄는 #153에서 연결했다.
 - 사용자 일시 정지·재개는 #86으로 해소되었다(방장 1회·1~30분, 타이머 종류와
   남은 밀리초 보존, 만료 자동 재개, 스냅샷 표현). 남는 것: 방장 연결 끊김 자동
   재개와 정지 중 전원 이탈 30초 감시는 presence 추적 선행이며, 저장 장애 자동

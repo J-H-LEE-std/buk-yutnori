@@ -8,7 +8,7 @@ static const char *const asset_paths[BUK_CLIENT_ASSET_COUNT] = {
     "board/path_highlight.png", "piece/a_on_board.png", "piece/a_home_checkpoint.png",
     "piece/a_finished.png", "piece/a_waiting.png", "piece/b_on_board.png",
     "piece/b_home_checkpoint.png", "piece/b_finished.png", "piece/b_waiting.png",
-    "piece/movable_outline.png", "yut/result_do.png", "yut/result_gae.png",
+    "piece/movable_outline.png", "piece/finished_crown.png", "yut/result_do.png", "yut/result_gae.png",
     "yut/result_geol.png", "yut/result_yut.png", "yut/result_mo.png",
     "yut/result_backdo.png", "yut/result_buk.png", "yut/toss_00.png",
     "yut/toss_01.png", "yut/toss_02.png", "yut/toss_03.png", "yut/toss_04.png",
@@ -18,7 +18,8 @@ static const char *const asset_paths[BUK_CLIENT_ASSET_COUNT] = {
     "gui/common/button_disabled.png", "gui/common/slot_frame.png",
     "gui/common/badge_ready.png", "gui/common/badge_watch.png",
     "gui/common/marker_team_a.png", "gui/common/marker_team_b.png",
-    "gui/common/stack_count.png", "screen/game/hud_frame.png",
+    "gui/common/stack_count.png", "gui/common/menu_frame.png",
+    "gui/common/modal_frame.png", "screen/game/hud_frame.png",
     "screen/game/result_queue_panel.png", "screen/game/turn_banner.png",
     "font/notosans_kr_regular.ttf", "font/notosans_kr_bold.ttf",
 };

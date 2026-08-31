@@ -33,6 +33,7 @@
     {
       "oneOf": [
         { "$ref": "ws_server_event.schema.json#/$defs/room_updated" },
+        { "$ref": "ws_server_event.schema.json#/$defs/player_kicked" },
         { "$ref": "ws_server_event.schema.json#/$defs/game_starting" },
         { "$ref": "ws_server_event.schema.json#/$defs/game_started" },
         { "$ref": "ws_server_event.schema.json#/$defs/turn_started" },
@@ -118,6 +119,21 @@
           "properties": {
             "revision": { "type": "integer", "minimum": 0 },
             "status": { "enum": ["lobby", "starting", "in_match", "post_match", "closed"] }
+          }
+        }
+      }
+    },
+    "player_kicked": {
+      "required": ["room_id"],
+      "properties": {
+        "type": { "const": "PLAYER_KICKED" },
+        "room_id": { "type": "string", "minLength": 1 },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["player_id"],
+          "properties": {
+            "player_id": { "type": "string", "minLength": 1 }
           }
         }
       }

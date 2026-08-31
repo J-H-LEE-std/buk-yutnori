@@ -38,6 +38,8 @@ var (
 	// ErrCombinedCapacityFull identifies a join beyond the combined
 	// player-plus-spectator limit.
 	ErrCombinedCapacityFull = errors.New("player plus spectator count exceeds the room capacity")
+	// ErrCannotKickRoomHost preserves the explicit self-leave operation.
+	ErrCannotKickRoomHost = errors.New("room host cannot be kicked")
 
 	// ErrNotRoomHost rejects a start request from anyone but the room owner.
 	ErrNotRoomHost = errors.New("only the room owner can request the match start")
@@ -695,6 +697,129 @@ func (registry *RoomRegistry) RemoveCPUPlayer(host auth.UserID, roomID domain.Ro
 		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
 	})
 	return tx.flush()
+}
+
+// LeaveRoom removes the authenticated member before a match starts.
+func (registry *RoomRegistry) LeaveRoom(user auth.UserID, roomID domain.RoomID) error {
+	playerID, err := playerIDFromUser(user)
+	if err != nil {
+		return err
+	}
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		return ErrRoomNotFound
+	}
+	if err := registry.guardLobbyMutation(entry); err != nil {
+		return err
+	}
+	if _, spectator := entry.spectators[user]; spectator {
+		delete(entry.spectators, user)
+	} else if _, player := entry.lobby.Player(playerID); player {
+		var replacement auth.UserID
+		if entry.host == user {
+			replacement, err = registry.chooseReplacementLobbyHostLocked(entry, playerID)
+			if err != nil {
+				return err
+			}
+		}
+		if err := entry.lobby.RemovePlayer(playerID); err != nil {
+			return err
+		}
+		if replacement != "" {
+			entry.host = replacement
+		}
+	} else {
+		return ErrNotMember
+	}
+	entry.summary.PlayerCount = len(entry.lobby.Players())
+	if registry.lobbyHumanPlayerCountLocked(entry) == 0 {
+		delete(registry.rooms, roomID)
+		registry.removeRoomOrderingLocked(roomID)
+		return nil
+	}
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
+	})
+	return tx.flush()
+}
+
+// KickPlayer removes one human player before a match starts. CPU seats use
+// REMOVE_CPU_PLAYER and a host must use LEAVE_ROOM rather than kick itself.
+func (registry *RoomRegistry) KickPlayer(host auth.UserID, roomID domain.RoomID, playerID domain.PlayerID) error {
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		return ErrRoomNotFound
+	}
+	if entry.host != host {
+		return ErrNotRoomHost
+	}
+	if err := registry.guardLobbyMutation(entry); err != nil {
+		return err
+	}
+	if playerID == domain.PlayerID(host) {
+		return ErrCannotKickRoomHost
+	}
+	player, exists := entry.lobby.Player(playerID)
+	if !exists {
+		return room.ErrPlayerNotFound
+	}
+	if player.CPU {
+		return room.ErrHumanPlayerRequired
+	}
+	if err := entry.lobby.RemovePlayer(playerID); err != nil {
+		return err
+	}
+	entry.summary.PlayerCount = len(entry.lobby.Players())
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewPlayerKickedEvent(roomID, sequence, playerID)
+	})
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
+	})
+	return tx.flush()
+}
+
+func (registry *RoomRegistry) lobbyHumanPlayerCountLocked(entry *registeredRoom) int {
+	count := 0
+	for _, player := range entry.lobby.Players() {
+		if !player.CPU {
+			count++
+		}
+	}
+	return count
+}
+
+func (registry *RoomRegistry) chooseReplacementLobbyHostLocked(entry *registeredRoom, leaving domain.PlayerID) (auth.UserID, error) {
+	candidates := make([]auth.UserID, 0)
+	for id, player := range entry.lobby.Players() {
+		if !player.CPU && id != leaving {
+			candidates = append(candidates, auth.UserID(id))
+		}
+	}
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	sort.Slice(candidates, func(left, right int) bool { return candidates[left] < candidates[right] })
+	seed, _, err := registry.randomSeed()
+	if err != nil {
+		return "", fmt.Errorf("select replacement room host: %w", err)
+	}
+	return candidates[seed%uint64(len(candidates))], nil
+}
+
+func (registry *RoomRegistry) removeRoomOrderingLocked(roomID domain.RoomID) {
+	for index, candidate := range registry.ordering {
+		if candidate == roomID {
+			registry.ordering = append(registry.ordering[:index], registry.ordering[index+1:]...)
+			return
+		}
+	}
 }
 
 func playerIDFromUser(user auth.UserID) (domain.PlayerID, error) {
