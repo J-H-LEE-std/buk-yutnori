@@ -37,6 +37,8 @@
         { "$ref": "ws_server_event.schema.json#/$defs/game_started" },
         { "$ref": "ws_server_event.schema.json#/$defs/turn_started" },
         { "$ref": "ws_server_event.schema.json#/$defs/yut_result" },
+        { "$ref": "ws_server_event.schema.json#/$defs/result_selected" },
+        { "$ref": "ws_server_event.schema.json#/$defs/piece_selected" },
         { "$ref": "ws_server_event.schema.json#/$defs/result_queue_updated" },
         { "$ref": "ws_server_event.schema.json#/$defs/move_required" },
         { "$ref": "ws_server_event.schema.json#/$defs/piece_moved" },
@@ -170,7 +172,7 @@
               "properties": {
                 "player_id": { "type": "string", "minLength": 1 },
                 "phase": { "type": "string", "minLength": 1 },
-                "required_input": { "enum": ["none", "throw", "select_result", "select_piece", "select_route"] },
+                "required_input": { "enum": ["none", "throw", "select_move", "select_route"] },
                 "remaining_ms": { "type": "integer", "minimum": 0 }
               }
             }
@@ -191,6 +193,41 @@
               "properties": {
                 "player_id": { "type": "string", "minLength": 1 },
                 "token": { "$ref": "ws_server_event.schema.json#/$defs/result_token" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "result_selected": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "RESULT_SELECTED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["token_id"],
+              "properties": { "token_id": { "type": "string", "minLength": 1 } }
+            }
+          }
+        }
+      ]
+    },
+    "piece_selected": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "PIECE_SELECTED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["token_id", "piece_id"],
+              "properties": {
+                "token_id": { "type": "string", "minLength": 1 },
+                "piece_id": { "type": "string", "minLength": 1 }
               }
             }
           }
@@ -224,40 +261,25 @@
             "payload": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["required_input", "token_ids", "piece_ids", "routes"],
+              "required": ["required_input", "candidates"],
               "properties": {
-                "required_input": { "enum": ["select_result", "select_piece", "select_route"] },
-                "token_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-                "piece_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-                "routes": { "type": "array", "items": { "enum": ["normal", "shortcut"] }, "uniqueItems": true }
+                "required_input": { "enum": ["select_move", "select_route"] },
+                "candidates": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["token_id", "piece_id", "routes"],
+                    "properties": {
+                      "token_id": { "type": "string", "minLength": 1 },
+                      "piece_id": { "type": "string", "minLength": 1 },
+                      "routes": { "type": "array", "items": { "enum": ["normal", "shortcut"] }, "uniqueItems": true }
+                    }
+                  }
+                }
               },
               "allOf": [
-                {
-                  "if": {
-                    "properties": { "required_input": { "const": "select_result" } },
-                    "required": ["required_input"]
-                  },
-                  "then": {
-                    "properties": {
-                      "token_ids": { "minItems": 1 },
-                      "piece_ids": { "maxItems": 0 },
-                      "routes": { "maxItems": 0 }
-                    }
-                  }
-                },
-                {
-                  "if": {
-                    "properties": { "required_input": { "const": "select_piece" } },
-                    "required": ["required_input"]
-                  },
-                  "then": {
-                    "properties": {
-                      "token_ids": { "minItems": 1, "maxItems": 1 },
-                      "piece_ids": { "minItems": 1 },
-                      "routes": { "maxItems": 0 }
-                    }
-                  }
-                },
                 {
                   "if": {
                     "properties": { "required_input": { "const": "select_route" } },
@@ -265,9 +287,15 @@
                   },
                   "then": {
                     "properties": {
-                      "token_ids": { "minItems": 1, "maxItems": 1 },
-                      "piece_ids": { "minItems": 1, "maxItems": 1 },
-                      "routes": { "minItems": 2, "maxItems": 2 }
+                      "candidates": {
+                        "minItems": 1,
+                        "maxItems": 1,
+                        "items": {
+                          "properties": {
+                            "routes": { "const": ["normal", "shortcut"] }
+                          }
+                        }
+                      }
                     }
                   }
                 }

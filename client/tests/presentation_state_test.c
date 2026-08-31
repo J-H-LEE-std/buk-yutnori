@@ -24,11 +24,11 @@ static void TestCommitsAuthoritativeSnapshot(void)
     BukClientPresentationStateInit(&state);
     BukClientPresentationBeginSnapshot(&state);
     StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE,
-                  BUK_CLIENT_TURN_WAIT_PIECE_SELECTION,
-                  BUK_CLIENT_REQUIRED_SELECT_PIECE, BUK_CLIENT_TIMER_MOVE,
+                  BUK_CLIENT_TURN_WAIT_MOVE_SELECTION,
+                  BUK_CLIENT_REQUIRED_SELECT_MOVE, BUK_CLIENT_TIMER_MOVE,
                   BUK_CLIENT_TEAM_A, 52000U);
     assert(BukClientPresentationStageMoveRequest(
-        &state, BUK_CLIENT_REQUIRED_SELECT_PIECE, false, false,
+        &state, BUK_CLIENT_REQUIRED_SELECT_MOVE, false, false,
         BUK_CLIENT_BOARD_NODE_COUNT));
     assert(BukClientPresentationStagePiece(
         &state, BUK_CLIENT_TEAM_A, BUK_CLIENT_PIECE_ON_BOARD,
@@ -44,8 +44,8 @@ static void TestCommitsAuthoritativeSnapshot(void)
     snapshot = BukClientPresentationConfirmed(&state);
     assert(snapshot != NULL);
     assert(snapshot->status == BUK_CLIENT_MATCH_ACTIVE);
-    assert(snapshot->phase == BUK_CLIENT_TURN_WAIT_PIECE_SELECTION);
-    assert(snapshot->required_input == BUK_CLIENT_REQUIRED_SELECT_PIECE);
+    assert(snapshot->phase == BUK_CLIENT_TURN_WAIT_MOVE_SELECTION);
+    assert(snapshot->required_input == BUK_CLIENT_REQUIRED_SELECT_MOVE);
     assert(snapshot->timer_phase == BUK_CLIENT_TIMER_MOVE);
     assert(snapshot->current_team == BUK_CLIENT_TEAM_A);
     assert(snapshot->remaining_ms == 52000U);
@@ -214,10 +214,10 @@ static void TestGrowsSnapshotStorageWithoutProtocolCaps(void)
     BukClientPresentationStateInit(&state);
     BukClientPresentationBeginSnapshot(&state);
     StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE, BUK_CLIENT_TURN_RESOLVE_QUEUE,
-                  BUK_CLIENT_REQUIRED_SELECT_RESULT, BUK_CLIENT_TIMER_MOVE,
+                  BUK_CLIENT_REQUIRED_SELECT_MOVE, BUK_CLIENT_TIMER_MOVE,
                   BUK_CLIENT_TEAM_A, 5000U);
     assert(BukClientPresentationStageMoveRequest(
-        &state, BUK_CLIENT_REQUIRED_SELECT_RESULT, false, false,
+        &state, BUK_CLIENT_REQUIRED_SELECT_MOVE, false, false,
         BUK_CLIENT_BOARD_NODE_COUNT));
     for (index = 0U; index < 40U; index++) {
         assert(BukClientPresentationStagePiece(

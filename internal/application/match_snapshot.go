@@ -348,29 +348,23 @@ func resolveSnapshotNicknames(ctx context.Context, store profile.Store, userIDs 
 func (rt *matchRuntime) snapshotMoveRequest(machine turn.Snapshot) (*protocol.MoveRequiredPayload, error) {
 	request := &protocol.MoveRequiredPayload{
 		RequiredInput: machine.RequiredInput,
-		TokenIDs:      []domain.ResultTokenID{},
-		PieceIDs:      []domain.PieceID{},
-		Routes:        []domain.Route{},
+		Candidates:    []protocol.MoveCandidate{},
 	}
 	switch machine.RequiredInput {
-	case domain.InputSelectResult:
-		request.TokenIDs = availableTokenIDs(
-			availableTokensFor(rt.settings.MovementOrder, machine.ResultQueue),
-		)
-	case domain.InputSelectPiece:
-		request.TokenIDs = []domain.ResultTokenID{machine.SelectedTokenID}
-		movable, err := rt.movablePieceIDs(machine)
+	case domain.InputSelectMove:
+		candidates, _, err := rt.moveCandidates(machine)
 		if err != nil {
 			return nil, fmt.Errorf("assemble move request: %w", err)
 		}
-		request.PieceIDs = movable
+		request.Candidates = candidates
 	case domain.InputSelectRoute:
 		if machine.SelectedTokenID == "" || rt.pendingMovePiece == "" {
 			return nil, fmt.Errorf("%w: route request is missing its selected token or piece", ErrInvalidConfiguration)
 		}
-		request.TokenIDs = []domain.ResultTokenID{machine.SelectedTokenID}
-		request.PieceIDs = []domain.PieceID{rt.pendingMovePiece}
-		request.Routes = []domain.Route{domain.RouteNormal, domain.RouteShortcut}
+		request.Candidates = []protocol.MoveCandidate{{
+			TokenID: machine.SelectedTokenID, PieceID: rt.pendingMovePiece,
+			Routes: []domain.Route{domain.RouteNormal, domain.RouteShortcut},
+		}}
 	default:
 		return nil, nil
 	}

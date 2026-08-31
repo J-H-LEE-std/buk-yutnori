@@ -112,10 +112,10 @@ func TestStringIDsUnmarshalJSONString(t *testing.T) {
 		assertJSONRoundTrip(t, YutBackdo)
 	})
 	t.Run("TurnPhase", func(t *testing.T) {
-		assertJSONRoundTrip(t, TurnWaitPieceSelection)
+		assertJSONRoundTrip(t, TurnWaitMoveSelection)
 	})
 	t.Run("RequiredInput", func(t *testing.T) {
-		assertJSONRoundTrip(t, InputSelectPiece)
+		assertJSONRoundTrip(t, InputSelectMove)
 	})
 	t.Run("Route", func(t *testing.T) {
 		assertJSONRoundTrip(t, RouteShortcut)

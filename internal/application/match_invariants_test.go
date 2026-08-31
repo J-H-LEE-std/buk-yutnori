@@ -82,10 +82,10 @@ func TestQueueOrderingBarrierFreeVersusFIFO(t *testing.T) {
 		name         string
 		order        room.MovementOrder
 		required     string
-		wantTokenIDs int
+		wantCandidates int
 	}{
-		{name: "free exposes tokens before buk barrier", order: room.MovementFree, required: "select_result", wantTokenIDs: 2},
-		{name: "fifo resolves head only", order: room.MovementFIFO, required: "select_piece", wantTokenIDs: 1},
+		{name: "free exposes tokens before buk barrier", order: room.MovementFree, required: "select_move", wantCandidates: 2},
+		{name: "fifo resolves head only", order: room.MovementFIFO, required: "select_move", wantCandidates: 1},
 	}
 	for _, testCase := range cases {
 		testCase := testCase
@@ -111,8 +111,8 @@ func TestQueueOrderingBarrierFreeVersusFIFO(t *testing.T) {
 				t.Fatal("no MOVE_REQUIRED after throwing chain")
 			}
 			first := moves[0]
-			if first.Payload.RequiredInput != testCase.required || len(first.Payload.TokenIDs) != testCase.wantTokenIDs {
-				t.Fatalf("first MOVE_REQUIRED = %+v, want %s with %d tokens", first, testCase.required, testCase.wantTokenIDs)
+			if first.Payload.RequiredInput != testCase.required || len(first.Payload.Candidates) < testCase.wantCandidates {
+				t.Fatalf("first MOVE_REQUIRED = %+v, want %s with at least %d candidates", first, testCase.required, testCase.wantCandidates)
 			}
 
 			// Resolve the ordinary tokens; the buk tail must resolve
@@ -124,8 +124,8 @@ func TestQueueOrderingBarrierFreeVersusFIFO(t *testing.T) {
 			}
 			bukToken := resolved[0].Payload.TokenID
 			for _, move := range fixture.recorder.ofTypes("MOVE_REQUIRED") {
-				for _, tokenID := range move.Payload.TokenIDs {
-					if tokenID == bukToken {
+				for _, candidate := range move.Payload.Candidates {
+					if candidate.TokenID == bukToken {
 						t.Fatalf("Buk token %s was offered for selection", bukToken)
 					}
 				}
@@ -226,7 +226,7 @@ func TestStackingDisabledKeepsSameSpacePiecesIndependent(t *testing.T) {
 		fixture.throwUntilResolved(t, current)
 		rt := fixture.runtime()
 		snapshot := rt.machine.Snapshot()
-		if snapshot.RequiredInput != domain.InputSelectPiece {
+		if snapshot.RequiredInput != domain.InputSelectMove {
 			continue
 		}
 		var target domain.PieceID
@@ -239,8 +239,13 @@ func TestStackingDisabledKeepsSameSpacePiecesIndependent(t *testing.T) {
 		if target == "" {
 			t.Fatal("mover has no waiting piece left to enter")
 		}
-		if err := fixture.registry.SelectPiece(auth.UserID(mover), fixture.roomID, fixture.matchID, snapshot.SelectedTokenID, target); err != nil {
-			t.Fatalf("SELECT_PIECE(%s) error = %v", target, err)
+		candidates, _, err := rt.moveCandidates(snapshot)
+		if err != nil { t.Fatalf("moveCandidates() error = %v", err) }
+		var tokenID domain.ResultTokenID
+		for _, candidate := range candidates { if candidate.PieceID == target { tokenID = candidate.TokenID; break } }
+		if tokenID == "" { t.Fatalf("target %s is not selectable", target) }
+		if err := fixture.registry.SelectMove(auth.UserID(mover), fixture.roomID, fixture.matchID, tokenID, target); err != nil {
+			t.Fatalf("SELECT_MOVE(%s) error = %v", target, err)
 		}
 		fixture.driveUntilPlayerOrEnd(t, mover)
 	}

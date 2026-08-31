@@ -28,8 +28,7 @@ static const BukClientEnumName turn_phase_names[] = {
     { "wait_throw", BUK_CLIENT_TURN_WAIT_THROW },
     { "throwing_chain", BUK_CLIENT_TURN_THROWING_CHAIN },
     { "resolve_queue", BUK_CLIENT_TURN_RESOLVE_QUEUE },
-    { "wait_result_selection", BUK_CLIENT_TURN_WAIT_RESULT_SELECTION },
-    { "wait_piece_selection", BUK_CLIENT_TURN_WAIT_PIECE_SELECTION },
+    { "wait_move_selection", BUK_CLIENT_TURN_WAIT_MOVE_SELECTION },
     { "wait_route_selection", BUK_CLIENT_TURN_WAIT_ROUTE_SELECTION },
     { "apply_move", BUK_CLIENT_TURN_APPLY_MOVE },
     { "resolve_stack_capture_finish", BUK_CLIENT_TURN_RESOLVE_STACK_CAPTURE_FINISH },
@@ -43,8 +42,7 @@ static const BukClientEnumName turn_phase_names[] = {
 static const BukClientEnumName required_input_names[] = {
     { "none", BUK_CLIENT_REQUIRED_NONE },
     { "throw", BUK_CLIENT_REQUIRED_THROW },
-    { "select_result", BUK_CLIENT_REQUIRED_SELECT_RESULT },
-    { "select_piece", BUK_CLIENT_REQUIRED_SELECT_PIECE },
+    { "select_move", BUK_CLIENT_REQUIRED_SELECT_MOVE },
     { "select_route", BUK_CLIENT_REQUIRED_SELECT_ROUTE },
 };
 
@@ -277,8 +275,7 @@ bool BukClientPresentationStageMoveRequest(
 
     if ((state == NULL) || !state->staging || state->pending_failed ||
         state->pending.move_request_set || !state->pending_metadata_set ||
-        (required_input != BUK_CLIENT_REQUIRED_SELECT_RESULT &&
-         required_input != BUK_CLIENT_REQUIRED_SELECT_PIECE &&
+        (required_input != BUK_CLIENT_REQUIRED_SELECT_MOVE &&
          required_input != BUK_CLIENT_REQUIRED_SELECT_ROUTE) ||
         state->pending.required_input != required_input ||
         (route_request &&
@@ -307,8 +304,7 @@ bool BukClientPresentationCanCommit(const BukClientPresentationState *state)
         return false;
     }
     selection_input =
-        state->pending.required_input == BUK_CLIENT_REQUIRED_SELECT_RESULT ||
-        state->pending.required_input == BUK_CLIENT_REQUIRED_SELECT_PIECE ||
+        state->pending.required_input == BUK_CLIENT_REQUIRED_SELECT_MOVE ||
         state->pending.required_input == BUK_CLIENT_REQUIRED_SELECT_ROUTE;
     return selection_input == state->pending.move_request_set;
 }

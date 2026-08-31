@@ -14,13 +14,14 @@
   ],
   "current_turn": {
     "player_id": "user-a",
-    "phase": "wait_piece_selection",
-    "required_input": "select_piece",
+    "phase": "wait_move_selection",
+    "required_input": "select_move",
     "move_request": {
-      "required_input": "select_piece",
-      "token_ids": ["token-1"],
-      "piece_ids": ["A-1", "A-2"],
-      "routes": []
+      "required_input": "select_move",
+      "candidates": [
+        {"token_id":"token-1","piece_id":"A-1","routes":["normal"]},
+        {"token_id":"token-1","piece_id":"A-2","routes":["normal"]}
+      ]
     },
     "timer": {"phase":"move","remaining_ms":52000,"deadline_at":"2026-07-22T08:01:00Z"}
   },

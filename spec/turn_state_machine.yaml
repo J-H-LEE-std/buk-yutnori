@@ -1,16 +1,11 @@
 version: 1
 
-# This is the active v1 state machine. ADR-0019 / Issue #151 will replace the
-# result-then-piece selection states with SELECT_MOVE only in the same change
-# that updates the active schemas, server, client, replay reducer, and tests.
-
 states:
   - turn_start
   - wait_throw
   - throwing_chain
   - resolve_queue
-  - wait_result_selection
-  - wait_piece_selection
+  - wait_move_selection
   - wait_route_selection
   - apply_move
   - resolve_stack_capture_finish
@@ -43,10 +38,10 @@ move_request:
   source: server_authoritative
   snapshot_field: current_turn.move_request
   event_field: MOVE_REQUIRED.payload
-  fields: [required_input, token_ids, piece_ids, routes]
+  fields: [required_input, candidates]
+  candidate_fields: [token_id, piece_id, routes]
   route_selection:
-    token_count: 1
-    piece_count: 1
+    candidate_count: 1
     routes: [normal, shortcut]
   inactive_inputs: [none, throw]
   inactive_value: null

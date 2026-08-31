@@ -53,7 +53,7 @@ func TestMachineRunsCanonicalThrowingChain(t *testing.T) {
 	if err := machine.ResolveQueue(); err != nil {
 		t.Fatalf("ResolveQueue() error = %v", err)
 	}
-	assertMachineState(t, machine, domain.TurnWaitResultSelection, domain.InputSelectResult, "", "")
+	assertMachineState(t, machine, domain.TurnWaitMoveSelection, domain.InputSelectMove, "", "")
 }
 
 func TestMachineCanDisableYutMoExtraThrow(t *testing.T) {
@@ -68,10 +68,10 @@ func TestMachineCanDisableYutMoExtraThrow(t *testing.T) {
 	assertMachineState(
 		t,
 		machine,
-		domain.TurnWaitPieceSelection,
-		domain.InputSelectPiece,
+		domain.TurnWaitMoveSelection,
+		domain.InputSelectMove,
 		"",
-		"token-yut",
+		"",
 	)
 }
 
@@ -121,10 +121,10 @@ func TestMovementOrderControlsResultSelection(t *testing.T) {
 		assertMachineState(
 			t,
 			machine,
-			domain.TurnWaitPieceSelection,
-			domain.InputSelectPiece,
+			domain.TurnWaitMoveSelection,
+			domain.InputSelectMove,
 			"",
-			"token-yut",
+			"",
 		)
 	})
 
@@ -136,19 +136,19 @@ func TestMovementOrderControlsResultSelection(t *testing.T) {
 		assertMachineState(
 			t,
 			machine,
-			domain.TurnWaitResultSelection,
-			domain.InputSelectResult,
+			domain.TurnWaitMoveSelection,
+			domain.InputSelectMove,
 			"",
 			"",
 		)
-		if err := machine.SelectResult("token-do"); err != nil {
-			t.Fatalf("SelectResult() error = %v", err)
+		if err := machine.SelectMove("token-do", false); err != nil {
+			t.Fatalf("SelectMove() error = %v", err)
 		}
 		assertMachineState(
 			t,
 			machine,
-			domain.TurnWaitPieceSelection,
-			domain.InputSelectPiece,
+			domain.TurnApplyMove,
+			domain.InputNone,
 			"",
 			"token-do",
 		)
@@ -161,8 +161,8 @@ func TestMachineRunsPieceRouteAndMovePhases(t *testing.T) {
 	recordThrow(t, machine, resultToken("token-1", domain.YutGeol, domain.ResultOriginInitialThrow))
 	resolveSingleOrdinary(t, machine, "token-1")
 
-	if err := machine.PieceSelected("token-1", true); err != nil {
-		t.Fatalf("PieceSelected() error = %v", err)
+	if err := machine.SelectMove("token-1", true); err != nil {
+		t.Fatalf("SelectMove() error = %v", err)
 	}
 	assertMachineState(
 		t,
@@ -209,10 +209,10 @@ func TestBukCannotPassEarlierTokenAndResolvesAutomatically(t *testing.T) {
 	assertMachineState(
 		t,
 		machine,
-		domain.TurnWaitPieceSelection,
-		domain.InputSelectPiece,
+		domain.TurnWaitMoveSelection,
+		domain.InputSelectMove,
 		"",
-		"token-yut",
+		"",
 	)
 	applySelectedMove(t, machine, "token-yut", false)
 	if err := machine.CompleteMove("token-yut", MoveOutcome{}); err != nil {
@@ -249,10 +249,10 @@ func TestMachineDiscardsOnlySelectedUnusableResult(t *testing.T) {
 	assertMachineState(
 		t,
 		machine,
-		domain.TurnWaitPieceSelection,
-		domain.InputSelectPiece,
+		domain.TurnWaitMoveSelection,
+		domain.InputSelectMove,
 		"",
-		"token-do",
+		"",
 	)
 }
 
@@ -276,7 +276,7 @@ func TestMachineRejectsInvalidActionsWithoutMutation(t *testing.T) {
 	})
 	startMachine(t, machine)
 	assertUnchangedAfterError(t, machine, ErrInvalidTransition, func() error {
-		return machine.SelectResult("token-1")
+		return machine.SelectMove("token-1", false)
 	})
 
 	if _, err := machine.BeginThrow(); err != nil {
@@ -296,14 +296,14 @@ func TestMachineRejectsInvalidActionsWithoutMutation(t *testing.T) {
 	if err := machine.ResolveQueue(); err != nil {
 		t.Fatalf("ResolveQueue() error = %v", err)
 	}
-	assertUnchangedAfterError(t, machine, ErrSelectedTokenMismatch, func() error {
-		return machine.PieceSelected("other-token", false)
+	assertUnchangedAfterError(t, machine, ErrResultTokenNotAvailable, func() error {
+		return machine.SelectMove("other-token", false)
 	})
 	assertUnchangedAfterError(t, machine, ErrInvalidTransition, func() error {
 		return machine.RouteSelected("token-1")
 	})
-	if err := machine.PieceSelected("token-1", false); err != nil {
-		t.Fatalf("PieceSelected() error = %v", err)
+	if err := machine.SelectMove("token-1", false); err != nil {
+		t.Fatalf("SelectMove() error = %v", err)
 	}
 	if err := machine.MoveApplied("token-1"); err != nil {
 		t.Fatalf("MoveApplied() error = %v", err)
@@ -414,17 +414,17 @@ func resolveSingleOrdinary(t *testing.T, machine *Machine, tokenID domain.Result
 	assertMachineState(
 		t,
 		machine,
-		domain.TurnWaitPieceSelection,
-		domain.InputSelectPiece,
+		domain.TurnWaitMoveSelection,
+		domain.InputSelectMove,
 		"",
-		tokenID,
+		"",
 	)
 }
 
 func applySelectedMove(t *testing.T, machine *Machine, tokenID domain.ResultTokenID, routeRequired bool) {
 	t.Helper()
-	if err := machine.PieceSelected(tokenID, routeRequired); err != nil {
-		t.Fatalf("PieceSelected() error = %v", err)
+	if err := machine.SelectMove(tokenID, routeRequired); err != nil {
+		t.Fatalf("SelectMove() error = %v", err)
 	}
 	if routeRequired {
 		if err := machine.RouteSelected(tokenID); err != nil {

@@ -10,6 +10,8 @@ const (
 	EventGameStarted        = "GAME_STARTED"
 	EventTurnStarted        = "TURN_STARTED"
 	EventYutResult          = "YUT_RESULT"
+	EventResultSelected     = "RESULT_SELECTED"
+	EventPieceSelected      = "PIECE_SELECTED"
 	EventResultQueueUpdated = "RESULT_QUEUE_UPDATED"
 	EventMoveRequired       = "MOVE_REQUIRED"
 	EventPieceMoved         = "PIECE_MOVED"
@@ -186,12 +188,74 @@ func NewResultQueueUpdatedEvent(roomID domain.RoomID, matchID domain.MatchID, se
 	}, nil
 }
 
-// MoveRequiredPayload asks the acting player for the next selection.
+// ResultSelectedPayload records the result component of an accepted atomic
+// SELECT_MOVE. It is always immediately followed by PIECE_SELECTED.
+type ResultSelectedPayload struct {
+	TokenID domain.ResultTokenID `json:"token_id"`
+}
+
+type ResultSelectedEvent struct {
+	Version   int                   `json:"version"`
+	Direction Direction             `json:"direction"`
+	Type      string                `json:"type"`
+	Sequence  uint64                `json:"sequence"`
+	RoomID    domain.RoomID         `json:"room_id"`
+	MatchID   domain.MatchID        `json:"match_id"`
+	Payload   ResultSelectedPayload `json:"payload"`
+}
+
+func NewResultSelectedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence uint64, payload ResultSelectedPayload) (ResultSelectedEvent, error) {
+	if err := validateMatchEventScope(roomID, matchID, sequence); err != nil {
+		return ResultSelectedEvent{}, err
+	}
+	if err := payload.TokenID.Validate(); err != nil {
+		return ResultSelectedEvent{}, fmt.Errorf("%w: token_id: %v", ErrInvalidServerEvent, err)
+	}
+	return ResultSelectedEvent{Version: Version1, Direction: DirectionServerEvent, Type: EventResultSelected, Sequence: sequence, RoomID: roomID, MatchID: matchID, Payload: payload}, nil
+}
+
+// PieceSelectedPayload records the piece component of an accepted atomic SELECT_MOVE.
+type PieceSelectedPayload struct {
+	TokenID domain.ResultTokenID `json:"token_id"`
+	PieceID domain.PieceID       `json:"piece_id"`
+}
+
+type PieceSelectedEvent struct {
+	Version   int                  `json:"version"`
+	Direction Direction            `json:"direction"`
+	Type      string               `json:"type"`
+	Sequence  uint64               `json:"sequence"`
+	RoomID    domain.RoomID        `json:"room_id"`
+	MatchID   domain.MatchID       `json:"match_id"`
+	Payload   PieceSelectedPayload `json:"payload"`
+}
+
+func NewPieceSelectedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence uint64, payload PieceSelectedPayload) (PieceSelectedEvent, error) {
+	if err := validateMatchEventScope(roomID, matchID, sequence); err != nil {
+		return PieceSelectedEvent{}, err
+	}
+	if err := payload.TokenID.Validate(); err != nil {
+		return PieceSelectedEvent{}, fmt.Errorf("%w: token_id: %v", ErrInvalidServerEvent, err)
+	}
+	if err := payload.PieceID.Validate(); err != nil {
+		return PieceSelectedEvent{}, fmt.Errorf("%w: piece_id: %v", ErrInvalidServerEvent, err)
+	}
+	return PieceSelectedEvent{Version: Version1, Direction: DirectionServerEvent, Type: EventPieceSelected, Sequence: sequence, RoomID: roomID, MatchID: matchID, Payload: payload}, nil
+}
+
+// MoveCandidate is one server-calculated legal result/piece pair and its
+// possible routes. An empty route list is valid for a Backdo move.
+type MoveCandidate struct {
+	TokenID domain.ResultTokenID `json:"token_id"`
+	PieceID domain.PieceID       `json:"piece_id"`
+	Routes  []domain.Route       `json:"routes"`
+}
+
+// MoveRequiredPayload asks the acting player for the next atomic move or
+// the sole pending shortcut choice.
 type MoveRequiredPayload struct {
-	RequiredInput domain.RequiredInput   `json:"required_input"`
-	TokenIDs      []domain.ResultTokenID `json:"token_ids"`
-	PieceIDs      []domain.PieceID       `json:"piece_ids"`
-	Routes        []domain.Route         `json:"routes"`
+	RequiredInput domain.RequiredInput `json:"required_input"`
+	Candidates    []MoveCandidate      `json:"candidates"`
 }
 
 // MoveRequiredEvent is the typed v1 MOVE_REQUIRED server event.
@@ -211,75 +275,49 @@ func NewMoveRequiredEvent(roomID domain.RoomID, matchID domain.MatchID, sequence
 		return MoveRequiredEvent{}, err
 	}
 	switch payload.RequiredInput {
-	case domain.InputSelectResult, domain.InputSelectPiece, domain.InputSelectRoute:
+	case domain.InputSelectMove, domain.InputSelectRoute:
 	default:
 		return MoveRequiredEvent{}, fmt.Errorf("%w: required_input %q", ErrInvalidServerEvent, payload.RequiredInput)
 	}
-	tokenIDs := make([]domain.ResultTokenID, 0, len(payload.TokenIDs))
-	seenTokens := make(map[domain.ResultTokenID]struct{}, len(payload.TokenIDs))
-	for index, tokenID := range payload.TokenIDs {
-		if err := tokenID.Validate(); err != nil {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: token_ids[%d]: %v", ErrInvalidServerEvent, index, err)
-		}
-		if _, duplicate := seenTokens[tokenID]; duplicate {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: duplicate token_ids[%d]", ErrInvalidServerEvent, index)
-		}
-		seenTokens[tokenID] = struct{}{}
-		tokenIDs = append(tokenIDs, tokenID)
+	if len(payload.Candidates) == 0 {
+		return MoveRequiredEvent{}, fmt.Errorf("%w: candidates is empty", ErrInvalidServerEvent)
 	}
-	pieceIDs := make([]domain.PieceID, 0, len(payload.PieceIDs))
-	seenPieces := make(map[domain.PieceID]struct{}, len(payload.PieceIDs))
-	for index, pieceID := range payload.PieceIDs {
-		if err := pieceID.Validate(); err != nil {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: piece_ids[%d]: %v", ErrInvalidServerEvent, index, err)
+	candidates := make([]MoveCandidate, 0, len(payload.Candidates))
+	seen := make(map[string]struct{}, len(payload.Candidates))
+	for index, candidate := range payload.Candidates {
+		if err := candidate.TokenID.Validate(); err != nil {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: candidates[%d].token_id: %v", ErrInvalidServerEvent, index, err)
 		}
-		if _, duplicate := seenPieces[pieceID]; duplicate {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: duplicate piece_ids[%d]", ErrInvalidServerEvent, index)
+		if err := candidate.PieceID.Validate(); err != nil {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: candidates[%d].piece_id: %v", ErrInvalidServerEvent, index, err)
 		}
-		seenPieces[pieceID] = struct{}{}
-		pieceIDs = append(pieceIDs, pieceID)
+		key := string(candidate.TokenID) + "\x00" + string(candidate.PieceID)
+		if _, duplicate := seen[key]; duplicate {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: duplicate candidates[%d]", ErrInvalidServerEvent, index)
+		}
+		seen[key] = struct{}{}
+		routes := append([]domain.Route(nil), candidate.Routes...)
+		seenRoutes := make(map[domain.Route]struct{}, len(routes))
+		for routeIndex, route := range routes {
+			if err := route.Validate(); err != nil {
+				return MoveRequiredEvent{}, fmt.Errorf("%w: candidates[%d].routes[%d]: %v", ErrInvalidServerEvent, index, routeIndex, err)
+			}
+			if _, duplicate := seenRoutes[route]; duplicate {
+				return MoveRequiredEvent{}, fmt.Errorf("%w: duplicate candidates[%d].routes[%d]", ErrInvalidServerEvent, index, routeIndex)
+			}
+			seenRoutes[route] = struct{}{}
+		}
+		candidates = append(candidates, MoveCandidate{TokenID: candidate.TokenID, PieceID: candidate.PieceID, Routes: routes})
 	}
-	routes := make([]domain.Route, 0, len(payload.Routes))
-	seenRoutes := make(map[domain.Route]struct{}, len(payload.Routes))
-	for index, route := range payload.Routes {
-		if err := route.Validate(); err != nil {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: routes[%d]: %v", ErrInvalidServerEvent, index, err)
-		}
-		if _, duplicate := seenRoutes[route]; duplicate {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: duplicate routes[%d]", ErrInvalidServerEvent, index)
-		}
-		seenRoutes[route] = struct{}{}
-		routes = append(routes, route)
-	}
-	switch payload.RequiredInput {
-	case domain.InputSelectResult:
-		if len(tokenIDs) == 0 || len(pieceIDs) != 0 || len(routes) != 0 {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: select_result requires tokens only", ErrInvalidServerEvent)
-		}
-	case domain.InputSelectPiece:
-		if len(tokenIDs) != 1 || len(pieceIDs) == 0 || len(routes) != 0 {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: select_piece requires one token and at least one piece", ErrInvalidServerEvent)
-		}
-	case domain.InputSelectRoute:
-		if len(tokenIDs) != 1 || len(pieceIDs) != 1 || len(routes) != 2 {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: select_route requires one token, one piece, and two routes", ErrInvalidServerEvent)
-		}
-		if _, normal := seenRoutes[domain.RouteNormal]; !normal {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: select_route normal route is required", ErrInvalidServerEvent)
-		}
-		if _, shortcut := seenRoutes[domain.RouteShortcut]; !shortcut {
-			return MoveRequiredEvent{}, fmt.Errorf("%w: select_route shortcut route is required", ErrInvalidServerEvent)
+	if payload.RequiredInput == domain.InputSelectRoute {
+		if len(candidates) != 1 || len(candidates[0].Routes) != 2 || candidates[0].Routes[0] != domain.RouteNormal || candidates[0].Routes[1] != domain.RouteShortcut {
+			return MoveRequiredEvent{}, fmt.Errorf("%w: select_route requires one candidate with normal and shortcut routes", ErrInvalidServerEvent)
 		}
 	}
 	return MoveRequiredEvent{
 		Version: Version1, Direction: DirectionServerEvent, Type: EventMoveRequired,
 		Sequence: sequence, RoomID: roomID, MatchID: matchID,
-		Payload: MoveRequiredPayload{
-			RequiredInput: payload.RequiredInput,
-			TokenIDs:      tokenIDs,
-			PieceIDs:      pieceIDs,
-			Routes:        routes,
-		},
+		Payload: MoveRequiredPayload{RequiredInput: payload.RequiredInput, Candidates: candidates},
 	}, nil
 }
 

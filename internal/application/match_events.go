@@ -59,6 +59,18 @@ func stageResultQueueUpdated(tx *eventTx, rt *matchRuntime) {
 	})
 }
 
+// stageMoveSelection deliberately stages the two audit records together.
+// eventTx assigns consecutive sequences and persists its builders in one
+// transaction before it broadcasts anything.
+func stageMoveSelection(tx *eventTx, rt *matchRuntime, tokenID domain.ResultTokenID, pieceID domain.PieceID) {
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewResultSelectedEvent(rt.roomID, rt.matchID, sequence, protocol.ResultSelectedPayload{TokenID: tokenID})
+	})
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewPieceSelectedEvent(rt.roomID, rt.matchID, sequence, protocol.PieceSelectedPayload{TokenID: tokenID, PieceID: pieceID})
+	})
+}
+
 func stageMoveRequired(tx *eventTx, rt *matchRuntime, payload protocol.MoveRequiredPayload) error {
 	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewMoveRequiredEvent(rt.roomID, rt.matchID, sequence, payload)
@@ -117,42 +129,53 @@ func positionGroupIDFor(team domain.TeamID, state domain.PieceState, space domai
 	return fmt.Sprintf("pos:%s:%s:%s", team, state, space)
 }
 
-// movablePieceIDs lists the acting team's pieces that have at least one legal
-// plan for the currently selected result token.
-func (rt *matchRuntime) movablePieceIDs(snapshot turn.Snapshot) ([]domain.PieceID, error) {
-	tokenID := snapshot.SelectedTokenID
-	result, ok := resultOfToken(snapshot.ResultQueue, tokenID)
-	if !ok {
-		return nil, fmt.Errorf("%w: unknown selected token", ErrInvalidTurnAction)
-	}
+// moveCandidates calculates every legal exposed result/piece pair from the
+// authoritative game state. Finished pieces and unavailable plans never
+// reach clients. unusable contains exposed ordinary tokens with no candidate.
+func (rt *matchRuntime) moveCandidates(snapshot turn.Snapshot) ([]protocol.MoveCandidate, []domain.ResultTokenID, error) {
+	available := availableTokensFor(rt.settings.MovementOrder, snapshot.ResultQueue)
 	gameSnapshot := rt.game.Snapshot()
-	movable := make([]domain.PieceID, 0, rt.settings.PieceCount)
-	for _, piece := range gameSnapshot.Pieces {
-		if piece.TeamID != rt.currentTeam() || piece.State == domain.PieceFinished {
-			continue
+	candidates := make([]protocol.MoveCandidate, 0, len(available)*rt.settings.PieceCount)
+	unusable := make([]domain.ResultTokenID, 0, len(available))
+	for _, token := range available {
+		if token.Result == domain.YutBuk {
+			break
 		}
-		if result == domain.YutBackdo {
-			if _, err := rt.game.BackdoMovePlan(rt.currentTeam(), piece.ID); err != nil {
+		before := len(candidates)
+		for _, piece := range gameSnapshot.Pieces {
+			if piece.TeamID != rt.currentTeam() || piece.State == domain.PieceFinished {
+				continue
+			}
+			if token.Result == domain.YutBackdo {
+				if _, err := rt.game.BackdoMovePlan(rt.currentTeam(), piece.ID); err != nil {
+					if isUnavailableMovementError(err) {
+						continue
+					}
+					return nil, nil, err
+				}
+				candidates = append(candidates, protocol.MoveCandidate{TokenID: token.ID, PieceID: piece.ID, Routes: []domain.Route{}})
+				continue
+			}
+			plans, err := rt.game.OrdinaryMovePlans(rt.currentTeam(), piece.ID, token.Result)
+			if err != nil {
 				if isUnavailableMovementError(err) {
 					continue
 				}
-				return nil, err
+				return nil, nil, err
 			}
-			movable = append(movable, piece.ID)
-			continue
-		}
-		plans, err := rt.game.OrdinaryMovePlans(rt.currentTeam(), piece.ID, result)
-		if err != nil {
-			if isUnavailableMovementError(err) {
-				continue
+			routes := make([]domain.Route, 0, len(plans))
+			for _, plan := range plans {
+				routes = append(routes, plan.Route)
 			}
-			return nil, err
+			if len(routes) > 0 {
+				candidates = append(candidates, protocol.MoveCandidate{TokenID: token.ID, PieceID: piece.ID, Routes: routes})
+			}
 		}
-		if len(plans) > 0 {
-			movable = append(movable, piece.ID)
+		if len(candidates) == before {
+			unusable = append(unusable, token.ID)
 		}
 	}
-	return movable, nil
+	return candidates, unusable, nil
 }
 
 func isUnavailableMovementError(err error) bool {

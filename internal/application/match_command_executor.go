@@ -24,8 +24,8 @@ const (
 	invalidTurnActionCode = "INVALID_TURN_ACTION"
 )
 
-// MatchCommandExecutor applies THROW_YUT, SELECT_RESULT, SELECT_PIECE,
-// SELECT_ROUTE, and RECONNECT to the registry-owned canonical match runtime.
+// MatchCommandExecutor applies THROW_YUT, SELECT_MOVE, SELECT_ROUTE, and
+// RECONNECT to the registry-owned canonical match runtime.
 type MatchCommandExecutor struct {
 	lobbies *RoomRegistry
 }
@@ -63,22 +63,12 @@ func (executor *MatchCommandExecutor) Execute(ctx context.Context, user auth.Use
 		}
 		return acceptedLobbyOutcome(), nil
 
-	case protocol.CommandSelectResult:
-		payload, ok := command.Payload.(protocol.SelectResultPayload)
+	case protocol.CommandSelectMove:
+		payload, ok := command.Payload.(protocol.SelectMovePayload)
 		if !ok {
-			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid SELECT_RESULT payload", ErrInvalidCommand)
+			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid SELECT_MOVE payload", ErrInvalidCommand)
 		}
-		if err := executor.lobbies.SelectResult(user.ID, command.RoomID, *command.MatchID, payload.TokenID); err != nil {
-			return executor.rejectMatchError(err), nil
-		}
-		return acceptedLobbyOutcome(), nil
-
-	case protocol.CommandSelectPiece:
-		payload, ok := command.Payload.(protocol.SelectPiecePayload)
-		if !ok {
-			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid SELECT_PIECE payload", ErrInvalidCommand)
-		}
-		if err := executor.lobbies.SelectPiece(user.ID, command.RoomID, *command.MatchID, payload.TokenID, payload.PieceID); err != nil {
+		if err := executor.lobbies.SelectMove(user.ID, command.RoomID, *command.MatchID, payload.TokenID, payload.PieceID); err != nil {
 			return executor.rejectMatchError(err), nil
 		}
 		return acceptedLobbyOutcome(), nil

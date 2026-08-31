@@ -168,9 +168,11 @@ func (registry *RoomRegistry) ThrowYut(user auth.UserID, roomID domain.RoomID, m
 	return tx.flush()
 }
 
-// SelectResult consumes SELECT_RESULT while several ordinary tokens compete
-// for selection under free movement order.
-func (registry *RoomRegistry) SelectResult(user auth.UserID, roomID domain.RoomID, matchID domain.MatchID, tokenID domain.ResultTokenID) error {
+// SelectMove consumes the atomic SELECT_MOVE pair. The server checks the
+// supplied token/piece pair against its freshly calculated candidates and
+// writes RESULT_SELECTED then PIECE_SELECTED consecutively in one event
+// transaction before any following route request or movement outcome.
+func (registry *RoomRegistry) SelectMove(user auth.UserID, roomID domain.RoomID, matchID domain.MatchID, tokenID domain.ResultTokenID, pieceID domain.PieceID) error {
 	registry.mutex.Lock()
 	defer registry.mutex.Unlock()
 
@@ -185,42 +187,11 @@ func (registry *RoomRegistry) SelectResult(user auth.UserID, roomID domain.RoomI
 		return ErrNotTurnPlayer
 	}
 	snapshot := rt.machine.Snapshot()
-	if snapshot.RequiredInput != domain.InputSelectResult {
-		return ErrInvalidTurnAction
-	}
-	if err := rt.machine.SelectResult(tokenID); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidTurnAction, err)
-	}
-	tx := registry.newEventTx(roomID)
-	stageResultQueueUpdated(tx, rt)
-	if err := registry.advanceTurnLocked(entry, rt, tx); err != nil {
-		return err
-	}
-	return tx.flush()
-}
-
-// SelectPiece consumes SELECT_PIECE and either applies the move directly or
-// asks for the shortcut route choice first.
-func (registry *RoomRegistry) SelectPiece(user auth.UserID, roomID domain.RoomID, matchID domain.MatchID, tokenID domain.ResultTokenID, pieceID domain.PieceID) error {
-	registry.mutex.Lock()
-	defer registry.mutex.Unlock()
-
-	entry, rt, err := registry.liveMatchLocked(user, roomID, matchID)
-	if err != nil {
-		return err
-	}
-	if rt.paused {
-		return ErrMatchPaused
-	}
-	if rt.currentPlayer() != domain.PlayerID(user) {
-		return ErrNotTurnPlayer
-	}
-	snapshot := rt.machine.Snapshot()
-	if snapshot.RequiredInput != domain.InputSelectPiece || snapshot.SelectedTokenID != tokenID {
+	if snapshot.RequiredInput != domain.InputSelectMove {
 		return ErrInvalidTurnAction
 	}
 	tx := registry.newEventTx(roomID)
-	if err := registry.selectPieceInternalLocked(entry, rt, tx, tokenID, pieceID); err != nil {
+	if err := registry.selectMoveInternalLocked(entry, rt, tx, tokenID, pieceID); err != nil {
 		return err
 	}
 	return tx.flush()
@@ -319,22 +290,12 @@ func (registry *RoomRegistry) stepResolutionLocked(entry *registeredRoom, rt *ma
 		return registry.afterQueueResolvedLocked(entry, rt, tx)
 	case domain.TurnResolveBuk:
 		return registry.resolveBukHeadLocked(entry, rt, tx, snapshot.SelectedTokenID)
-	case domain.TurnWaitPieceSelection:
-		awaiting, err := registry.enterPieceSelectionLocked(entry, rt, tx)
+	case domain.TurnWaitMoveSelection:
+		awaiting, err := registry.enterMoveSelectionLocked(entry, rt, tx)
 		if err != nil || awaiting {
 			return stepAwaitInput, err
 		}
 		return stepContinue, nil
-	case domain.TurnWaitResultSelection:
-		if rt.cpuControlled {
-			return stepAwaitInput, nil
-		}
-		available := availableTokensFor(rt.settings.MovementOrder, snapshot.ResultQueue)
-		return stepAwaitInput, stageMoveRequired(tx, rt, protocol.MoveRequiredPayload{
-			RequiredInput: domain.InputSelectResult,
-			TokenIDs:      availableTokenIDs(available),
-			Routes:        []domain.Route{},
-		})
 	case domain.TurnEnd:
 		return stepStopped, registry.endTurnLocked(entry, rt, tx)
 	case domain.TurnMatchEnd:
@@ -350,7 +311,7 @@ func (registry *RoomRegistry) stepResolutionLocked(entry *registeredRoom, rt *ma
 func (registry *RoomRegistry) afterQueueResolvedLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) (resolutionStep, error) {
 	snapshot := rt.machine.Snapshot()
 	switch snapshot.Phase {
-	case domain.TurnWaitPieceSelection, domain.TurnWaitResultSelection:
+	case domain.TurnWaitMoveSelection:
 		if rt.timerKind != matchTimerKindMove && !rt.cpuControlled {
 			registry.scheduleMoveTimerLocked(rt)
 		}
@@ -404,64 +365,61 @@ func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *ma
 	}
 }
 
-// enterPieceSelectionLocked resolves a freshly entered wait_piece_selection
+// enterMoveSelectionLocked resolves a freshly entered wait_move_selection
 // phase. Tokens without any legal piece are discarded automatically because
 // the v1 protocol has no client-facing discard command; the outcome equals
 // the forced player choice documented in docs/03 (discard_only_that_token).
-func (registry *RoomRegistry) enterPieceSelectionLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) (bool, error) {
+func (registry *RoomRegistry) enterMoveSelectionLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) (bool, error) {
 	snapshot := rt.machine.Snapshot()
-	tokenID := snapshot.SelectedTokenID
-	movable, err := rt.movablePieceIDs(snapshot)
+	candidates, unusable, err := rt.moveCandidates(snapshot)
 	if err != nil {
 		return false, err
 	}
-	if len(movable) > 0 {
+	if len(candidates) > 0 {
 		if rt.cpuControlled {
 			return true, nil
 		}
 		return true, stageMoveRequired(tx, rt, protocol.MoveRequiredPayload{
-			RequiredInput: domain.InputSelectPiece,
-			TokenIDs:      []domain.ResultTokenID{tokenID},
-			PieceIDs:      movable,
-			Routes:        []domain.Route{},
+			RequiredInput: domain.InputSelectMove,
+			Candidates:    candidates,
 		})
 	}
-	if err := rt.machine.DiscardUnusableResult(tokenID); err != nil {
+	if len(unusable) != 1 {
+		return false, fmt.Errorf("%w: move selection has no candidates or discardable token", ErrInvalidConfiguration)
+	}
+	if err := rt.machine.DiscardUnusableResult(unusable[0]); err != nil {
 		return false, err
 	}
 	stageResultQueueUpdated(tx, rt)
 	return false, nil
 }
 
-func (registry *RoomRegistry) selectPieceInternalLocked(
+func (registry *RoomRegistry) selectMoveInternalLocked(
 	entry *registeredRoom,
 	rt *matchRuntime,
 	tx *eventTx,
 	tokenID domain.ResultTokenID,
 	pieceID domain.PieceID,
 ) error {
-	snapshot := rt.machine.Snapshot()
-	result, ok := resultOfToken(snapshot.ResultQueue, tokenID)
-	if !ok {
-		return fmt.Errorf("%w: unknown selected token", ErrInvalidTurnAction)
-	}
-	if result == domain.YutBackdo {
-		if _, err := rt.game.BackdoMovePlan(rt.currentTeam(), pieceID); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidTurnAction, err)
-		}
-		if err := rt.machine.PieceSelected(tokenID, false); err != nil {
-			return fmt.Errorf("%w: %v", ErrInvalidTurnAction, err)
-		}
-		return registry.applySelectedMoveLocked(entry, rt, tx, tokenID, pieceID, "")
-	}
-	plans, err := rt.game.OrdinaryMovePlans(rt.currentTeam(), pieceID, result)
+	candidates, _, err := rt.moveCandidates(rt.machine.Snapshot())
 	if err != nil {
+		return err
+	}
+	var candidate *protocol.MoveCandidate
+	for index := range candidates {
+		if candidates[index].TokenID == tokenID && candidates[index].PieceID == pieceID {
+			candidate = &candidates[index]
+			break
+		}
+	}
+	if candidate == nil {
+		return fmt.Errorf("%w: token and piece are not an authoritative move candidate", ErrInvalidTurnAction)
+	}
+	routeRequired := len(candidate.Routes) == 2
+	if err := rt.machine.SelectMove(tokenID, routeRequired); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidTurnAction, err)
 	}
-	routeRequired := len(plans) == 2
-	if err := rt.machine.PieceSelected(tokenID, routeRequired); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidTurnAction, err)
-	}
+	stageMoveSelection(tx, rt, tokenID, pieceID)
 	if routeRequired {
 		rt.pendingMovePiece = pieceID
 		if rt.cpuControlled {
@@ -471,9 +429,10 @@ func (registry *RoomRegistry) selectPieceInternalLocked(
 		}
 		return stageMoveRequired(tx, rt, protocol.MoveRequiredPayload{
 			RequiredInput: domain.InputSelectRoute,
-			TokenIDs:      []domain.ResultTokenID{tokenID},
-			PieceIDs:      []domain.PieceID{pieceID},
-			Routes:        []domain.Route{domain.RouteNormal, domain.RouteShortcut},
+			Candidates: []protocol.MoveCandidate{{
+				TokenID: tokenID, PieceID: pieceID,
+				Routes: []domain.Route{domain.RouteNormal, domain.RouteShortcut},
+			}},
 		})
 	}
 	return registry.applySelectedMoveLocked(entry, rt, tx, tokenID, pieceID, "")
@@ -552,7 +511,7 @@ func (registry *RoomRegistry) runCpuTurnLocked(entry *registeredRoom, rt *matchR
 			if err := registry.advanceTurnLocked(entry, rt, tx); err != nil {
 				return
 			}
-		case domain.TurnWaitResultSelection, domain.TurnWaitPieceSelection, domain.TurnWaitRouteSelection:
+		case domain.TurnWaitMoveSelection, domain.TurnWaitRouteSelection:
 			decision, err := rt.cpu.Decide(rt.game, rt.machine.Snapshot(), rt.currentTeam())
 			if err != nil {
 				return
@@ -575,13 +534,7 @@ func (registry *RoomRegistry) runCpuTurnLocked(entry *registeredRoom, rt *matchR
 
 func (registry *RoomRegistry) applyCPUDecisionLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx, decision cpu.Decision) error {
 	switch rt.machine.Snapshot().Phase {
-	case domain.TurnWaitResultSelection:
-		if err := rt.machine.SelectResult(decision.TokenID); err != nil {
-			return err
-		}
-		stageResultQueueUpdated(tx, rt)
-		return nil
-	case domain.TurnWaitPieceSelection:
+	case domain.TurnWaitMoveSelection:
 		if decision.Action == cpu.ActionDiscardResult {
 			if err := rt.machine.DiscardUnusableResult(decision.TokenID); err != nil {
 				return err
@@ -589,7 +542,7 @@ func (registry *RoomRegistry) applyCPUDecisionLocked(entry *registeredRoom, rt *
 			stageResultQueueUpdated(tx, rt)
 			return nil
 		}
-		return registry.selectPieceInternalLocked(entry, rt, tx, decision.TokenID, decision.PieceID)
+		return registry.selectMoveInternalLocked(entry, rt, tx, decision.TokenID, decision.PieceID)
 	case domain.TurnWaitRouteSelection:
 		pieceID := rt.pendingMovePiece
 		if decision.Route.Validate() != nil {

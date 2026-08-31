@@ -60,19 +60,8 @@
   {
     "version": 1,
     "direction": "client_command",
-    "type": "SELECT_RESULT",
+    "type": "SELECT_MOVE",
     "command_id": "cmd-005",
-    "room_id": "room-1",
-    "match_id": "match-1",
-    "payload": {
-      "token_id": "token-1"
-    }
-  },
-  {
-    "version": 1,
-    "direction": "client_command",
-    "type": "SELECT_PIECE",
-    "command_id": "cmd-006",
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -84,7 +73,7 @@
     "version": 1,
     "direction": "client_command",
     "type": "SELECT_ROUTE",
-    "command_id": "cmd-007",
+    "command_id": "cmd-006",
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -97,7 +86,7 @@
     "version": 1,
     "direction": "client_command",
     "type": "SEND_CHAT",
-    "command_id": "cmd-008",
+    "command_id": "cmd-007",
     "room_id": "room-1",
     "payload": {
       "text": "안녕하세요"
@@ -108,7 +97,7 @@
     "direction": "client_command",
     "type": "RECONNECT",
     "request_id": "req-reconnect",
-    "command_id": "cmd-009",
+    "command_id": "cmd-008",
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -120,7 +109,7 @@
     "direction": "client_command",
     "type": "CONFIRM_GAME_START",
     "request_id": "req-confirm",
-    "command_id": "cmd-010",
+    "command_id": "cmd-009",
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {}

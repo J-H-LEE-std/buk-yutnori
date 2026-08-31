@@ -57,10 +57,7 @@
           "$ref": "ws_client_command.schema.json#/$defs/resume_game"
         },
         {
-          "$ref": "ws_client_command.schema.json#/$defs/select_result"
-        },
-        {
-          "$ref": "ws_client_command.schema.json#/$defs/select_piece"
+          "$ref": "ws_client_command.schema.json#/$defs/select_move"
         },
         {
           "$ref": "ws_client_command.schema.json#/$defs/select_route"
@@ -168,13 +165,13 @@
         }
       }
     },
-    "select_result": {
+    "select_move": {
       "required": [
         "match_id"
       ],
       "properties": {
         "type": {
-          "const": "SELECT_RESULT"
+          "const": "SELECT_MOVE"
         },
         "match_id": {
           "type": "string",
@@ -183,37 +180,7 @@
         "payload": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "token_id"
-          ],
-          "properties": {
-            "token_id": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        }
-      }
-    },
-    "select_piece": {
-      "required": [
-        "match_id"
-      ],
-      "properties": {
-        "type": {
-          "const": "SELECT_PIECE"
-        },
-        "match_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "payload": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "token_id",
-            "piece_id"
-          ],
+          "required": ["token_id", "piece_id"],
           "properties": {
             "token_id": {
               "type": "string",

@@ -117,12 +117,16 @@ def validate_contracts() -> None:
         if event["type"] == "MOVE_REQUIRED"
     )
     move_required["payload"]["required_input"] = "select_route"
-    move_required["payload"]["token_ids"] = ["token-1"]
-    move_required["payload"]["piece_ids"] = ["A-1"]
-    move_required["payload"]["routes"] = ["normal", "shortcut"]
+    move_required["payload"]["candidates"] = [
+        {
+            "token_id": "token-1",
+            "piece_id": "A-1",
+            "routes": ["normal", "shortcut"],
+        }
+    ]
     if not server_event_validator.is_valid(move_required):
         raise AssertionError("authoritative route MOVE_REQUIRED must validate")
-    move_required["payload"]["routes"] = ["shortcut"]
+    move_required["payload"]["candidates"][0]["routes"] = ["shortcut"]
     if server_event_validator.is_valid(move_required):
         raise AssertionError("select_route must expose both authoritative routes")
 
@@ -178,9 +182,9 @@ def validate_contracts() -> None:
 
     mismatched_move_request = load_json(SCHEMAS / "examples" / "game_snapshot.json")
     mismatched_move_request["current_turn"]["move_request"]["required_input"] = (
-        "select_result"
+        "select_route"
     )
-    mismatched_move_request["current_turn"]["move_request"]["piece_ids"] = []
+    mismatched_move_request["current_turn"]["move_request"]["candidates"] = []
     if snapshot_validator.is_valid(mismatched_move_request):
         raise AssertionError("snapshot move_request must match current_turn.required_input")
 

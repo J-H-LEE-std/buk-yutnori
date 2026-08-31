@@ -414,14 +414,14 @@ func TestHostPauseSurvivesStorageFailureAndSettlesAfterRecovery(t *testing.T) {
 	}
 
 	// The game continues normally for the acting player.
-	movable, movableErr := rt.movablePieceIDs(rt.machine.Snapshot())
-	if movableErr != nil || len(movable) == 0 {
-		t.Fatalf("no movable pieces after settled resume: %v / %v", movable, movableErr)
+	candidates, _, candidateErr := rt.moveCandidates(rt.machine.Snapshot())
+	if candidateErr != nil || len(candidates) == 0 {
+		t.Fatalf("no move candidates after settled resume: %v / %v", candidates, candidateErr)
 	}
-	if err := fixture.registry.SelectPiece(
+	if err := fixture.registry.SelectMove(
 		auth.UserID(current), fixture.roomID, fixture.matchID,
-		rt.machine.Snapshot().SelectedTokenID, movable[0],
+		candidates[0].TokenID, candidates[0].PieceID,
 	); err != nil {
-		t.Fatalf("SELECT_PIECE after settled resume error = %v", err)
+		t.Fatalf("SELECT_MOVE after settled resume error = %v", err)
 	}
 }
