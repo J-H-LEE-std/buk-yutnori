@@ -41,8 +41,7 @@ const (
 	TurnWaitThrow                 TurnPhase = "wait_throw"
 	TurnThrowingChain             TurnPhase = "throwing_chain"
 	TurnResolveQueue              TurnPhase = "resolve_queue"
-	TurnWaitResultSelection       TurnPhase = "wait_result_selection"
-	TurnWaitPieceSelection        TurnPhase = "wait_piece_selection"
+	TurnWaitMoveSelection         TurnPhase = "wait_move_selection"
 	TurnWaitRouteSelection        TurnPhase = "wait_route_selection"
 	TurnApplyMove                 TurnPhase = "apply_move"
 	TurnResolveStackCaptureFinish TurnPhase = "resolve_stack_capture_finish"
@@ -57,11 +56,10 @@ const (
 type RequiredInput string
 
 const (
-	InputNone         RequiredInput = "none"
-	InputThrow        RequiredInput = "throw"
-	InputSelectResult RequiredInput = "select_result"
-	InputSelectPiece  RequiredInput = "select_piece"
-	InputSelectRoute  RequiredInput = "select_route"
+	InputNone        RequiredInput = "none"
+	InputThrow       RequiredInput = "throw"
+	InputSelectMove  RequiredInput = "select_move"
+	InputSelectRoute RequiredInput = "select_route"
 )
 
 // Route identifies the selected path at a board branch.
@@ -183,8 +181,7 @@ func (phase TurnPhase) Validate() error {
 		TurnWaitThrow,
 		TurnThrowingChain,
 		TurnResolveQueue,
-		TurnWaitResultSelection,
-		TurnWaitPieceSelection,
+		TurnWaitMoveSelection,
 		TurnWaitRouteSelection,
 		TurnApplyMove,
 		TurnResolveStackCaptureFinish,
@@ -222,7 +219,7 @@ func (phase *TurnPhase) UnmarshalJSON(data []byte) error {
 // Validate reports whether input is canonical.
 func (input RequiredInput) Validate() error {
 	switch input {
-	case InputNone, InputThrow, InputSelectResult, InputSelectPiece, InputSelectRoute:
+	case InputNone, InputThrow, InputSelectMove, InputSelectRoute:
 		return nil
 	default:
 		return invalidEnum("RequiredInput", string(input))

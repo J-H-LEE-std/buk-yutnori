@@ -224,24 +224,17 @@ func (machine *Machine) ResolveQueue() error {
 		machine.setState(domain.TurnResolveBuk, domain.InputNone, "", available[0].ID)
 		return nil
 	}
-	if len(available) == 1 {
-		machine.setState(
-			domain.TurnWaitPieceSelection,
-			domain.InputSelectPiece,
-			"",
-			available[0].ID,
-		)
-		return nil
-	}
-	machine.setState(domain.TurnWaitResultSelection, domain.InputSelectResult, "", "")
+	machine.setState(domain.TurnWaitMoveSelection, domain.InputSelectMove, "", "")
 	return nil
 }
 
-// SelectResult accepts one token exposed by free movement order.
-func (machine *Machine) SelectResult(id domain.ResultTokenID) error {
+// SelectMove atomically accepts an exposed result token and piece decision.
+// The caller validates the selected pair against the authoritative candidate
+// list and supplies whether this pair still requires a route choice.
+func (machine *Machine) SelectMove(id domain.ResultTokenID, routeRequired bool) error {
 	machine.mutex.Lock()
 	defer machine.mutex.Unlock()
-	if err := machine.requirePhase(domain.TurnWaitResultSelection, "select result"); err != nil {
+	if err := machine.requirePhase(domain.TurnWaitMoveSelection, "select move"); err != nil {
 		return err
 	}
 	available, err := machine.queue.Available(machine.movementOrder)
@@ -250,41 +243,15 @@ func (machine *Machine) SelectResult(id domain.ResultTokenID) error {
 	}
 	for _, token := range available {
 		if token.ID == id && token.Result != domain.YutBuk {
-			machine.setState(
-				domain.TurnWaitPieceSelection,
-				domain.InputSelectPiece,
-				"",
-				id,
-			)
+			if routeRequired {
+				machine.setState(domain.TurnWaitRouteSelection, domain.InputSelectRoute, "", id)
+			} else {
+				machine.setState(domain.TurnApplyMove, domain.InputNone, "", id)
+			}
 			return nil
 		}
 	}
 	return fmt.Errorf("%w: %q", ErrResultTokenNotAvailable, id)
-}
-
-// PieceSelected advances to route selection or directly to move application.
-//
-// The caller validates the piece and reports whether that move has a route choice.
-func (machine *Machine) PieceSelected(id domain.ResultTokenID, routeRequired bool) error {
-	machine.mutex.Lock()
-	defer machine.mutex.Unlock()
-	if err := machine.requirePhase(domain.TurnWaitPieceSelection, "select piece"); err != nil {
-		return err
-	}
-	if err := machine.requireSelected(id); err != nil {
-		return err
-	}
-	if routeRequired {
-		machine.setState(
-			domain.TurnWaitRouteSelection,
-			domain.InputSelectRoute,
-			"",
-			id,
-		)
-		return nil
-	}
-	machine.setState(domain.TurnApplyMove, domain.InputNone, "", id)
-	return nil
 }
 
 // RouteSelected advances an externally validated route choice to move application.
@@ -336,17 +303,28 @@ func (machine *Machine) CompleteMove(id domain.ResultTokenID, outcome MoveOutcom
 	return nil
 }
 
-// DiscardUnusableResult consumes only the selected ordinary token and resumes the queue.
+// DiscardUnusableResult consumes one currently exposed ordinary token and resumes the queue.
 //
 // The caller is responsible for determining that no legal piece can use it.
 func (machine *Machine) DiscardUnusableResult(id domain.ResultTokenID) error {
 	machine.mutex.Lock()
 	defer machine.mutex.Unlock()
-	if err := machine.requirePhase(domain.TurnWaitPieceSelection, "discard unusable result"); err != nil {
+	if err := machine.requirePhase(domain.TurnWaitMoveSelection, "discard unusable result"); err != nil {
 		return err
 	}
-	if err := machine.requireSelected(id); err != nil {
+	available, err := machine.queue.Available(machine.movementOrder)
+	if err != nil {
 		return err
+	}
+	valid := false
+	for _, token := range available {
+		if token.ID == id && token.Result != domain.YutBuk {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("%w: %q", ErrResultTokenNotAvailable, id)
 	}
 	if _, err := machine.queue.Consume(id, machine.movementOrder); err != nil {
 		return err

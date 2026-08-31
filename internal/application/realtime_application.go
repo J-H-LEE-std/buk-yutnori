@@ -130,8 +130,8 @@ func (router *realtimeRouter) Execute(ctx context.Context, user auth.User, comma
 	case protocol.CommandSelectTeam, protocol.CommandSetReady, protocol.CommandAddCPUPlayer, protocol.CommandRemoveCPUPlayer,
 		protocol.CommandStartGame, protocol.CommandConfirmGameStart:
 		return router.lobby.Execute(ctx, user, command)
-	case protocol.CommandThrowYut, protocol.CommandSelectResult,
-		protocol.CommandSelectPiece, protocol.CommandSelectRoute,
+	case protocol.CommandThrowYut, protocol.CommandSelectMove,
+		protocol.CommandSelectRoute,
 		protocol.CommandPauseGame, protocol.CommandResumeGame,
 		protocol.CommandReconnect:
 		return router.match.Execute(ctx, user, command)

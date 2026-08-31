@@ -242,13 +242,11 @@ try {
       ],
       current_turn: {
         player_id: "user-a",
-        phase: "wait_piece_selection",
-        required_input: "select_piece",
+        phase: "wait_move_selection",
+        required_input: "select_move",
         move_request: {
-          required_input: "select_piece",
-          token_ids: ["token-1"],
-          piece_ids: ["A-1"],
-          routes: [],
+          required_input: "select_move",
+          candidates: [{ token_id: "token-1", piece_id: "A-1", routes: ["normal"] }],
         },
         timer: { phase: "move", remaining_ms: 52000, deadline_at: null },
       },
@@ -294,9 +292,7 @@ try {
       snapshot.current_turn.required_input = "select_route";
       snapshot.current_turn.move_request = {
         required_input: "select_route",
-        token_ids: ["token-1"],
-        piece_ids: ["A-1"],
-        routes: ["normal", "shortcut"],
+        candidates: [{ token_id: "token-1", piece_id: "A-1", routes: ["normal", "shortcut"] }],
       };
       snapshot.pieces[0].current_space_id = "mo";
       snapshot.pieces[0].position_group_id = "group-A-mo";
@@ -887,7 +883,7 @@ try {
       pieceIds: [...confirmedSnapshotPieceIds],
     };
     const invalidRouteSnapshot = makeTestRouteSnapshot("room-1", "match-1", 43);
-    invalidRouteSnapshot.current_turn.move_request.routes = ["shortcut"];
+    invalidRouteSnapshot.current_turn.move_request.candidates[0].routes = ["shortcut"];
     const invalidRouteRequest = applySynchronizationSequenceBundle({
       version: 1,
       direction: "server_response",
@@ -959,8 +955,8 @@ try {
   })()`);
   if (!synchronizationBundle.valid || synchronizationBundle.confirmed !== "41"
       || synchronizationBundle.presentation.status !== "active"
-      || synchronizationBundle.presentation.phase !== "wait_piece_selection"
-      || synchronizationBundle.presentation.requiredInput !== "select_piece"
+      || synchronizationBundle.presentation.phase !== "wait_move_selection"
+      || synchronizationBundle.presentation.requiredInput !== "select_move"
       || synchronizationBundle.presentation.currentTeam !== "A"
       || synchronizationBundle.presentation.remainingMs !== "52000"
       || synchronizationBundle.presentation.pieceCount !== 2

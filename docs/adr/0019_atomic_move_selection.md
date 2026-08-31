@@ -2,7 +2,7 @@
 
 - 상태: 채택
 - 결정일: 2026-08-31
-- 대상: #149 (후속 구현 #151)
+- 대상: #149, #151
 
 ## 맥락
 
@@ -36,8 +36,6 @@
 ## 결과
 
 기존 공개 계약의 `SELECT_RESULT`와 `SELECT_PIECE`는 `SELECT_MOVE`로 대체한다.
-후속 구현은 schema, 이벤트 replay reducer, C/WASM staging과 서버 executor를 한
-변경에서 이 결정에 맞춰 이행한다(#151). 실제 신규 GUI resource를 추가하면 같은
-변경에서 `tools/check_assets.py` manifest와 asset test도 갱신한다. 구현 전까지 현
-서버 동작은 이전 두 command 계약을 유지하므로, 이 ADR은 구현 목표 정본이고 활성
-schema는 현재 계약을 따른다.
+구현은 #151에서 schema, 이벤트 replay reducer, C/WASM staging과 서버 executor에
+적용했다. 실제 신규 GUI resource를 추가하는 후속 변경은 같은 PR에서
+`tools/check_assets.py` manifest와 asset test도 갱신한다.

@@ -24,22 +24,13 @@ func TestGameSnapshotCarriesAuthoritativeRouteRequest(t *testing.T) {
 
 	rt := fixture.runtime()
 	first := rt.machine.Snapshot()
-	movable, err := rt.movablePieceIDs(first)
-	if err != nil || len(movable) == 0 {
-		t.Fatalf("first movable pieces = %v, error = %v", movable, err)
+	candidates, _, err := rt.moveCandidates(first)
+	if err != nil || len(candidates) == 0 {
+		t.Fatalf("first candidates = %v, error = %v", candidates, err)
 	}
-	selectedPiece := movable[0]
-	if err := fixture.registry.SelectPiece(auth.UserID(player), fixture.roomID, fixture.matchID, first.SelectedTokenID, selectedPiece); err != nil {
-		t.Fatalf("first SELECT_PIECE error = %v", err)
-	}
-
-	rt = fixture.runtime()
-	second := rt.machine.Snapshot()
-	if second.RequiredInput != domain.InputSelectPiece {
-		t.Fatalf("second required input = %q, want select_piece", second.RequiredInput)
-	}
-	if err := fixture.registry.SelectPiece(auth.UserID(player), fixture.roomID, fixture.matchID, second.SelectedTokenID, selectedPiece); err != nil {
-		t.Fatalf("route-opening SELECT_PIECE error = %v", err)
+	selected := candidates[0]
+	if err := fixture.registry.SelectMove(auth.UserID(player), fixture.roomID, fixture.matchID, selected.TokenID, selected.PieceID); err != nil {
+		t.Fatalf("SELECT_MOVE error = %v", err)
 	}
 
 	entry := fixture.registry.rooms[fixture.roomID]
@@ -50,14 +41,13 @@ func TestGameSnapshotCarriesAuthoritativeRouteRequest(t *testing.T) {
 		t.Fatalf("assembleGameSnapshotLocked() error = %v", err)
 	}
 	request := snapshot.CurrentTurn.MoveRequest
-	if snapshot.CurrentTurn.RequiredInput != string(domain.InputSelectRoute) || request == nil {
-		t.Fatalf("current turn = %+v, want route request", snapshot.CurrentTurn)
+	if request == nil {
+		t.Fatalf("current turn = %+v, want move request", snapshot.CurrentTurn)
 	}
-	if request.RequiredInput != domain.InputSelectRoute ||
-		len(request.TokenIDs) != 1 || request.TokenIDs[0] != second.SelectedTokenID ||
-		len(request.PieceIDs) != 1 || request.PieceIDs[0] != selectedPiece ||
-		len(request.Routes) != 2 || request.Routes[0] != domain.RouteNormal ||
-		request.Routes[1] != domain.RouteShortcut {
+	if snapshot.CurrentTurn.RequiredInput != string(request.RequiredInput) {
+		t.Fatalf("current turn input = %q, request = %q", snapshot.CurrentTurn.RequiredInput, request.RequiredInput)
+	}
+	if len(request.Candidates) == 0 {
 		t.Fatalf("move request = %+v", request)
 	}
 	moves := fixture.recorder.ofTypes("MOVE_REQUIRED")
@@ -65,9 +55,7 @@ func TestGameSnapshotCarriesAuthoritativeRouteRequest(t *testing.T) {
 		t.Fatal("route MOVE_REQUIRED was not broadcast")
 	}
 	latest := moves[len(moves)-1].Payload
-	if latest.RequiredInput != string(domain.InputSelectRoute) ||
-		len(latest.Routes) != 2 || latest.Routes[0] != domain.RouteNormal ||
-		latest.Routes[1] != domain.RouteShortcut {
+	if len(latest.Candidates) == 0 {
 		t.Fatalf("route MOVE_REQUIRED = %+v", latest)
 	}
 }

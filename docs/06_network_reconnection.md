@@ -109,7 +109,8 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   방 멤버십 보유자에게 허용되며, 구독 등록과 최신 상태 스냅샷 전달은 방 상태 변경과
   같은 임계구역에서 원자적으로 수행된다. 버퍼가 찬 느린 구독자는 채팅 선례와 같이
   드롭(fail-closed)되고, 재구독 시 재전달 계약으로 현재 상태를 회복한다.
-- started 방의 경기 command(`THROW_YUT`, `SELECT_RESULT`, `SELECT_PIECE`,
+
+- started 방의 경기 command(`THROW_YUT`, `SELECT_MOVE`,
   `SELECT_ROUTE`)는 레지스트리 소유 경기 런타임에서 실행된다(ADR-0016). 현재 턴
   플레이어가 아니면 `NOT_YOUR_TURN`, 단계가 맞지 않으면 `INVALID_TURN_ACTION`,
   스코프가 다르면 `MATCH_SCOPE_MISMATCH`, 진행 중 경기가 없으면 retriable
@@ -198,24 +199,21 @@ scope다. `SEND_CHAT`/`CHAT_MESSAGE`는 이 sequence 공간만 소비하며 `REC
 - 명령, 명령 처리 응답, 이벤트의 `type` 및 payload는 각각 `schemas/ws_client_command.schema.json`, `schemas/ws_server_response.schema.json`, `schemas/ws_server_event.schema.json`으로 검증한다.
 
 `MOVE_REQUIRED.payload`와 `game_snapshot.current_turn.move_request`는 같은 서버 권위형
-선택 요청을 표현한다. 둘은 `required_input`, `token_ids`, `piece_ids`, `routes`를 가지며,
-재접속 직후에도 클라이언트가 보드 규칙으로 후보를 재계산하지 않고 명령을 만들 수
-있어야 한다. `select_route` 요청은 토큰과 말이 각각 정확히 하나이고 `routes`는
-`normal`, `shortcut` 두 값이다. `none`과 `throw` 입력에는 snapshot의
-`move_request`가 `null`이다.
+선택 요청을 표현한다. 둘은 `required_input`과 비어 있지 않은 `candidates`를 가지며,
+각 후보는 `{token_id, piece_id, routes}`다. 재접속 직후에도 클라이언트가 보드 규칙을
+재계산하지 않고 명령을 만들 수 있어야 한다. `select_route` 요청은 후보가 정확히 하나이고
+그 `routes`는 순서대로 `normal`, `shortcut` 두 값이다. `none`과 `throw` 입력에는
+snapshot의 `move_request`가 `null`이다.
 
 ### 최소 클라이언트 명령
 
-아래 목록은 현재 v1 실행 계약이다. ADR-0019의 후속 구현(#151)에서
-`SELECT_RESULT`·`SELECT_PIECE`는 서버 권위 후보를 쓰는 `SELECT_MOVE`로 함께
-대체하며, 그 이행 전에는 현재 schema와 이 목록을 그대로 따른다.
+아래 목록은 현재 v1 실행 계약이다.
 
 - `SELECT_TEAM`
 - `SET_READY`
 - `START_GAME`
 - `THROW_YUT`
-- `SELECT_RESULT`
-- `SELECT_PIECE`
+- `SELECT_MOVE`
 - `SELECT_ROUTE`
 - `PAUSE_GAME`
 - `RESUME_GAME`
@@ -230,6 +228,8 @@ scope다. `SEND_CHAT`/`CHAT_MESSAGE`는 이 sequence 공간만 소비하며 `REC
 - `GAME_STARTED`
 - `TURN_STARTED`
 - `YUT_RESULT`
+- `RESULT_SELECTED`
+- `PIECE_SELECTED`
 - `RESULT_QUEUE_UPDATED`
 - `MOVE_REQUIRED`
 - `PIECE_MOVED`

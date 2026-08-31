@@ -26,8 +26,7 @@ const (
 	CommandRemoveCPUPlayer  CommandType = "REMOVE_CPU_PLAYER"
 	CommandStartGame        CommandType = "START_GAME"
 	CommandThrowYut         CommandType = "THROW_YUT"
-	CommandSelectResult     CommandType = "SELECT_RESULT"
-	CommandSelectPiece      CommandType = "SELECT_PIECE"
+	CommandSelectMove       CommandType = "SELECT_MOVE"
 	CommandSelectRoute      CommandType = "SELECT_ROUTE"
 	CommandSendChat         CommandType = "SEND_CHAT"
 	CommandReconnect        CommandType = "RECONNECT"
@@ -78,11 +77,7 @@ type SetReadyPayload struct {
 type AddCPUPlayerPayload struct{ TeamID domain.TeamID }
 type RemoveCPUPlayerPayload struct{ PlayerID domain.PlayerID }
 
-type SelectResultPayload struct {
-	TokenID domain.ResultTokenID
-}
-
-type SelectPiecePayload struct {
+type SelectMovePayload struct {
 	TokenID domain.ResultTokenID
 	PieceID domain.PieceID
 }
@@ -182,8 +177,7 @@ func DecodeClientCommand(message []byte) (ClientCommand, error) {
 func requiresMatch(commandType CommandType) bool {
 	switch commandType {
 	case CommandThrowYut,
-		CommandSelectResult,
-		CommandSelectPiece,
+		CommandSelectMove,
 		CommandSelectRoute,
 		CommandReconnect,
 		CommandConfirmGameStart,
@@ -257,24 +251,15 @@ func decodePayload(commandType CommandType, raw json.RawMessage) (any, error) {
 		}
 		return payload, nil
 
-	case CommandSelectResult:
-		var payload struct {
-			TokenID domain.ResultTokenID `json:"token_id"`
-		}
-		if err := decodeStrict(raw, &payload); err != nil || payload.TokenID.Validate() != nil {
-			return nil, invalidCommand("invalid SELECT_RESULT payload")
-		}
-		return SelectResultPayload{TokenID: payload.TokenID}, nil
-
-	case CommandSelectPiece:
+	case CommandSelectMove:
 		var payload struct {
 			TokenID domain.ResultTokenID `json:"token_id"`
 			PieceID domain.PieceID       `json:"piece_id"`
 		}
 		if err := decodeStrict(raw, &payload); err != nil || payload.TokenID.Validate() != nil || payload.PieceID.Validate() != nil {
-			return nil, invalidCommand("invalid SELECT_PIECE payload")
+			return nil, invalidCommand("invalid SELECT_MOVE payload")
 		}
-		return SelectPiecePayload{TokenID: payload.TokenID, PieceID: payload.PieceID}, nil
+		return SelectMovePayload{TokenID: payload.TokenID, PieceID: payload.PieceID}, nil
 
 	case CommandSelectRoute:
 		var payload struct {

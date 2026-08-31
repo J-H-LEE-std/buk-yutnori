@@ -10,6 +10,7 @@ import (
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/board"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/protocol"
 	"buk-yutnori/internal/storage"
 )
 
@@ -103,16 +104,16 @@ type matchEventFields struct {
 
 	Token   *protocolTokenView   `json:"token,omitempty"`
 	TokenID domain.ResultTokenID `json:"token_id,omitempty"`
+	PieceID domain.PieceID       `json:"piece_id,omitempty"`
 
-	MovementKind       string                 `json:"movement_kind,omitempty"`
-	PieceIDs           []domain.PieceID       `json:"piece_ids,omitempty"`
-	CapturedPieceIDs   []domain.PieceID       `json:"captured_piece_ids,omitempty"`
-	TokenIDs           []domain.ResultTokenID `json:"token_ids,omitempty"`
-	Routes             []domain.Route         `json:"routes,omitempty"`
-	SpaceID            domain.SpaceID         `json:"space_id,omitempty"`
-	StackID            string                 `json:"stack_id,omitempty"`
-	NoCandidate        bool                   `json:"no_candidate,omitempty"`
-	DestinationSpaceID domain.SpaceID         `json:"destination_space_id,omitempty"`
+	MovementKind       string                   `json:"movement_kind,omitempty"`
+	PieceIDs           []domain.PieceID         `json:"piece_ids,omitempty"`
+	CapturedPieceIDs   []domain.PieceID         `json:"captured_piece_ids,omitempty"`
+	Candidates         []protocol.MoveCandidate `json:"candidates,omitempty"`
+	SpaceID            domain.SpaceID           `json:"space_id,omitempty"`
+	StackID            string                   `json:"stack_id,omitempty"`
+	NoCandidate        bool                     `json:"no_candidate,omitempty"`
+	DestinationSpaceID domain.SpaceID           `json:"destination_space_id,omitempty"`
 }
 
 type protocolTokenView struct {
@@ -381,17 +382,15 @@ func (fixture *matchFixture) driveUntilPlayerOrEnd(t *testing.T, player domain.P
 		switch snapshot.RequiredInput {
 		case domain.InputThrow:
 			err = fixture.registry.ThrowYut(auth.UserID(current), fixture.roomID, fixture.matchID)
-		case domain.InputSelectResult:
-			err = fixture.registry.SelectResult(auth.UserID(current), fixture.roomID, fixture.matchID, snapshot.ResultQueue[0].ID)
-		case domain.InputSelectPiece:
-			movable, movableErr := rt.movablePieceIDs(snapshot)
-			if movableErr != nil {
-				t.Fatalf("movablePieceIDs() error = %v", movableErr)
+		case domain.InputSelectMove:
+			candidates, _, candidateErr := rt.moveCandidates(snapshot)
+			if candidateErr != nil {
+				t.Fatalf("moveCandidates() error = %v", candidateErr)
 			}
-			if len(movable) == 0 {
-				t.Fatal("piece selection offered without movable pieces")
+			if len(candidates) == 0 {
+				t.Fatal("move selection offered without candidates")
 			}
-			err = fixture.registry.SelectPiece(auth.UserID(current), fixture.roomID, fixture.matchID, snapshot.SelectedTokenID, movable[0])
+			err = fixture.registry.SelectMove(auth.UserID(current), fixture.roomID, fixture.matchID, candidates[0].TokenID, candidates[0].PieceID)
 		case domain.InputSelectRoute:
 			err = fixture.registry.SelectRoute(auth.UserID(current), fixture.roomID, fixture.matchID, snapshot.SelectedTokenID, rt.pendingMovePiece, domain.RouteNormal)
 		default:

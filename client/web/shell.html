@@ -161,6 +161,7 @@
     .room-lobby-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .game-session { display: grid; gap: 6px; margin: 18px 0; padding: 14px 16px; border: 1px solid #6f5b4e; border-radius: 12px; background: rgb(255 250 240 / 8%); }
     .game-session[hidden] { display: none; }
+    .move-candidates { display: flex; flex-wrap: wrap; gap: 6px; }
 
     @media (max-width: 720px) {
       body { padding: 12px; place-items: start center; }
@@ -229,6 +230,7 @@
     <section id="game-session" class="game-session" hidden aria-live="polite" aria-label="게임 화면 상태">
       <strong id="game-session-title">게임 화면</strong>
       <span id="game-session-status" class="room-meta"></span>
+      <div id="move-candidates" class="move-candidates" aria-label="이동 가능한 말"></div>
     </section>
     <canvas id="canvas" width="1280" height="720" tabindex="-1"
             oncontextmenu="event.preventDefault()"></canvas>
@@ -289,6 +291,7 @@
     const gameSession = document.getElementById("game-session");
     const gameSessionTitle = document.getElementById("game-session-title");
     const gameSessionStatus = document.getElementById("game-session-status");
+    const moveCandidates = document.getElementById("move-candidates");
     const roomMembers = document.getElementById("room-members");
     const LOBBY_CHAT_ROOM_ID = "lobby";
     const MAX_CHAT_CODE_POINTS = 200;
@@ -297,12 +300,12 @@
     const MATCH_STATUSES = new Set(["starting", "active", "paused", "finished", "invalid"]);
     const TURN_PHASES = new Set([
       "turn_start", "wait_throw", "throwing_chain", "resolve_queue",
-      "wait_result_selection", "wait_piece_selection", "wait_route_selection",
+      "wait_move_selection", "wait_route_selection",
       "apply_move", "resolve_stack_capture_finish", "resolve_buk", "cpu_control",
       "paused", "turn_end", "match_end",
     ]);
     const REQUIRED_INPUTS = new Set([
-      "none", "throw", "select_result", "select_piece", "select_route",
+      "none", "throw", "select_move", "select_route",
     ]);
     const TIMER_PHASES = new Set(["throw", "move", "paused", "none"]);
     const PIECE_STATES = new Set(["waiting", "on_board", "home_checkpoint", "finished"]);
@@ -325,6 +328,7 @@
     const pendingChatCommands = new Set();
     const pendingSynchronizationCommands = new Map();
     const pendingRouteCommands = new Map();
+    const pendingMoveCommands = new Map();
     const pendingLobbyCommands = new Map();
     const pendingStartConfirmationCommands = new Map();
     let confirmedSnapshotPieceIds = [];
@@ -809,6 +813,7 @@
         pendingChatCommands.clear();
         pendingSynchronizationCommands.clear();
         pendingRouteCommands.clear();
+        pendingMoveCommands.clear();
         pendingLobbyCommands.clear();
         pendingStartConfirmationCommands.clear();
         confirmedRouteRequest = null;
@@ -838,6 +843,7 @@
       pendingChatCommands.clear();
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
+      pendingMoveCommands.clear();
       pendingLobbyCommands.clear();
       pendingStartConfirmationCommands.clear();
       confirmedRouteRequest = null;
@@ -852,6 +858,7 @@
           || typeof matchId !== "string" || matchId.length < 1) return false;
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
+      pendingMoveCommands.clear();
       confirmedRouteRequest = null;
       stateReconnectScope = { roomId, matchId };
       fullResynchronizationAttempted = false;
@@ -866,6 +873,7 @@
       stateReconnectScope = null;
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
+      pendingMoveCommands.clear();
       confirmedRouteRequest = null;
       fullResynchronizationAttempted = false;
       clearMatchSession();
@@ -922,6 +930,7 @@
       gameSession.hidden = true;
       gameSessionTitle.textContent = "게임 화면";
       gameSessionStatus.textContent = "";
+      moveCandidates.replaceChildren();
     }
 
     function renderMatchSession(snapshot) {
@@ -933,6 +942,38 @@
       gameSessionStatus.textContent = viewer.role === "spectator"
         ? "서버 권위 경기 상태를 관전 중입니다. 게임 조작은 할 수 없습니다."
         : "서버 권위 경기 상태와 동기화되었습니다.";
+      moveCandidates.replaceChildren();
+      const request = snapshot.current_turn.move_request;
+      const maySelect = request?.required_input === "select_move"
+        && snapshot.status === "active" && !snapshot.pause.paused
+        && viewer.user_id === snapshot.current_turn.player_id && viewer.role === "player"
+        && viewer.permissions.includes("control_game") && !viewer.cpu_control.active
+        && stateReconnectScope !== null && pendingMoveCommands.size === 0;
+      if (maySelect) {
+        for (const candidate of request.candidates) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = `말 ${candidate.piece_id} · 결과 ${candidate.token_id}`;
+          button.addEventListener("click", () => sendMoveCandidate(candidate));
+          moveCandidates.append(button);
+        }
+      }
+      return true;
+    }
+
+    function sendMoveCandidate(candidate) {
+      const scope = stateReconnectScope;
+      if (!scope || pendingMoveCommands.size !== 0 || !isStringId(candidate?.token_id)
+          || !isStringId(candidate?.piece_id)) return false;
+      const commandID = crypto.randomUUID();
+      if (!sendStateChangingCommand({
+        version: 1, direction: "client_command", type: "SELECT_MOVE", command_id: commandID,
+        room_id: scope.roomId, match_id: scope.matchId,
+        payload: { token_id: candidate.token_id, piece_id: candidate.piece_id },
+      })) return false;
+      pendingMoveCommands.set(commandID, scope);
+      gameSessionStatus.textContent = "이동 선택 서버 확인 중…";
+      moveCandidates.replaceChildren();
       return true;
     }
 
@@ -1047,23 +1088,24 @@
 
     function validateMoveRequest(request, requiredInput) {
       if (requiredInput === "none" || requiredInput === "throw") return request === null;
-      if (!hasExactKeys(request, ["required_input", "token_ids", "piece_ids", "routes"])
+      if (!hasExactKeys(request, ["required_input", "candidates"])
           || request.required_input !== requiredInput
-          || !isUniqueStringIdArray(request.token_ids)
-          || !isUniqueStringIdArray(request.piece_ids)
-          || !Array.isArray(request.routes) || !request.routes.every((route) => ROUTES.has(route))
-          || new Set(request.routes).size !== request.routes.length) return false;
-      if (requiredInput === "select_result") {
-        return request.token_ids.length > 0 && request.piece_ids.length === 0
-          && request.routes.length === 0;
+          || !Array.isArray(request.candidates) || request.candidates.length === 0) return false;
+      const seen = new Set();
+      for (const candidate of request.candidates) {
+        if (!hasExactKeys(candidate, ["token_id", "piece_id", "routes"])
+            || !isStringId(candidate.token_id) || !isStringId(candidate.piece_id)
+            || !Array.isArray(candidate.routes) || !candidate.routes.every((route) => ROUTES.has(route))
+            || new Set(candidate.routes).size !== candidate.routes.length) return false;
+        const key = `${candidate.token_id}\u0000${candidate.piece_id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
       }
-      if (requiredInput === "select_piece") {
-        return request.token_ids.length === 1 && request.piece_ids.length > 0
-          && request.routes.length === 0;
-      }
-      return requiredInput === "select_route" && request.token_ids.length === 1
-        && request.piece_ids.length === 1 && request.routes.length === 2
-        && request.routes.includes("normal") && request.routes.includes("shortcut");
+      return requiredInput === "select_move"
+        || (requiredInput === "select_route" && request.candidates.length === 1
+          && request.candidates[0].routes.length === 2
+          && request.candidates[0].routes[0] === "normal"
+          && request.candidates[0].routes[1] === "shortcut");
     }
 
     function validateResultToken(token) {
@@ -1170,8 +1212,9 @@
       }
       const request = snapshot.current_turn.move_request;
       if (request !== null
-          && (!request.token_ids.every((id) => snapshot.result_queue.some((token) => token.token_id === id))
-              || !request.piece_ids.every((id) => snapshot.pieces.some((piece) => piece.piece_id === id)))) {
+          && !request.candidates.every((candidate) =>
+            snapshot.result_queue.some((token) => token.token_id === candidate.token_id)
+              && snapshot.pieces.some((piece) => piece.piece_id === candidate.piece_id))) {
         return null;
       }
       const playerId = snapshot.current_turn.player_id;
@@ -1184,7 +1227,8 @@
     function routeRequestPresentation(snapshot) {
       const request = snapshot.current_turn.move_request;
       if (request?.required_input !== "select_route") return null;
-      const piece = snapshot.pieces.find((candidate) => candidate.piece_id === request.piece_ids[0]);
+      const candidate = request.candidates[0];
+      const piece = snapshot.pieces.find((item) => item.piece_id === candidate.piece_id);
       if (!piece || (piece.state !== "on_board" && piece.state !== "home_checkpoint")
           || !isCanonicalBoardSpace(piece.current_space_id)) return null;
       const participant = snapshot.participants.find(
@@ -1196,9 +1240,9 @@
       return {
         roomId: snapshot.room_id,
         matchId: snapshot.match_id,
-        tokenId: request.token_ids[0],
-        pieceId: request.piece_ids[0],
-        routes: [...request.routes],
+        tokenId: candidate.token_id,
+        pieceId: candidate.piece_id,
+        routes: [...candidate.routes],
         originSpaceId: piece.current_space_id,
         playerId: snapshot.current_turn.player_id,
         controlPermitted: snapshot.status === "active" && !snapshot.pause.paused
@@ -1297,15 +1341,22 @@
           next.current_turn.move_request = null;
           next.current_turn.timer.remaining_ms = payload.remaining_ms;
           next.current_turn.timer.phase = payload.required_input === "throw" ? "throw" : "move";
+        } else if (event.type === "RESULT_SELECTED" && isStringId(payload.token_id)) {
+          // Audit-only half of an atomic SELECT_MOVE pair; authoritative
+          // game state changes only after the immediately following piece record.
+        } else if (event.type === "PIECE_SELECTED" && isStringId(payload.token_id)
+                   && isStringId(payload.piece_id)) {
+          // See RESULT_SELECTED above.
         } else if (event.type === "MOVE_REQUIRED" && REQUIRED_INPUTS.has(payload.required_input)
-                   && Array.isArray(payload.token_ids) && Array.isArray(payload.piece_ids)
-                   && Array.isArray(payload.routes)) {
+                   && validateMoveRequest(payload, payload.required_input)) {
           next.current_turn.required_input = payload.required_input;
           next.current_turn.phase = payload.required_input === "select_route" ? "wait_route_selection"
-            : payload.required_input === "select_piece" ? "wait_piece_selection" : "wait_result_selection";
+            : "wait_move_selection";
           next.current_turn.move_request = {
-            required_input: payload.required_input, token_ids: [...payload.token_ids],
-            piece_ids: [...payload.piece_ids], routes: [...payload.routes],
+            required_input: payload.required_input,
+            candidates: payload.candidates.map((candidate) => ({
+              token_id: candidate.token_id, piece_id: candidate.piece_id, routes: [...candidate.routes],
+            })),
           };
         } else if (event.type === "PIECE_MOVED" && Array.isArray(payload.piece_ids)
                    && payload.piece_ids.length > 0 && isNullableBoardSpace(payload.from_space_id)
@@ -1403,8 +1454,10 @@
       const request = turn.move_request;
       if (request !== null) {
         const routeRequest = routeRequestPresentation(snapshot);
-        const normal = request.routes.includes("normal") ? 1 : 0;
-        const shortcut = request.routes.includes("shortcut") ? 1 : 0;
+        const routes = request.required_input === "select_route"
+          ? request.candidates[0].routes : [];
+        const normal = routes.includes("normal") ? 1 : 0;
+        const shortcut = routes.includes("shortcut") ? 1 : 0;
         if (request.required_input === "select_route" && routeRequest === null) return null;
         if (Module.ccall(
           "BukClientStageSnapshotMoveRequest", "number",
@@ -1525,6 +1578,22 @@
         return;
       }
       if (message.version !== 1) return;
+      if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
+          && pendingMoveCommands.has(message.command_id)) {
+        const expectedScope = pendingMoveCommands.get(message.command_id);
+        pendingMoveCommands.delete(message.command_id);
+        const scopeMatches = message.room_id === expectedScope.roomId
+          && message.match_id === expectedScope.matchId;
+        if (scopeMatches && message.payload?.status === "accepted") {
+          realtimeStatus.textContent = "이동 선택 확정, 상태 동기화 중…";
+          requestStateSynchronization(false);
+        } else {
+          realtimeStatus.textContent = scopeMatches
+            ? (message.payload?.error?.message ?? "이동 선택이 거부됐습니다.")
+            : "이동 선택 응답 범위가 일치하지 않습니다.";
+        }
+        return;
+      }
       if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
           && pendingRouteCommands.has(message.command_id)) {
         const expectedScope = pendingRouteCommands.get(message.command_id);

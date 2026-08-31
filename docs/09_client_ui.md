@@ -64,14 +64,11 @@ payload 불일치는 전체 bundle을 거부하고 기존 확정 상태를 유�
 - 동일 팀 말의 `stacks`/`position_groups` 정합성을 확인한 뒤 같은 칸의 말 겹침과
   업기 개수 배지를 코드 드로잉으로 표시한다. 정합성이 깨진 snapshot은 원자 적용하지 않는다.
 
-현재 v1 클라이언트는 `SELECT_ROUTE` 선택 흐름만 구현했고, 활성 입력 계약은
-`docs/06_network_reconnection.md`와 현재 schema를 따른다. 아래는 ADR-0019 후속
-구현(#151)이 schema·서버·replay·C/WASM staging을 함께 전환한 뒤의 게임 입력이다.
-
-ADR-0019 후속 구현의 게임 입력은 서버 권위 `move_request`만 소비한다. `wait_throw`에는 우하단의 윷 던지기
+v1 클라이언트의 게임 입력 계약은 서버 권위 `move_request`만 소비한다. #151에서
+schema·서버·replay·C/WASM staging을 함께 전환했다. `wait_throw`에는 우하단의 윷 던지기
 버튼을 표시해 `THROW_YUT`를 보낸다. `select_move`에는 후보 말만 클릭 가능하게
 표시한다. 같은 말에 가능한 결과 토큰이 둘 이상이면 해당 토큰만 추가로 표시하고,
-선택 뒤 HTML/JavaScript 셸이 확정 snapshot의 opaque `token_id`·`piece_id`와 실제
+선택 뒤 HTML/JavaScript 셸이 서버 후보의 opaque `token_id`·`piece_id`와 실제
 room/match scope를 결합해 `SELECT_MOVE`를 전송한다. 대기 장소 말도 서버 후보이면
 선택 가능하며, 완주 말은 완주 영역의 왕관 등 완료 리소스로 표시하고 선택 불가다.
 

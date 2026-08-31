@@ -148,13 +148,13 @@
         "phase": {
           "enum": [
             "turn_start", "wait_throw", "throwing_chain", "resolve_queue",
-            "wait_result_selection", "wait_piece_selection", "wait_route_selection",
+            "wait_move_selection", "wait_route_selection",
             "apply_move", "resolve_stack_capture_finish", "resolve_buk",
             "cpu_control", "paused", "turn_end", "match_end"
           ]
         },
         "required_input": {
-          "enum": ["none", "throw", "select_result", "select_piece", "select_route"]
+          "enum": ["none", "throw", "select_move", "select_route"]
         },
         "move_request": {
           "oneOf": [
@@ -174,7 +174,7 @@
         },
         {
           "if": {
-            "properties": { "required_input": { "const": "select_result" } },
+            "properties": { "required_input": { "const": "select_move" } },
             "required": ["required_input"]
           },
           "then": {
@@ -182,23 +182,7 @@
               "move_request": {
                 "allOf": [
                   { "$ref": "#/$defs/move_request" },
-                  { "properties": { "required_input": { "const": "select_result" } } }
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": { "required_input": { "const": "select_piece" } },
-            "required": ["required_input"]
-          },
-          "then": {
-            "properties": {
-              "move_request": {
-                "allOf": [
-                  { "$ref": "#/$defs/move_request" },
-                  { "properties": { "required_input": { "const": "select_piece" } } }
+                  { "properties": { "required_input": { "const": "select_move" } } }
                 ]
               }
             }
@@ -225,52 +209,16 @@
     "move_request": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["required_input", "token_ids", "piece_ids", "routes"],
+      "required": ["required_input", "candidates"],
       "properties": {
-        "required_input": { "enum": ["select_result", "select_piece", "select_route"] },
-        "token_ids": {
+        "required_input": { "enum": ["select_move", "select_route"] },
+        "candidates": {
           "type": "array",
-          "items": { "$ref": "#/$defs/string_id" },
-          "uniqueItems": true
-        },
-        "piece_ids": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/string_id" },
-          "uniqueItems": true
-        },
-        "routes": {
-          "type": "array",
-          "items": { "enum": ["normal", "shortcut"] },
-          "uniqueItems": true
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/move_candidate" }
         }
       },
       "allOf": [
-        {
-          "if": {
-            "properties": { "required_input": { "const": "select_result" } },
-            "required": ["required_input"]
-          },
-          "then": {
-            "properties": {
-              "token_ids": { "minItems": 1 },
-              "piece_ids": { "maxItems": 0 },
-              "routes": { "maxItems": 0 }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": { "required_input": { "const": "select_piece" } },
-            "required": ["required_input"]
-          },
-          "then": {
-            "properties": {
-              "token_ids": { "minItems": 1, "maxItems": 1 },
-              "piece_ids": { "minItems": 1 },
-              "routes": { "maxItems": 0 }
-            }
-          }
-        },
         {
           "if": {
             "properties": { "required_input": { "const": "select_route" } },
@@ -278,13 +226,33 @@
           },
           "then": {
             "properties": {
-              "token_ids": { "minItems": 1, "maxItems": 1 },
-              "piece_ids": { "minItems": 1, "maxItems": 1 },
-              "routes": { "minItems": 2, "maxItems": 2 }
+              "candidates": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "properties": {
+                    "routes": { "const": ["normal", "shortcut"] }
+                  }
+                }
+              }
             }
           }
         }
       ]
+    },
+    "move_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["token_id", "piece_id", "routes"],
+      "properties": {
+        "token_id": { "$ref": "#/$defs/string_id" },
+        "piece_id": { "$ref": "#/$defs/string_id" },
+        "routes": {
+          "type": "array",
+          "items": { "enum": ["normal", "shortcut"] },
+          "uniqueItems": true
+        }
+      }
     },
     "result_token": {
       "type": "object",

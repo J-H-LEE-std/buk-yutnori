@@ -111,22 +111,36 @@
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
-      "required_input": "select_piece",
-      "token_ids": [
-        "token-1"
-      ],
-      "piece_ids": [
-        "A-1",
-        "A-2"
-      ],
-      "routes": []
+      "required_input": "select_move",
+      "candidates": [
+        { "token_id": "token-1", "piece_id": "A-1", "routes": ["normal"] },
+        { "token_id": "token-1", "piece_id": "A-2", "routes": ["normal"] }
+      ]
     }
   },
   {
     "version": 1,
     "direction": "server_event",
-    "type": "PIECE_MOVED",
+    "type": "RESULT_SELECTED",
     "sequence": 8,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": { "token_id": "token-1" }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "PIECE_SELECTED",
+    "sequence": 9,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": { "token_id": "token-1", "piece_id": "A-1" }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "PIECE_MOVED",
+    "sequence": 10,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -142,7 +156,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "PIECES_STACKED",
-    "sequence": 9,
+    "sequence": 11,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -159,7 +173,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "PIECES_CAPTURED",
-    "sequence": 10,
+    "sequence": 12,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -173,7 +187,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "BUK_RESOLVED",
-    "sequence": 11,
+    "sequence": 13,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -191,7 +205,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "CPU_CONTROL_STARTED",
-    "sequence": 12,
+    "sequence": 14,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -203,7 +217,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "PLAYER_RECONNECTED",
-    "sequence": 13,
+    "sequence": 15,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -215,7 +229,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "GAME_PAUSED",
-    "sequence": 14,
+    "sequence": 16,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -229,7 +243,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "GAME_RESUMED",
-    "sequence": 15,
+    "sequence": 17,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -240,7 +254,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "GAME_ENDED",
-    "sequence": 16,
+    "sequence": 18,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -253,7 +267,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "CHAT_MESSAGE",
-    "sequence": 17,
+    "sequence": 19,
     "room_id": "room-1",
     "payload": {
       "message_id": "chat-17",
@@ -268,7 +282,7 @@
     "direction": "server_event",
     "type": "ERROR",
     "request_id": "req-reconnect",
-    "sequence": 18,
+    "sequence": 20,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {

@@ -187,6 +187,10 @@ func serverEventType(message any) string {
 		return protocol.EventTurnStarted
 	case protocol.YutResultEvent:
 		return protocol.EventYutResult
+	case protocol.ResultSelectedEvent:
+		return protocol.EventResultSelected
+	case protocol.PieceSelectedEvent:
+		return protocol.EventPieceSelected
 	case protocol.ResultQueueUpdatedEvent:
 		return protocol.EventResultQueueUpdated
 	case protocol.MoveRequiredEvent:
