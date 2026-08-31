@@ -42,6 +42,24 @@
   {
     "version": 1,
     "direction": "client_command",
+    "type": "LEAVE_ROOM",
+    "command_id": "cmd-leave",
+    "room_id": "room-1",
+    "payload": {}
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
+    "type": "KICK_PLAYER",
+    "command_id": "cmd-kick",
+    "room_id": "room-1",
+    "payload": {
+      "player_id": "player-2"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "client_command",
     "type": "START_GAME",
     "request_id": "req-start",
     "command_id": "cmd-003",

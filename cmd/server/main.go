@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"buk-yutnori/internal/application"
 	"buk-yutnori/internal/auth"
@@ -39,7 +44,7 @@ func main() {
 }
 
 func run() error {
-	config, err := loadConfig(os.Getenv)
+	config, err := loadConfigFromSources(os.Getenv, os.ReadFile)
 	if err != nil {
 		return err
 	}
@@ -172,4 +177,49 @@ func loadConfig(getenv func(string) string) (config, error) {
 		dbPath = "buk.db"
 	}
 	return config{googleClientID: clientID, listenAddr: listenAddr, webRoot: webRoot, dbPath: dbPath}, nil
+}
+
+// loadConfigFromSources gives an explicitly supplied environment value
+// precedence over repository-local google.yaml. The local file is only a
+// public browser-test convenience and is never a credential store.
+func loadConfigFromSources(getenv func(string) string, readFile func(string) ([]byte, error)) (config, error) {
+	if getenv == nil || readFile == nil {
+		return config{}, errors.New("configuration sources are required")
+	}
+	if strings.TrimSpace(getenv("BUK_GOOGLE_CLIENT_ID")) != "" {
+		return loadConfig(getenv)
+	}
+
+	data, err := readFile("google.yaml")
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return loadConfig(getenv)
+		}
+		return config{}, fmt.Errorf("read local google.yaml: %w", err)
+	}
+	var local struct {
+		WebClientID string `yaml:"web_client_id"`
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&local); err != nil {
+		return config{}, fmt.Errorf("decode local google.yaml: %w", err)
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return config{}, fmt.Errorf("decode trailing local google.yaml: %w", err)
+		}
+		return config{}, errors.New("local google.yaml must contain one document")
+	}
+	clientID := strings.TrimSpace(local.WebClientID)
+	if clientID == "" {
+		return config{}, errors.New("local google.yaml requires web_client_id")
+	}
+	return loadConfig(func(key string) string {
+		if key == "BUK_GOOGLE_CLIENT_ID" {
+			return clientID
+		}
+		return getenv(key)
+	})
 }

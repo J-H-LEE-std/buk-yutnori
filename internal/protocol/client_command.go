@@ -24,6 +24,8 @@ const (
 	CommandSetReady         CommandType = "SET_READY"
 	CommandAddCPUPlayer     CommandType = "ADD_CPU_PLAYER"
 	CommandRemoveCPUPlayer  CommandType = "REMOVE_CPU_PLAYER"
+	CommandLeaveRoom        CommandType = "LEAVE_ROOM"
+	CommandKickPlayer       CommandType = "KICK_PLAYER"
 	CommandStartGame        CommandType = "START_GAME"
 	CommandThrowYut         CommandType = "THROW_YUT"
 	CommandSelectMove       CommandType = "SELECT_MOVE"
@@ -76,6 +78,7 @@ type SetReadyPayload struct {
 
 type AddCPUPlayerPayload struct{ TeamID domain.TeamID }
 type RemoveCPUPlayerPayload struct{ PlayerID domain.PlayerID }
+type KickPlayerPayload struct{ PlayerID domain.PlayerID }
 
 type SelectMovePayload struct {
 	TokenID domain.ResultTokenID
@@ -227,6 +230,15 @@ func decodePayload(commandType CommandType, raw json.RawMessage) (any, error) {
 		}
 		return RemoveCPUPlayerPayload{PlayerID: payload.PlayerID}, nil
 
+	case CommandKickPlayer:
+		var payload struct {
+			PlayerID domain.PlayerID `json:"player_id"`
+		}
+		if err := decodeStrict(raw, &payload); err != nil || payload.PlayerID.Validate() != nil {
+			return nil, invalidCommand("invalid KICK_PLAYER payload")
+		}
+		return KickPlayerPayload{PlayerID: payload.PlayerID}, nil
+
 	case CommandPauseGame:
 		var payload struct {
 			DurationMinutes *int `json:"duration_minutes"`
@@ -244,7 +256,7 @@ func decodePayload(commandType CommandType, raw json.RawMessage) (any, error) {
 		}
 		return payload, nil
 
-	case CommandStartGame, CommandThrowYut, CommandConfirmGameStart:
+	case CommandLeaveRoom, CommandStartGame, CommandThrowYut, CommandConfirmGameStart:
 		var payload EmptyPayload
 		if err := decodeStrict(raw, &payload); err != nil {
 			return nil, invalidCommand("invalid %s payload", commandType)

@@ -32,7 +32,8 @@
   `PIECE_SELECTED`는 한 transaction에서 연속 sequence로 저장하며, 후속 GUI 클릭
   affordance 변경도 이 서버 후보만 소비해야 한다.
 - 방 퇴장·강퇴는 `LEAVE_ROOM`·`KICK_PLAYER`·`REMOVE_CPU_PLAYER`로 구분해 #149에서
-  정본 계약을 확정했다. 서버·클라이언트 구현은 후속 PR이다.
+  정본 계약을 확정했다. `REMOVE_CPU_PLAYER`는 기존 구현에 있으나, `LEAVE_ROOM`·
+  `KICK_PLAYER`와 통합 멤버 메뉴·세분화 거부 코드는 #153 후속 구현이다.
 - `menu_frame`·`modal_frame`·`finished_crown` 실제 PNG를 추가하는 구현 PR은 같은
   변경에서 `tools/check_assets.py` manifest 규칙과 asset test를 갱신한다. 현재
   checker는 존재하는 asset 목록만 검증하므로, 파일 없는 선행 manifest 변경은 하지 않는다.
