@@ -1075,6 +1075,10 @@ try {
     const moveCommand = capture.messages[1];
     pendingMoveCommands.clear();
 
+    stateReconnectScope = null;
+    renderMatchSession(moveSnapshot);
+    const pauseLockedDuringResync = document.getElementById("pause-menu").disabled;
+    stateReconnectScope = { roomId: "room-controls", matchId: "match-controls" };
     renderMatchSession(moveSnapshot);
     document.getElementById("game-profile-menu").open = true;
     const profileMenuVisible = !document.getElementById("game-profile-menu").hidden;
@@ -1100,7 +1104,7 @@ try {
     const crown = document.querySelector("#finished-pieces img");
     const result = {
       applied, throwEnabled, throwVisible, throwPosition, throwCommand, candidateText, moveCommand,
-      profileMenuVisible, profileSummary, modalOpened,
+      pauseLockedDuringResync, profileMenuVisible, profileSummary, modalOpened,
       pauseCommand, overlayVisible, resumeVisible, pauseUsedLabel, resumeCommand,
       crownSrc: crown?.getAttribute("src"), crownAlt: crown?.alt,
     };
@@ -1121,6 +1125,7 @@ try {
       || manualGameControls.moveCommand?.type !== "SELECT_MOVE"
       || manualGameControls.moveCommand?.payload?.token_id !== "token-1"
       || manualGameControls.moveCommand?.payload?.piece_id !== "A-1"
+      || !manualGameControls.pauseLockedDuringResync
       || !manualGameControls.profileMenuVisible
       || manualGameControls.profileSummary !== "가람 · 내 프로필"
       || !manualGameControls.modalOpened

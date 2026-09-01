@@ -1107,7 +1107,7 @@
       gameProfileSummary.textContent = `${viewer.nickname} · 내 프로필`;
       pauseMenu.textContent = snapshot.pause.used ? "일시정지(사용 완료)" : "일시정지";
       pauseMenu.disabled = !mayPause || snapshot.pause.used || snapshot.status !== "active"
-        || pendingPauseCommands.size !== 0;
+        || stateReconnectScope === null || pendingPauseCommands.size !== 0;
       pauseOverlay.hidden = !snapshot.pause.paused;
       resumeGame.hidden = !snapshot.pause.paused || !mayPause;
       if (snapshot.pause.paused) {
