@@ -47,8 +47,10 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
 
 방 API payload는 `schemas/http_rooms.schema.json`을 따른다. 생성과 입장은
 `X-Buk-Request: 1` 헤더를 요구하고 응답은 캐시하지 않는다. 방 비밀번호 원문은
-보관하지 않고 digest만 유지한다. v1 WebSocket command에는 아직 퇴장·강퇴 타입이
-없으며 이 전송 계약은 `docs/12_open_items.md`에 미결로 남는다.
+보관하지 않고 digest만 유지한다. v1 WebSocket은 `LEAVE_ROOM`, `KICK_PLAYER`,
+`REMOVE_CPU_PLAYER`를 서로 다른 command로 사용한다. `KICK_PLAYER`가 확정되면 서버는
+감사 가능한 `PLAYER_KICKED(player_id)`를 먼저 기록하고, 이미 멤버십에서 제거된 대상에게도
+직접 전달한 뒤 남은 멤버에게 새 `ROOM_UPDATED`를 방송한다.
 
 ### WebSocket
 - 방 상태

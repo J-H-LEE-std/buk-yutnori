@@ -162,6 +162,31 @@
     .game-session { display: grid; gap: 6px; margin: 18px 0; padding: 14px 16px; border: 1px solid #6f5b4e; border-radius: 12px; background: rgb(255 250 240 / 8%); }
     .game-session[hidden] { display: none; }
     .move-candidates { display: flex; flex-wrap: wrap; gap: 6px; }
+    .game-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .game-stage { position: relative; }
+    #throw-yut { position: absolute; right: 24px; bottom: 24px; z-index: 4; }
+    #throw-yut[hidden] { display: none; }
+    #game-profile-menu summary { cursor: pointer; }
+    .pause-overlay, .game-modal {
+      position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
+      padding: 24px; background: rgb(20 15 12 / 72%);
+    }
+    .pause-overlay[hidden], .game-modal[hidden] { display: none; }
+    .pause-card, .modal-card {
+      width: min(100%, 480px); padding: 24px; border: 2px solid #ad8e78;
+      border-radius: 16px; color: #241d19; background: #fffaf0;
+      background-image: url("assets/gui/common/modal_frame.png");
+      background-size: 100% 100%;
+      box-shadow: 0 20px 60px rgb(0 0 0 / 45%);
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    #room-members details { margin: 6px 0; }
+    #room-members details[open] {
+      min-height: 112px; padding: 28px 34px 34px;
+      color: #241d19; background-image: url("assets/gui/common/menu_frame.png");
+      background-size: 100% 100%;
+    }
+    #room-members summary { cursor: pointer; overflow-wrap: anywhere; }
 
     @media (max-width: 720px) {
       body { padding: 12px; place-items: start center; }
@@ -217,6 +242,7 @@
           <button id="room-confirm-start" type="button" disabled>시작 확인</button>
           <button id="room-add-cpu-a" type="button" disabled>A팀 CPU 추가</button>
           <button id="room-add-cpu-b" type="button" disabled>B팀 CPU 추가</button>
+          <button id="room-leave" type="button" disabled>방 나가기</button>
         </div>
         <span id="room-lobby-status" role="status"></span>
         <ul id="room-members" aria-label="방 멤버"></ul>
@@ -230,10 +256,20 @@
     <section id="game-session" class="game-session" hidden aria-live="polite" aria-label="게임 화면 상태">
       <strong id="game-session-title">게임 화면</strong>
       <span id="game-session-status" class="room-meta"></span>
+      <div class="game-actions" aria-label="게임 조작">
+        <details id="game-profile-menu" hidden>
+          <summary id="game-profile-summary">내 프로필</summary>
+          <button id="pause-menu" type="button" disabled>일시정지</button>
+        </details>
+      </div>
       <div id="move-candidates" class="move-candidates" aria-label="이동 가능한 말"></div>
+      <div id="finished-pieces" class="move-candidates" aria-label="완주한 말"></div>
     </section>
-    <canvas id="canvas" width="1280" height="720" tabindex="-1"
-            oncontextmenu="event.preventDefault()"></canvas>
+    <div class="game-stage">
+      <canvas id="canvas" width="1280" height="720" tabindex="-1"
+              oncontextmenu="event.preventDefault()"></canvas>
+      <button id="throw-yut" type="button" hidden disabled>윷 던지기</button>
+    </div>
     <section class="bridge" aria-labelledby="ime-label">
       <label id="ime-label" for="ime-input">한글 IME → C/WASM 왕복 확인</label>
       <input id="ime-input" type="text" maxlength="200" autocomplete="off"
@@ -253,6 +289,22 @@
       <span id="chat-status" role="status">로그인 후 채팅할 수 있습니다.</span>
     </section>
   </main>
+  <div id="pause-modal" class="game-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pause-modal-title">
+    <div class="modal-card">
+      <h2 id="pause-modal-title">게임 일시정지</h2>
+      <p>모든 플레이어의 조작과 턴 타이머가 멈춥니다. 경기당 한 번만 사용할 수 있습니다.</p>
+      <label for="pause-duration">정지 시간(분)</label>
+      <input id="pause-duration" type="number" min="1" max="30" value="5">
+      <div class="modal-actions"><button id="pause-cancel" type="button">취소</button><button id="pause-confirm" type="button">일시정지 승인</button></div>
+    </div>
+  </div>
+  <div id="pause-overlay" class="pause-overlay" hidden role="status" aria-live="assertive">
+    <div class="pause-card">
+      <h2>게임이 일시정지되었습니다</h2>
+      <p>서버가 보존한 남은 시간: <span id="pause-remaining">계산 중</span></p>
+      <button id="resume-game" type="button" hidden>일시정지 해제</button>
+    </div>
+  </div>
 
   <script>
     const input = document.getElementById("ime-input");
@@ -285,6 +337,7 @@
     const roomConfirmStart = document.getElementById("room-confirm-start");
   const roomAddCPUA = document.getElementById("room-add-cpu-a");
   const roomAddCPUB = document.getElementById("room-add-cpu-b");
+  const roomLeave = document.getElementById("room-leave");
     const roomLobbyStatus = document.getElementById("room-lobby-status");
     const gameLogStatus = document.getElementById("game-log-status");
     const gameLogList = document.getElementById("game-log-list");
@@ -292,6 +345,18 @@
     const gameSessionTitle = document.getElementById("game-session-title");
     const gameSessionStatus = document.getElementById("game-session-status");
     const moveCandidates = document.getElementById("move-candidates");
+    const finishedPieces = document.getElementById("finished-pieces");
+    const throwYut = document.getElementById("throw-yut");
+    const gameProfileMenu = document.getElementById("game-profile-menu");
+    const gameProfileSummary = document.getElementById("game-profile-summary");
+    const pauseMenu = document.getElementById("pause-menu");
+    const pauseModal = document.getElementById("pause-modal");
+    const pauseDuration = document.getElementById("pause-duration");
+    const pauseCancel = document.getElementById("pause-cancel");
+    const pauseConfirm = document.getElementById("pause-confirm");
+    const pauseOverlay = document.getElementById("pause-overlay");
+    const pauseRemaining = document.getElementById("pause-remaining");
+    const resumeGame = document.getElementById("resume-game");
     const roomMembers = document.getElementById("room-members");
     const LOBBY_CHAT_ROOM_ID = "lobby";
     const MAX_CHAT_CODE_POINTS = 200;
@@ -329,6 +394,8 @@
     const pendingSynchronizationCommands = new Map();
     const pendingRouteCommands = new Map();
     const pendingMoveCommands = new Map();
+    const pendingThrowCommands = new Map();
+    const pendingPauseCommands = new Map();
     const pendingLobbyCommands = new Map();
     const pendingStartConfirmationCommands = new Map();
     let confirmedSnapshotPieceIds = [];
@@ -343,6 +410,7 @@
     let activeRoomRole = null;
     let activeStartScope = null;
     let activeViewerRole = null;
+    let pauseCountdownTimer = null;
 
     function setRoomEntryEnabled(enabled) {
       for (const element of [roomTitle, roomPassword, roomTeam, roomCreate]) element.disabled = !enabled;
@@ -356,8 +424,9 @@
       roomReady.disabled = !player;
       roomStart.disabled = !enabled;
       roomConfirmStart.disabled = !player || activeStartScope?.roomId !== activeRoomId;
-    roomAddCPUA.disabled = true;
-    roomAddCPUB.disabled = true;
+      roomAddCPUA.disabled = true;
+      roomAddCPUB.disabled = true;
+      roomLeave.disabled = !enabled;
       if (!player) roomReady.textContent = "준비";
     }
 
@@ -448,13 +517,27 @@
       roomMembers.replaceChildren();
       for (const member of detail.members) {
         const item = document.createElement("li");
-        item.textContent = `${member.nickname}${member.is_host ? " · 방장" : ""}${member.is_cpu ? " · CPU" : ""} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
-        if (canEditCPUs && member.is_cpu) {
+        const menu = document.createElement("details");
+        const profile = document.createElement("summary");
+        profile.textContent = `${member.nickname}${member.is_host ? " · 방장" : ""}${member.is_cpu ? " · CPU" : ""} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
+        menu.append(profile);
+        if (member.user_id === authenticatedUserId) {
+          const leave = document.createElement("button");
+          leave.type = "button"; leave.textContent = "방 나가기";
+          leave.addEventListener("click", () => sendRoomLobbyCommand("LEAVE_ROOM"));
+          menu.append(leave);
+        } else if (canEditCPUs && member.is_cpu) {
           const remove = document.createElement("button");
           remove.type = "button"; remove.textContent = "CPU 제거";
           remove.addEventListener("click", () => sendRoomLobbyCommand("REMOVE_CPU_PLAYER", { player_id: member.user_id }));
-          item.append(" ", remove);
+          menu.append(remove);
+        } else if (canEditCPUs && member.role === "player") {
+          const kick = document.createElement("button");
+          kick.type = "button"; kick.textContent = "강퇴";
+          kick.addEventListener("click", () => sendRoomLobbyCommand("KICK_PLAYER", { player_id: member.user_id }));
+          menu.append(kick);
         }
+        item.append(menu);
         roomMembers.append(item);
       }
     }
@@ -676,6 +759,17 @@
     roomConfirmStart.addEventListener("click", sendStartConfirmation);
   roomAddCPUA.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "A" }));
   roomAddCPUB.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "B" }));
+  roomLeave.addEventListener("click", () => sendRoomLobbyCommand("LEAVE_ROOM"));
+  throwYut.addEventListener("click", sendThrowYut);
+  pauseMenu.addEventListener("click", () => {
+    if (!pauseMenu.disabled) {
+      gameProfileMenu.open = false;
+      pauseModal.hidden = false;
+    }
+  });
+  pauseCancel.addEventListener("click", () => { pauseModal.hidden = true; });
+  pauseConfirm.addEventListener("click", sendPauseGame);
+  resumeGame.addEventListener("click", sendResumeGame);
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
@@ -814,6 +908,8 @@
         pendingSynchronizationCommands.clear();
         pendingRouteCommands.clear();
         pendingMoveCommands.clear();
+        pendingThrowCommands.clear();
+        pendingPauseCommands.clear();
         pendingLobbyCommands.clear();
         pendingStartConfirmationCommands.clear();
         confirmedRouteRequest = null;
@@ -844,6 +940,8 @@
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
       pendingMoveCommands.clear();
+      pendingThrowCommands.clear();
+      pendingPauseCommands.clear();
       pendingLobbyCommands.clear();
       pendingStartConfirmationCommands.clear();
       confirmedRouteRequest = null;
@@ -859,6 +957,8 @@
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
       pendingMoveCommands.clear();
+      pendingThrowCommands.clear();
+      pendingPauseCommands.clear();
       confirmedRouteRequest = null;
       stateReconnectScope = { roomId, matchId };
       fullResynchronizationAttempted = false;
@@ -874,6 +974,8 @@
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
       pendingMoveCommands.clear();
+      pendingThrowCommands.clear();
+      pendingPauseCommands.clear();
       confirmedRouteRequest = null;
       fullResynchronizationAttempted = false;
       clearMatchSession();
@@ -901,13 +1003,25 @@
         return false;
       }
       const commandID = crypto.randomUUID();
-      pendingLobbyCommands.set(commandID, activeRoomId);
+      pendingLobbyCommands.set(commandID, { roomId: activeRoomId, type });
       realtimeSocket.send(JSON.stringify({
         version: 1, direction: "client_command", type, command_id: commandID,
         room_id: activeRoomId, payload,
       }));
       roomLobbyStatus.textContent = "방 로비 요청 처리 중…";
       return true;
+    }
+
+    function leaveActiveRoomView() {
+      roomDetailRequestGeneration++;
+      activeRoomId = null;
+      activeRoomRole = null;
+      activeStartScope = null;
+      roomDetail.hidden = true;
+      roomMembers.replaceChildren();
+      clearStateReconnectScope();
+      clearMatchSession();
+      refreshRoomList();
     }
 
     function sendStartConfirmation() {
@@ -931,6 +1045,34 @@
       gameSessionTitle.textContent = "게임 화면";
       gameSessionStatus.textContent = "";
       moveCandidates.replaceChildren();
+      finishedPieces.replaceChildren();
+      throwYut.hidden = true;
+      throwYut.disabled = true;
+      gameProfileMenu.hidden = true;
+      gameProfileMenu.open = false;
+      pauseModal.hidden = true;
+      pauseOverlay.hidden = true;
+      resumeGame.hidden = true;
+      clearPauseCountdown();
+    }
+
+    function clearPauseCountdown() {
+      if (pauseCountdownTimer !== null) {
+        clearInterval(pauseCountdownTimer);
+        pauseCountdownTimer = null;
+      }
+    }
+
+    function showPauseRemaining(endsAt) {
+      clearPauseCountdown();
+      const update = () => {
+        const milliseconds = endsAt === null ? null : Math.max(0, Date.parse(endsAt) - Date.now());
+        pauseRemaining.textContent = milliseconds === null || !Number.isFinite(milliseconds)
+          ? "서버 재개 대기 중"
+          : `${Math.ceil(milliseconds / 1000)}초`;
+      };
+      update();
+      if (endsAt !== null) pauseCountdownTimer = setInterval(update, 1000);
     }
 
     function renderMatchSession(snapshot) {
@@ -943,11 +1085,37 @@
         ? "서버 권위 경기 상태를 관전 중입니다. 게임 조작은 할 수 없습니다."
         : "서버 권위 경기 상태와 동기화되었습니다.";
       moveCandidates.replaceChildren();
-      const request = snapshot.current_turn.move_request;
-      const maySelect = request?.required_input === "select_move"
-        && snapshot.status === "active" && !snapshot.pause.paused
+      finishedPieces.replaceChildren();
+      for (const piece of snapshot.pieces.filter((candidate) => candidate.state === "finished")) {
+        const completed = document.createElement("span");
+        const crown = document.createElement("img");
+        crown.src = "assets/piece/finished_crown.png";
+        crown.alt = "완주";
+        crown.width = 32; crown.height = 32;
+        completed.append(crown, document.createTextNode(` ${piece.piece_id}`));
+        finishedPieces.append(completed);
+      }
+      const mayControl = snapshot.status === "active" && !snapshot.pause.paused
         && viewer.user_id === snapshot.current_turn.player_id && viewer.role === "player"
         && viewer.permissions.includes("control_game") && !viewer.cpu_control.active
+        && stateReconnectScope !== null;
+      const mayThrow = mayControl && snapshot.current_turn.required_input === "throw";
+      throwYut.hidden = !mayThrow;
+      throwYut.disabled = !(mayThrow && pendingThrowCommands.size === 0);
+      const mayPause = viewer.permissions.includes("pause_game");
+      gameProfileMenu.hidden = !mayPause;
+      gameProfileSummary.textContent = `${viewer.nickname} · 내 프로필`;
+      pauseMenu.textContent = snapshot.pause.used ? "일시정지(사용 완료)" : "일시정지";
+      pauseMenu.disabled = !mayPause || snapshot.pause.used || snapshot.status !== "active"
+        || stateReconnectScope === null || pendingPauseCommands.size !== 0;
+      pauseOverlay.hidden = !snapshot.pause.paused;
+      resumeGame.hidden = !snapshot.pause.paused || !mayPause;
+      if (snapshot.pause.paused) {
+        showPauseRemaining(snapshot.pause.ends_at);
+      } else clearPauseCountdown();
+      const request = snapshot.current_turn.move_request;
+      const maySelect = request?.required_input === "select_move"
+        && mayControl
         && stateReconnectScope !== null && pendingMoveCommands.size === 0;
       if (maySelect) {
         for (const candidate of request.candidates) {
@@ -958,6 +1126,42 @@
           moveCandidates.append(button);
         }
       }
+      return true;
+    }
+
+    function sendMatchCommand(type, payload, pending) {
+      const scope = stateReconnectScope;
+      if (!scope || pending.size !== 0) return false;
+      const commandID = crypto.randomUUID();
+      if (!sendStateChangingCommand({
+        version: 1, direction: "client_command", type, command_id: commandID,
+        room_id: scope.roomId, match_id: scope.matchId, payload,
+      })) return false;
+      pending.set(commandID, scope);
+      return true;
+    }
+
+    function sendThrowYut() {
+      if (!throwYut.disabled && sendMatchCommand("THROW_YUT", {}, pendingThrowCommands)) {
+        throwYut.disabled = true;
+        gameSessionStatus.textContent = "윷 결과를 서버에 요청하는 중…";
+      }
+    }
+
+    function sendPauseGame() {
+      const minutes = Number(pauseDuration.value);
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 30) return false;
+      if (!sendMatchCommand("PAUSE_GAME", { duration_minutes: minutes }, pendingPauseCommands)) return false;
+      pauseModal.hidden = true;
+      pauseMenu.disabled = true;
+      gameSessionStatus.textContent = "일시정지를 서버에 요청하는 중…";
+      return true;
+    }
+
+    function sendResumeGame() {
+      if (!sendMatchCommand("RESUME_GAME", {}, pendingPauseCommands)) return false;
+      resumeGame.hidden = true;
+      gameSessionStatus.textContent = "게임 재개를 서버에 요청하는 중…";
       return true;
     }
 
@@ -1579,6 +1783,39 @@
       }
       if (message.version !== 1) return;
       if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
+          && pendingThrowCommands.has(message.command_id)) {
+        const expectedScope = pendingThrowCommands.get(message.command_id);
+        pendingThrowCommands.delete(message.command_id);
+        const scopeMatches = message.room_id === expectedScope.roomId
+          && message.match_id === expectedScope.matchId;
+        if (scopeMatches && message.payload?.status === "accepted") {
+          realtimeStatus.textContent = "윷 결과 확정, 상태 동기화 중…";
+          requestStateSynchronization(false);
+        } else {
+          realtimeStatus.textContent = scopeMatches
+            ? (message.payload?.error?.message ?? "윷 던지기가 거부됐습니다.")
+            : "윷 던지기 응답 범위가 일치하지 않습니다.";
+        }
+        return;
+      }
+      if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
+          && pendingPauseCommands.has(message.command_id)) {
+        const expectedScope = pendingPauseCommands.get(message.command_id);
+        pendingPauseCommands.delete(message.command_id);
+        const scopeMatches = message.room_id === expectedScope.roomId
+          && message.match_id === expectedScope.matchId;
+        if (scopeMatches && message.payload?.status === "accepted") {
+          realtimeStatus.textContent = "일시정지 상태 확정, 상태 동기화 중…";
+          requestStateSynchronization(false);
+        } else {
+          pauseModal.hidden = true;
+          realtimeStatus.textContent = scopeMatches
+            ? (message.payload?.error?.message ?? "일시정지 요청이 거부됐습니다.")
+            : "일시정지 응답 범위가 일치하지 않습니다.";
+        }
+        return;
+      }
+      if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
           && pendingMoveCommands.has(message.command_id)) {
         const expectedScope = pendingMoveCommands.get(message.command_id);
         pendingMoveCommands.delete(message.command_id);
@@ -1638,12 +1875,13 @@
       }
       if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
           && pendingLobbyCommands.has(message.command_id)) {
-        const expectedRoomID = pendingLobbyCommands.get(message.command_id);
+        const pending = pendingLobbyCommands.get(message.command_id);
         pendingLobbyCommands.delete(message.command_id);
-        if (message.room_id !== expectedRoomID || message.room_id !== activeRoomId) return;
+        if (message.room_id !== pending.roomId || message.room_id !== activeRoomId) return;
         if (message.payload?.status === "accepted") {
           roomLobbyStatus.textContent = "방 로비 요청이 반영되었습니다.";
-          refreshActiveRoomDetail();
+          if (pending.type === "LEAVE_ROOM") leaveActiveRoomView();
+          else refreshActiveRoomDetail();
         } else {
           roomLobbyStatus.textContent = message.payload?.error?.message ?? "방 로비 요청이 거부되었습니다.";
         }
@@ -1660,6 +1898,18 @@
         } else {
           roomLobbyStatus.textContent = message.payload?.error?.message ?? "시작 확인이 거부되었습니다.";
           roomConfirmStart.disabled = activeRoomRole !== "player";
+        }
+        return;
+      }
+      if (message.direction === "server_event" && message.room_id === activeRoomId
+          && message.type === "PLAYER_KICKED"
+          && typeof message.payload?.player_id === "string") {
+        if (message.payload.player_id === authenticatedUserId) {
+          leaveActiveRoomView();
+          roomListStatus.textContent = "방장에 의해 방에서 퇴장되었습니다.";
+        } else {
+          roomLobbyStatus.textContent = "플레이어가 강퇴되어 동기화 중…";
+          refreshActiveRoomDetail();
         }
         return;
       }
@@ -1703,7 +1953,10 @@
         setStateReconnectScope(message.room_id, message.match_id);
         return;
       }
-      if (message.direction === "server_event" && message.type === "MOVE_REQUIRED"
+      if (message.direction === "server_event"
+          && ["TURN_STARTED", "YUT_RESULT", "RESULT_SELECTED", "PIECE_SELECTED",
+              "RESULT_QUEUE_UPDATED", "MOVE_REQUIRED", "PIECES_CAPTURED", "PIECES_STACKED",
+              "GAME_PAUSED", "GAME_RESUMED", "GAME_ENDED"].includes(message.type)
           && stateReconnectScope !== null
           && message.room_id === stateReconnectScope.roomId
           && message.match_id === stateReconnectScope.matchId

@@ -16,6 +16,8 @@ var (
 	// ErrCPUPlayerRequired identifies an attempt to remove a human through the
 	// server-owned CPU seat operation.
 	ErrCPUPlayerRequired = errors.New("player is not a CPU player")
+	// ErrHumanPlayerRequired identifies an attempt to kick a CPU seat.
+	ErrHumanPlayerRequired = errors.New("player is not a human player")
 
 	// ErrLobbyFull identifies admission beyond the room's configured capacity.
 	ErrLobbyFull = errors.New("lobby is full")

@@ -355,7 +355,7 @@ try {
       || Math.abs(initial.canvasAspectRatio - (16 / 9)) > 0.01
       || initial.renderedBoardNodeCount !== 29
       || initial.renderedBoardEdgeCount !== 32 || initial.renderedPieceCount !== 0
-      || initial.assetsInitialized !== 1 || initial.assetsLoadedCount !== 46
+      || initial.assetsInitialized !== 1 || initial.assetsLoadedCount !== 49
       || initial.assetsFallbackCount !== 0) {
     throw new Error(`initial DOM/WASM input synchronization failed: ${JSON.stringify(initial)}`);
   }
@@ -665,6 +665,66 @@ try {
       || !cpuLobbyDetail.addEnabled || cpuLobbyDetail.removeCount !== 1) {
     throw new Error(`CPU lobby detail renderer was not authoritative: ${JSON.stringify(cpuLobbyDetail)}`);
   }
+  const lobbyMemberMenus = await evaluate(`(() => {
+    const sent = [];
+    realtimeSocket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
+    roomListAuthenticated = true;
+    activeRoomId = "menu-room";
+    authenticatedUserId = "host";
+    renderRoomDetail({
+      summary: { room_id: "menu-room", title: "메뉴 방", has_password: false, player_count: 3, max_players: 4 },
+      members: [
+        { user_id: "host", nickname: "방장", role: "player", team: "A", ready: false, is_host: true, is_cpu: false },
+        { user_id: "human-2", nickname: "사람", role: "player", team: "B", ready: false, is_host: false, is_cpu: false },
+        { user_id: "cpu-1", nickname: "CPU", role: "player", team: "B", ready: true, is_host: false, is_cpu: true },
+      ],
+    });
+    const buttons = [...document.querySelectorAll("#room-members button")];
+    const labels = buttons.map((button) => button.textContent);
+    buttons.find((button) => button.textContent === "강퇴").click();
+    buttons.find((button) => button.textContent === "CPU 제거").click();
+    buttons.find((button) => button.textContent === "방 나가기").click();
+    const result = { labels, sent };
+    pendingLobbyCommands.clear();
+    realtimeSocket = null;
+    return result;
+  })()`);
+  if (JSON.stringify(lobbyMemberMenus.labels) !== '["방 나가기","강퇴","CPU 제거"]'
+      || lobbyMemberMenus.sent[0]?.type !== "KICK_PLAYER"
+      || lobbyMemberMenus.sent[0]?.payload?.player_id !== "human-2"
+      || lobbyMemberMenus.sent[1]?.type !== "REMOVE_CPU_PLAYER"
+      || lobbyMemberMenus.sent[1]?.payload?.player_id !== "cpu-1"
+      || lobbyMemberMenus.sent[2]?.type !== "LEAVE_ROOM") {
+    throw new Error(`lobby member menu commands were conflated: ${JSON.stringify(lobbyMemberMenus)}`);
+  }
+  const kickedMemberFlow = await evaluate(`(() => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ rooms: [] }) });
+    const socket = { readyState: WebSocket.OPEN, send() {} };
+    realtimeSocket = socket;
+    roomListAuthenticated = true;
+    activeRoomId = "kick-room";
+    activeRoomRole = "player";
+    authenticatedUserId = "human-2";
+    roomDetail.hidden = false;
+    handleRealtimeMessage(socket, { data: JSON.stringify({
+      version: 1, direction: "server_event", type: "PLAYER_KICKED", sequence: 9,
+      room_id: "kick-room", payload: { player_id: "human-2" },
+    }) });
+    const result = {
+      activeRoomId, activeRoomRole, detailHidden: roomDetail.hidden,
+      status: roomListStatus.textContent,
+    };
+    globalThis.fetch = originalFetch;
+    realtimeSocket = null;
+    authenticatedUserId = null;
+    return result;
+  })()`);
+  if (kickedMemberFlow.activeRoomId !== null || kickedMemberFlow.activeRoomRole !== null
+      || !kickedMemberFlow.detailHidden
+      || kickedMemberFlow.status !== "방장에 의해 방에서 퇴장되었습니다.") {
+    throw new Error(`kicked member did not leave immediately: ${JSON.stringify(kickedMemberFlow)}`);
+  }
   const invalidRoomSummary = await evaluate(`(() => ({
     invalidCount: validateRoomSummary({
       room_id: "r-2", title: "bad", has_password: false,
@@ -972,6 +1032,111 @@ try {
       || synchronizationBundle.eventTail || synchronizationBundle.requiresResync !== 1
       || synchronizationBundle.canSend !== 0 || synchronizationBundle.preserved !== "41") {
     throw new Error(`synchronization bundle validation failed: ${JSON.stringify(synchronizationBundle)}`);
+  }
+
+  const manualGameControls = await evaluate(`(() => {
+    class CaptureSocket {
+      constructor() { this.readyState = WebSocket.OPEN; this.messages = []; }
+      send(text) { this.messages.push(JSON.parse(text)); }
+    }
+    const capture = new CaptureSocket();
+    realtimeSocket = capture;
+    authenticatedUserId = "user-a";
+    stateReconnectScope = { roomId: "room-controls", matchId: "match-controls" };
+    pendingThrowCommands.clear();
+    pendingMoveCommands.clear();
+    pendingPauseCommands.clear();
+    Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    const throwSnapshot = makeTestGameSnapshot("room-controls", "match-controls", 70);
+    throwSnapshot.participants[0].permissions.push("pause_game");
+    throwSnapshot.current_turn.phase = "wait_throw";
+    throwSnapshot.current_turn.required_input = "throw";
+    throwSnapshot.current_turn.move_request = null;
+    throwSnapshot.result_queue = [];
+    const applied = applySynchronizationSequenceBundle({
+      version: 1, direction: "server_response", type: "COMMAND_RESULT",
+      room_id: "room-controls", match_id: "match-controls",
+      payload: { status: "accepted", synchronization: { snapshot: throwSnapshot, events: [] } },
+    });
+    const throwEnabled = !document.getElementById("throw-yut").disabled;
+    const throwVisible = !document.getElementById("throw-yut").hidden;
+    const throwPosition = getComputedStyle(document.getElementById("throw-yut")).position;
+    document.getElementById("throw-yut").click();
+    const throwCommand = capture.messages[0];
+    pendingThrowCommands.clear();
+
+    const moveSnapshot = makeTestGameSnapshot("room-controls", "match-controls", 71);
+    moveSnapshot.participants[0].permissions.push("pause_game");
+    moveSnapshot.pieces[1] = { ...moveSnapshot.pieces[1], state: "finished" };
+    renderMatchSession(moveSnapshot);
+    const candidate = document.querySelector("#move-candidates button");
+    const candidateText = candidate?.textContent;
+    candidate?.click();
+    const moveCommand = capture.messages[1];
+    pendingMoveCommands.clear();
+
+    stateReconnectScope = null;
+    renderMatchSession(moveSnapshot);
+    const pauseLockedDuringResync = document.getElementById("pause-menu").disabled;
+    stateReconnectScope = { roomId: "room-controls", matchId: "match-controls" };
+    renderMatchSession(moveSnapshot);
+    document.getElementById("game-profile-menu").open = true;
+    const profileMenuVisible = !document.getElementById("game-profile-menu").hidden;
+    const profileSummary = document.getElementById("game-profile-summary").textContent;
+    document.getElementById("pause-menu").click();
+    const modalOpened = !document.getElementById("pause-modal").hidden;
+    document.getElementById("pause-duration").value = "7";
+    document.getElementById("pause-confirm").click();
+    const pauseCommand = capture.messages[2];
+    pendingPauseCommands.clear();
+
+    const pausedSnapshot = makeTestGameSnapshot("room-controls", "match-controls", 72);
+    pausedSnapshot.participants[0].permissions.push("pause_game");
+    pausedSnapshot.status = "paused";
+    pausedSnapshot.pause = { used: true, paused: true, ends_at: new Date(Date.now() + 60000).toISOString() };
+    pausedSnapshot.pieces[1] = { ...pausedSnapshot.pieces[1], state: "finished" };
+    renderMatchSession(pausedSnapshot);
+    const overlayVisible = !document.getElementById("pause-overlay").hidden;
+    const resumeVisible = !document.getElementById("resume-game").hidden;
+    const pauseUsedLabel = document.getElementById("pause-menu").textContent;
+    document.getElementById("resume-game").click();
+    const resumeCommand = capture.messages[3];
+    const crown = document.querySelector("#finished-pieces img");
+    const result = {
+      applied, throwEnabled, throwVisible, throwPosition, throwCommand, candidateText, moveCommand,
+      pauseLockedDuringResync, profileMenuVisible, profileSummary, modalOpened,
+      pauseCommand, overlayVisible, resumeVisible, pauseUsedLabel, resumeCommand,
+      crownSrc: crown?.getAttribute("src"), crownAlt: crown?.alt,
+    };
+    pendingThrowCommands.clear();
+    pendingMoveCommands.clear();
+    pendingPauseCommands.clear();
+    clearStateReconnectScope();
+    realtimeSocket = null;
+    authenticatedUserId = null;
+    return result;
+  })()`);
+  if (!manualGameControls.applied || !manualGameControls.throwEnabled
+      || !manualGameControls.throwVisible || manualGameControls.throwPosition !== "absolute"
+      || manualGameControls.throwCommand?.type !== "THROW_YUT"
+      || manualGameControls.throwCommand?.room_id !== "room-controls"
+      || manualGameControls.throwCommand?.match_id !== "match-controls"
+      || manualGameControls.candidateText !== "말 A-1 · 결과 token-1"
+      || manualGameControls.moveCommand?.type !== "SELECT_MOVE"
+      || manualGameControls.moveCommand?.payload?.token_id !== "token-1"
+      || manualGameControls.moveCommand?.payload?.piece_id !== "A-1"
+      || !manualGameControls.pauseLockedDuringResync
+      || !manualGameControls.profileMenuVisible
+      || manualGameControls.profileSummary !== "가람 · 내 프로필"
+      || !manualGameControls.modalOpened
+      || manualGameControls.pauseCommand?.type !== "PAUSE_GAME"
+      || manualGameControls.pauseCommand?.payload?.duration_minutes !== 7
+      || !manualGameControls.overlayVisible || !manualGameControls.resumeVisible
+      || manualGameControls.pauseUsedLabel !== "일시정지(사용 완료)"
+      || manualGameControls.resumeCommand?.type !== "RESUME_GAME"
+      || manualGameControls.crownSrc !== "assets/piece/finished_crown.png"
+      || manualGameControls.crownAlt !== "완주") {
+    throw new Error(`manual game controls were not server-scoped: ${JSON.stringify(manualGameControls)}`);
   }
 
   const renderedSnapshot = await evaluate(`new Promise((resolve) => {

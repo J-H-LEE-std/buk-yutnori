@@ -24,6 +24,16 @@
   {
     "version": 1,
     "direction": "server_event",
+    "type": "PLAYER_KICKED",
+    "sequence": 8,
+    "room_id": "room-1",
+    "payload": {
+      "player_id": "user-b"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
     "type": "GAME_STARTING",
     "sequence": 6,
     "room_id": "9f1c0a5d3b2e4f60817a6c5d9e0f1a2b",

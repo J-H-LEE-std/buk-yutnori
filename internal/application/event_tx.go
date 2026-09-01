@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"time"
 
+	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/protocol"
 	"buk-yutnori/internal/storage"
@@ -153,6 +154,7 @@ func (tx *eventTx) flush() error {
 // messages to member subscribers. The caller holds the registry mutex.
 func (registry *RoomRegistry) publishCommittedLocked(entry *registeredRoom, messages []any) {
 	for _, message := range messages {
+		var kickedUser auth.UserID
 		switch event := message.(type) {
 		case protocol.GameStartingEvent:
 			entry.activeGameStarting = message
@@ -162,9 +164,11 @@ func (registry *RoomRegistry) publishCommittedLocked(entry *registeredRoom, mess
 				event.Payload.Status == protocol.RoomStatusInMatch {
 				entry.activeGameStarting = nil
 			}
+		case protocol.PlayerKickedEvent:
+			kickedUser = auth.UserID(event.Payload.PlayerID)
 		}
 		for subscription, user := range registry.eventSubscribers {
-			if entry.hasMember(user) {
+			if entry.hasMember(user) || (kickedUser != "" && user == kickedUser) {
 				registry.deliverLocked(subscription, RoomEvent{Message: message})
 			}
 		}
@@ -179,6 +183,8 @@ func serverEventType(message any) string {
 	switch message.(type) {
 	case protocol.RoomUpdatedEvent:
 		return protocol.EventRoomUpdated
+	case protocol.PlayerKickedEvent:
+		return protocol.EventPlayerKicked
 	case protocol.GameStartingEvent:
 		return protocol.EventGameStarting
 	case protocol.GameStartedEvent:

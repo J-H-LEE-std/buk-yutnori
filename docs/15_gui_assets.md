@@ -147,9 +147,9 @@ client/assets/
 Milestone 4에는 임시 AI 아트워크 fixture가 포함되며 동일 명령을 CI 필수 단계로
 실행한다. 최종 아트워크는 배포 시 동일한 경로, PNG RGBA8 형식, 픽셀 크기를
 유지한 채 파일 교체로 적용하고 검증 명령을 다시 실행한다.
-ADR-0019의 후속 GUI resource 구현이 `menu_frame`·`modal_frame`·`finished_crown`
-파일을 추가하면, 같은 PR에서 `tools/check_assets.py`의 manifest 규칙과 asset test를
-함께 갱신한다. 파일보다 먼저 checker manifest만 확장하지 않는다.
+ADR-0019의 후속 GUI resource 구현 #153에서 `menu_frame`·`modal_frame`·
+`finished_crown` 임시 AI 아트워크와 `tools/check_assets.py` manifest, C asset
+runtime test를 함께 추가했다. 최종 아트워크는 이 경로와 규격을 유지해 교체한다.
 검사기의 초기 로딩 4MB bucket은 보드·말·윷 결과·이펙트처럼 게임 진입에
 필수인 항목(`critical`)으로 정의하고, 공통 GUI·HUD·폰트는 전체 16MB 예산에만
 포함한다.

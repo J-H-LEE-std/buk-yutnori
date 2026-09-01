@@ -45,6 +45,12 @@
           "$ref": "ws_client_command.schema.json#/$defs/remove_cpu_player"
         },
         {
+          "$ref": "ws_client_command.schema.json#/$defs/leave_room"
+        },
+        {
+          "$ref": "ws_client_command.schema.json#/$defs/kick_player"
+        },
+        {
           "$ref": "ws_client_command.schema.json#/$defs/start_game"
         },
         {
@@ -132,6 +138,21 @@
     "remove_cpu_player": {
       "properties": {
         "type": { "const": "REMOVE_CPU_PLAYER" },
+        "payload": {
+          "type": "object", "additionalProperties": false, "required": ["player_id"],
+          "properties": { "player_id": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "leave_room": {
+      "properties": {
+        "type": { "const": "LEAVE_ROOM" },
+        "payload": { "$ref": "ws_client_command.schema.json#/$defs/empty_payload" }
+      }
+    },
+    "kick_player": {
+      "properties": {
+        "type": { "const": "KICK_PLAYER" },
         "payload": {
           "type": "object", "additionalProperties": false, "required": ["player_id"],
           "properties": { "player_id": { "type": "string", "minLength": 1 } }

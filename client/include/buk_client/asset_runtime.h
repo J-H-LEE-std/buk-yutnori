@@ -4,13 +4,13 @@
 #include <stddef.h>
 
 #define BUK_CLIENT_ASSET_PATH_MAX 128
-#define BUK_CLIENT_ASSET_COUNT 46
+#define BUK_CLIENT_ASSET_COUNT 49
 
 enum {
     BUK_CLIENT_ASSET_BOARD_MAIN = 0,
     BUK_CLIENT_ASSET_PIECE_A_ON_BOARD = 4,
     BUK_CLIENT_ASSET_PIECE_B_ON_BOARD = 8,
-    BUK_CLIENT_ASSET_YUT_RESULT_DO = 13,
+    BUK_CLIENT_ASSET_YUT_RESULT_DO = 14,
 };
 
 typedef int (*BukClientAssetExistsFn)(const char *path, void *userdata);

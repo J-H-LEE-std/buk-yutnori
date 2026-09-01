@@ -128,6 +128,7 @@ func (router *realtimeRouter) Execute(ctx context.Context, user auth.User, comma
 	}
 	switch command.Type {
 	case protocol.CommandSelectTeam, protocol.CommandSetReady, protocol.CommandAddCPUPlayer, protocol.CommandRemoveCPUPlayer,
+		protocol.CommandLeaveRoom, protocol.CommandKickPlayer,
 		protocol.CommandStartGame, protocol.CommandConfirmGameStart:
 		return router.lobby.Execute(ctx, user, command)
 	case protocol.CommandThrowYut, protocol.CommandSelectMove,
