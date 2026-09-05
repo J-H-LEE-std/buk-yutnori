@@ -38,6 +38,11 @@ ADR 항목으로 남아 있었다.
   session digest 발급은 하나의 짧은 transaction으로 확정하며, 서버 재시작 뒤에도
   유효 세션과 stable 내부 사용자 ID를 보존한다. `MemoryStore`는 수직 프로토타입과
   테스트 어댑터로만 유지한다.
+- SQLite는 `expires_at_ms` 인덱스를 두고, 서버 소유 maintenance worker가 시작 직후와
+  매시간 `expires_at_ms <= cutoff` 행을 제한된 batch로 삭제한다. 삭제는 세션 행에만
+  적용하며 사용자·profile·전적의 수명과 결합하지 않는다. 폐기 행은 절대 만료 전까지
+  유지하고 그 뒤 만료 행과 함께 제거한다. 한 주기의 오류는 기록하고 다음 주기에
+  재시도하며 graceful shutdown context가 worker를 종료한다.
 
 ## 결과
 

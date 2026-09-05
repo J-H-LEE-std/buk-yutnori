@@ -18,7 +18,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const sqliteSchemaVersion = 4
+const sqliteSchemaVersion = 5
 
 // SQLiteEventStore is the canonical room-event and authentication store backed
 // by one local SQLite database file. Open one instance per process; the
@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 	revoked_at_ms   INTEGER,
 	FOREIGN KEY (user_id) REFERENCES users(user_id)
 ) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS sessions_expires_at_idx
+	ON sessions (expires_at_ms, digest);
 
 CREATE TABLE IF NOT EXISTS profiles (
 	user_id    TEXT    NOT NULL PRIMARY KEY,
@@ -273,6 +276,40 @@ func (store *SQLiteEventStore) RevokeSession(ctx context.Context, digest auth.Se
 		return auth.ErrUnauthenticated
 	}
 	return nil
+}
+
+// DeleteExpiredSessions removes at most limit session rows whose absolute
+// expiration is at or before cutoff. Account, profile, and statistics rows
+// have an independent lifetime and are never removed by this maintenance
+// operation.
+func (store *SQLiteEventStore) DeleteExpiredSessions(ctx context.Context, cutoff time.Time, limit int) (int, error) {
+	if store == nil || store.db == nil {
+		return 0, errors.New("sqlite event store is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if cutoff.IsZero() || limit <= 0 {
+		return 0, errors.New("expired session cleanup requires cutoff and positive limit")
+	}
+	result, err := store.db.ExecContext(ctx, `DELETE FROM sessions
+		WHERE digest IN (
+			SELECT digest FROM sessions
+			WHERE expires_at_ms <= ?
+			ORDER BY expires_at_ms, digest
+			LIMIT ?
+		)`, cutoff.UTC().UnixMilli(), limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired auth sessions: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read expired auth session cleanup result: %w", err)
+	}
+	if deleted < 0 || deleted > int64(limit) {
+		return 0, fmt.Errorf("invalid expired auth session cleanup count: %d", deleted)
+	}
+	return int(deleted), nil
 }
 
 func storedUserID(ctx context.Context, tx *sql.Tx, subject auth.GoogleSubject) (auth.UserID, error) {

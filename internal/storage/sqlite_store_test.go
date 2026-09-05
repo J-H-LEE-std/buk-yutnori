@@ -44,6 +44,14 @@ func TestOpenSQLiteAppliesCanonicalSchemaAndWAL(t *testing.T) {
 	if userVersion != sqliteSchemaVersion {
 		t.Fatalf("user_version = %d, want %d", userVersion, sqliteSchemaVersion)
 	}
+	var expiryIndexCount int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'sessions_expires_at_idx'`).Scan(&expiryIndexCount); err != nil {
+		t.Fatalf("read sessions expiry index: %v", err)
+	}
+	if expiryIndexCount != 1 {
+		t.Fatalf("sessions expiry index count = %d, want 1", expiryIndexCount)
+	}
 }
 
 func TestAppendRoomEventsRoundTripsThroughReplayRead(t *testing.T) {
@@ -384,6 +392,187 @@ func TestSQLiteAuthStoreRejectsInvalidExpiredRevokedAndConflictingSessions(t *te
 		Digest: sha256.Sum256([]byte("user-id-collision")), CreatedAt: now, LastUsedAt: now, ExpiresAt: now.Add(auth.SessionLifetime),
 	}); !errors.Is(err, auth.ErrSessionConflict) {
 		t.Fatalf("IssueSession(user ID collision) error = %v, want ErrSessionConflict", err)
+	}
+}
+
+func TestSQLiteDeleteExpiredSessionsIsInclusiveBoundedAndPreservesAccountData(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "session-cleanup.db")
+	store, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("OpenSQLite() error = %v", err)
+	}
+	ctx := context.Background()
+	cutoff := time.Date(2026, time.September, 5, 12, 0, 0, 0, time.UTC)
+	userID := auth.UserID("usr_EREREREREREREREREREREQ")
+	sessions := []struct {
+		name      string
+		expiresAt time.Time
+	}{
+		{name: "oldest", expiresAt: cutoff.Add(-time.Hour)},
+		{name: "expired-revoked", expiresAt: cutoff.Add(-30 * time.Minute)},
+		{name: "boundary", expiresAt: cutoff},
+		{name: "future", expiresAt: cutoff.Add(time.Hour)},
+	}
+	for _, candidate := range sessions {
+		digest := sha256.Sum256([]byte(candidate.name))
+		createdAt := candidate.expiresAt.Add(-auth.SessionLifetime)
+		if _, err := store.IssueSession(ctx, "cleanup-subject", userID, auth.NewSession{
+			Digest: digest, CreatedAt: createdAt, LastUsedAt: createdAt, ExpiresAt: candidate.expiresAt,
+		}); err != nil {
+			t.Fatalf("IssueSession(%s) error = %v", candidate.name, err)
+		}
+	}
+	expiredRevokedDigest := sha256.Sum256([]byte("expired-revoked"))
+	if err := store.RevokeSession(ctx, expiredRevokedDigest, cutoff.Add(-45*time.Minute)); err != nil {
+		t.Fatalf("RevokeSession(expired) error = %v", err)
+	}
+	if err := store.Save(ctx, profile.Profile{UserID: userID, Nickname: "정리사용자", Public: true}); err != nil {
+		t.Fatalf("Save(profile) error = %v", err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO user_stats (user_id, wins, losses) VALUES (?, 3, 2)`, string(userID)); err != nil {
+		t.Fatalf("insert user_stats error = %v", err)
+	}
+	futureDigest := sha256.Sum256([]byte("future"))
+	if err := store.RevokeSession(ctx, futureDigest, cutoff.Add(-time.Minute)); err != nil {
+		t.Fatalf("RevokeSession(future) error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close() before cleanup error = %v", err)
+	}
+
+	store, err = OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("reopen SQLite store error = %v", err)
+	}
+	defer store.Close()
+
+	deleted, err := store.DeleteExpiredSessions(ctx, cutoff, 1)
+	if err != nil || deleted != 1 {
+		t.Fatalf("first DeleteExpiredSessions() = %d, %v; want 1, nil", deleted, err)
+	}
+	assertSessionRowCount(t, store, "oldest", 0)
+	assertSessionRowCount(t, store, "expired-revoked", 1)
+	assertSessionRowCount(t, store, "boundary", 1)
+	assertSessionRowCount(t, store, "future", 1)
+
+	deleted, err = store.DeleteExpiredSessions(ctx, cutoff, 10)
+	if err != nil || deleted != 2 {
+		t.Fatalf("second DeleteExpiredSessions() = %d, %v; want 2, nil", deleted, err)
+	}
+	assertSessionRowCount(t, store, "expired-revoked", 0)
+	assertSessionRowCount(t, store, "boundary", 0)
+	assertSessionRowCount(t, store, "future", 1)
+	if _, err := store.UseSession(ctx, futureDigest, cutoff.Add(30*time.Minute)); !errors.Is(err, auth.ErrUnauthenticated) {
+		t.Fatalf("revoked future session error = %v, want ErrUnauthenticated", err)
+	}
+
+	var users, profiles, stats int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM users WHERE user_id = ?`, string(userID)).Scan(&users); err != nil {
+		t.Fatalf("count users error = %v", err)
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM profiles WHERE user_id = ?`, string(userID)).Scan(&profiles); err != nil {
+		t.Fatalf("count profiles error = %v", err)
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM user_stats WHERE user_id = ?`, string(userID)).Scan(&stats); err != nil {
+		t.Fatalf("count user_stats error = %v", err)
+	}
+	if users != 1 || profiles != 1 || stats != 1 {
+		t.Fatalf("account rows after cleanup users/profiles/stats = %d/%d/%d", users, profiles, stats)
+	}
+	var wins, losses int
+	if err := store.db.QueryRow(`SELECT wins, losses FROM user_stats WHERE user_id = ?`, string(userID)).Scan(&wins, &losses); err != nil {
+		t.Fatalf("read preserved user_stats error = %v", err)
+	}
+	if wins != 3 || losses != 2 {
+		t.Fatalf("preserved user_stats = %d/%d, want 3/2", wins, losses)
+	}
+}
+
+func TestOpenSQLiteUpgradesPopulatedV4AuthSchemaWithoutLosingData(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "v4-auth.db")
+	store, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("OpenSQLite() error = %v", err)
+	}
+	ctx := context.Background()
+	created := time.Date(2026, time.September, 5, 12, 0, 0, 0, time.UTC)
+	digest := sha256.Sum256([]byte("v4-surviving-session"))
+	userID := auth.UserID("usr_EREREREREREREREREREREQ")
+	if _, err := store.IssueSession(ctx, "v4-subject", userID, auth.NewSession{
+		Digest: digest, CreatedAt: created, LastUsedAt: created, ExpiresAt: created.Add(auth.SessionLifetime),
+	}); err != nil {
+		t.Fatalf("IssueSession() error = %v", err)
+	}
+	if err := store.Save(ctx, profile.Profile{UserID: userID, Nickname: "이전사용자", Public: true}); err != nil {
+		t.Fatalf("Save(profile) error = %v", err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO user_stats (user_id, wins, losses) VALUES (?, 7, 4)`, string(userID)); err != nil {
+		t.Fatalf("insert user_stats error = %v", err)
+	}
+	if _, err := store.db.Exec(`DROP INDEX sessions_expires_at_idx`); err != nil {
+		t.Fatalf("drop v5 session index error = %v", err)
+	}
+	if _, err := store.db.Exec(`PRAGMA user_version = 4`); err != nil {
+		t.Fatalf("set v4 user_version error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close(v4 fixture) error = %v", err)
+	}
+
+	store, err = OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("OpenSQLite(v4 fixture) error = %v", err)
+	}
+	defer store.Close()
+	user, err := store.UseSession(ctx, digest, created.Add(time.Hour))
+	if err != nil || user.ID != userID {
+		t.Fatalf("UseSession() after v4 upgrade = %+v, %v", user, err)
+	}
+	profileValue, err := store.Lookup(ctx, userID)
+	if err != nil || profileValue.Nickname != "이전사용자" || profileValue.Wins != 7 || profileValue.Losses != 4 {
+		t.Fatalf("profile after v4 upgrade = %+v, %v", profileValue, err)
+	}
+	var version, indexCount int
+	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatalf("read upgraded user_version error = %v", err)
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'sessions_expires_at_idx'`).Scan(&indexCount); err != nil {
+		t.Fatalf("read upgraded session index error = %v", err)
+	}
+	if version != sqliteSchemaVersion || indexCount != 1 {
+		t.Fatalf("upgraded version/index = %d/%d, want %d/1", version, indexCount, sqliteSchemaVersion)
+	}
+}
+
+func TestSQLiteDeleteExpiredSessionsRejectsInvalidRequests(t *testing.T) {
+	t.Parallel()
+
+	store := openTestStore(t)
+	defer store.Close()
+	if _, err := store.DeleteExpiredSessions(context.Background(), time.Now(), 0); err == nil {
+		t.Fatal("DeleteExpiredSessions(limit 0) error = nil")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := store.DeleteExpiredSessions(ctx, time.Now(), 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("DeleteExpiredSessions(canceled) error = %v, want context.Canceled", err)
+	}
+}
+
+func assertSessionRowCount(t *testing.T, store *SQLiteEventStore, name string, want int) {
+	t.Helper()
+	digest := sha256.Sum256([]byte(name))
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE digest = ?`, digest[:]).Scan(&count); err != nil {
+		t.Fatalf("count session %q error = %v", name, err)
+	}
+	if count != want {
+		t.Fatalf("session %q row count = %d, want %d", name, count, want)
 	}
 }
 
