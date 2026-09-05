@@ -639,7 +639,7 @@ try {
   })()`);
   if (roomDetail.hidden || roomDetail.title !== "방"
       || roomDetail.status !== "1/2명 · 대기 중"
-      || roomDetail.member !== "<img src=x onerror=alert(1)> · player · A팀 · 준비 완료"
+      || roomDetail.member !== "<img src=x onerror=alert(1)> · player · A팀 · 준비 완료프로필 보기"
       || roomDetail.memberImageCount !== 0
       || !roomDetail.controlsDisabled) {
     throw new Error(`room detail renderer failed: ${JSON.stringify(roomDetail)}`);
@@ -689,7 +689,7 @@ try {
     realtimeSocket = null;
     return result;
   })()`);
-  if (JSON.stringify(lobbyMemberMenus.labels) !== '["방 나가기","강퇴","CPU 제거"]'
+  if (JSON.stringify(lobbyMemberMenus.labels) !== '["프로필 보기","방 나가기","프로필 보기","강퇴","CPU 제거"]'
       || lobbyMemberMenus.sent[0]?.type !== "KICK_PLAYER"
       || lobbyMemberMenus.sent[0]?.payload?.player_id !== "human-2"
       || lobbyMemberMenus.sent[1]?.type !== "REMOVE_CPU_PLAYER"
@@ -762,6 +762,196 @@ try {
     throw new Error(`game log renderer was not safe/deterministic: ${JSON.stringify(gameLogs)}`);
   }
 
+  const ownProfileFlow = await evaluate(`(async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    const responses = [
+      { user_id: "usr_EREREREREREREREREREREQ", nickname: "<img onerror=x>", is_public: false, wins: 3, losses: 2 },
+      { user_id: "usr_EREREREREREREREREREREQ", nickname: "새 별명", is_public: true, wins: 3, losses: 2 },
+      { user_id: "usr_EREREREREREREREREREREQ", nickname: "새 별명", is_public: true, wins: 3, losses: 2 },
+    ];
+    globalThis.fetch = async (url, options = {}) => {
+      requests.push({ url: String(url), method: options.method ?? "GET", headers: options.headers ?? {}, body: options.body ?? null });
+      return { ok: true, status: 200, json: async () => responses.shift() };
+    };
+    authenticatedUserId = "usr_EREREREREREREREREREREQ";
+    roomListAuthenticated = true;
+    const myProfileButton = document.getElementById("my-profile");
+    myProfileButton.hidden = false;
+    myProfileButton.focus();
+    myProfileButton.click();
+    const focusDuringLoad = document.activeElement?.id;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const modal = document.getElementById("profile-modal");
+    const nickname = document.getElementById("profile-nickname");
+    const isPublic = document.getElementById("profile-public");
+    const initial = {
+      hidden: modal.hidden,
+      nickname: nickname.value,
+      public: isPublic.checked,
+      record: document.getElementById("profile-record").textContent,
+      imageCount: modal.querySelectorAll("img").length,
+      focusDuringLoad,
+    };
+    nickname.value = "새 별명";
+    isPublic.checked = true;
+    document.getElementById("profile-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const savedStatus = document.getElementById("profile-status").textContent;
+    const savedRecord = document.getElementById("profile-record").textContent;
+    document.getElementById("profile-cancel").click();
+    const topButtonFocusRestored = document.activeElement === myProfileButton;
+    renderRoomDetail({
+      summary: { room_id: "profile-self-room", title: "프로필 방", has_password: false, player_count: 1, max_players: 2 },
+      members: [{ user_id: authenticatedUserId, nickname: "새 별명", role: "player", team: "A", ready: false }],
+    });
+    const selfProfileButton = [...document.querySelectorAll("#room-members button")]
+      .find((button) => button.textContent === "프로필 보기");
+    selfProfileButton.parentElement.open = true;
+    selfProfileButton.focus();
+    selfProfileButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const selfRedirect = !document.getElementById("profile-modal").hidden
+      && document.getElementById("public-profile-modal").hidden;
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    const escapeClosedAndRestored = document.getElementById("profile-modal").hidden
+      && document.activeElement === selfProfileButton;
+    const result = {
+      initial,
+      requests,
+      savedStatus,
+      savedRecord,
+      topButtonFocusRestored,
+      selfRedirect,
+      escapeClosedAndRestored,
+    };
+    roomMembers.replaceChildren();
+    globalThis.fetch = originalFetch;
+    authenticatedUserId = null;
+    roomListAuthenticated = false;
+    return result;
+  })()`, true);
+  if (ownProfileFlow.initial.hidden
+      || ownProfileFlow.initial.nickname !== "<img onerror=x>"
+      || ownProfileFlow.initial.public || ownProfileFlow.initial.record !== "3승 2패"
+      || ownProfileFlow.initial.imageCount !== 0
+      || ownProfileFlow.initial.focusDuringLoad !== "profile-cancel"
+      || ownProfileFlow.requests[0]?.url !== "/api/v1/profile/me"
+      || ownProfileFlow.requests[0]?.method !== "GET"
+      || ownProfileFlow.requests[1]?.url !== "/api/v1/profile/me"
+      || ownProfileFlow.requests[1]?.method !== "PUT"
+      || ownProfileFlow.requests[1]?.headers?.["Content-Type"] !== "application/json"
+      || ownProfileFlow.requests[1]?.headers?.["X-Buk-Request"] !== "1"
+      || JSON.stringify(JSON.parse(ownProfileFlow.requests[1]?.body ?? "{}")) !== '{"nickname":"새 별명","is_public":true}'
+      || ownProfileFlow.requests[2]?.url !== "/api/v1/profile/me"
+      || ownProfileFlow.requests[2]?.method !== "GET"
+      || ownProfileFlow.savedStatus !== "프로필을 저장했습니다."
+      || ownProfileFlow.savedRecord !== "3승 2패"
+      || !ownProfileFlow.topButtonFocusRestored || !ownProfileFlow.selfRedirect
+      || !ownProfileFlow.escapeClosedAndRestored) {
+    throw new Error(`own profile UI did not preserve the HTTP contract: ${JSON.stringify(ownProfileFlow)}`);
+  }
+
+  const publicProfileFlow = await evaluate(`(async () => {
+    const originalFetch = globalThis.fetch;
+    const requested = [];
+    const responses = [
+      { user_id: "usr_AAAAAAAAAAAAAAAAAAAAAA", nickname: "공개 사용자", is_public: true, wins: 7, losses: 4 },
+      { user_id: "usr_BBBBBBBBBBBBBBBBBBBBBB", nickname: "<b>private</" + "b>" },
+    ];
+    globalThis.fetch = async (url) => {
+      requested.push(String(url));
+      return { ok: true, status: 200, json: async () => responses.shift() };
+    };
+    authenticatedUserId = "usr_EREREREREREREREREREREQ";
+    roomListAuthenticated = true;
+    chatMessages.replaceChildren();
+    appendChatMessage({
+      sender_user_id: "usr_AAAAAAAAAAAAAAAAAAAAAA", sender_nickname: "공개 사용자", text: "프로필 클릭",
+    });
+    chatMessages.querySelector("button.profile-link").click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const publicResult = {
+      title: document.getElementById("public-profile-name").textContent,
+      record: document.getElementById("public-profile-record").textContent,
+    };
+    renderRoomDetail({
+      summary: { room_id: "profile-public-room", title: "공개 프로필 방", has_password: false, player_count: 2, max_players: 2 },
+      members: [
+        { user_id: authenticatedUserId, nickname: "조회자", role: "player", team: "A", ready: false },
+        { user_id: "usr_BBBBBBBBBBBBBBBBBBBBBB", nickname: "비공개 사용자", role: "player", team: "B", ready: false },
+      ],
+    });
+    const memberProfileButton = [...document.querySelectorAll("#room-members button")]
+      .find((button) => button.textContent === "프로필 보기"
+        && button.parentElement.querySelector("summary").textContent.includes("비공개 사용자"));
+    memberProfileButton.parentElement.open = true;
+    memberProfileButton.focus();
+    memberProfileButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const modal = document.getElementById("public-profile-modal");
+    const privateResult = {
+      title: document.getElementById("public-profile-name").textContent,
+      record: document.getElementById("public-profile-record").textContent,
+      scriptCount: modal.querySelectorAll("script").length,
+    };
+    const tabTrapped = !document.getElementById("public-profile-close").dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+    );
+    document.getElementById("public-profile-close").click();
+    const closeRestoredFocus = document.activeElement === memberProfileButton;
+    globalThis.fetch = originalFetch;
+    authenticatedUserId = null;
+    roomListAuthenticated = false;
+    chatMessages.replaceChildren();
+    roomMembers.replaceChildren();
+    const privateLeakRejected = !validatePublicProfile({
+      user_id: "usr_CCCCCCCCCCCCCCCCCCCCCC", nickname: "비공개", is_public: false, wins: 99, losses: 1,
+    });
+    return { requested, publicResult, privateResult, privateLeakRejected, tabTrapped, closeRestoredFocus };
+  })()`, true);
+  if (JSON.stringify(publicProfileFlow.requested) !== '["/api/v1/profiles/usr_AAAAAAAAAAAAAAAAAAAAAA","/api/v1/profiles/usr_BBBBBBBBBBBBBBBBBBBBBB"]'
+      || publicProfileFlow.publicResult.title !== "공개 사용자"
+      || publicProfileFlow.publicResult.record !== "7승 4패"
+      || publicProfileFlow.privateResult.title !== "<b>private</b>"
+      || publicProfileFlow.privateResult.record !== "전적 비공개"
+      || publicProfileFlow.privateResult.scriptCount !== 0
+      || !publicProfileFlow.privateLeakRejected || !publicProfileFlow.tabTrapped
+      || !publicProfileFlow.closeRestoredFocus) {
+    throw new Error(`public profile privacy UI was not authoritative: ${JSON.stringify(publicProfileFlow)}`);
+  }
+
+  const missingAndRejectedProfile = await evaluate(`(async () => {
+    const originalFetch = globalThis.fetch;
+    const responses = [
+      { ok: false, status: 404, body: { error: "profile_not_found" } },
+      { ok: false, status: 409, body: { error: "nickname_taken" } },
+    ];
+    globalThis.fetch = async () => {
+      const response = responses.shift();
+      return { ok: response.ok, status: response.status, json: async () => response.body };
+    };
+    authenticatedUserId = "usr_EREREREREREREREREREREQ";
+    roomListAuthenticated = true;
+    await openOwnProfile();
+    const createStatus = document.getElementById("profile-status").textContent;
+    document.getElementById("profile-nickname").value = "중복 별명";
+    document.getElementById("profile-form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const rejectedStatus = document.getElementById("profile-status").textContent;
+    const saveEnabled = !document.getElementById("profile-save").disabled;
+    closeOwnProfile();
+    authenticatedUserId = null;
+    roomListAuthenticated = false;
+    globalThis.fetch = originalFetch;
+    return { createStatus, rejectedStatus, saveEnabled };
+  })()`, true);
+  if (missingAndRejectedProfile.createStatus !== "프로필을 처음 설정해 주세요."
+      || missingAndRejectedProfile.rejectedStatus !== "이미 사용 중인 별명입니다."
+      || !missingAndRejectedProfile.saveEnabled) {
+    throw new Error(`profile creation/error states were not actionable: ${JSON.stringify(missingAndRejectedProfile)}`);
+  }
+
   const safeChat = await evaluate(`(() => {
     appendChatMessage({
       sender_user_id: "usr-chat-test",
@@ -771,13 +961,15 @@ try {
     const messages = document.getElementById("chat-messages");
     return {
       text: messages.textContent,
+      profileButtonCount: messages.querySelectorAll("button.profile-link").length,
       imageCount: messages.querySelectorAll("img").length,
       scriptCount: messages.querySelectorAll("script").length,
       executed: globalThis.chatXss === true,
     };
   })()`);
   if (safeChat.text !== "<img src=x onerror=alert(1)>: <script>globalThis.chatXss = true</script>"
-      || safeChat.imageCount !== 0 || safeChat.scriptCount !== 0 || safeChat.executed) {
+      || safeChat.profileButtonCount !== 1 || safeChat.imageCount !== 0
+      || safeChat.scriptCount !== 0 || safeChat.executed) {
     throw new Error(`chat renderer did not preserve text safely: ${JSON.stringify(safeChat)}`);
   }
 
