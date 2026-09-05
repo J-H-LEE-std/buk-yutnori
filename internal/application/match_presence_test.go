@@ -7,6 +7,7 @@ import (
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
+	"buk-yutnori/internal/domain/room"
 )
 
 func newPresenceMatchFixture(t *testing.T) *matchFixture {
@@ -106,6 +107,23 @@ func TestHostDisconnectResumesPause(t *testing.T) {
 	if fixture.runtime().paused {
 		t.Fatal("host pause remained active after disconnect")
 	}
+	events := fixture.recorder.snapshotEvents()
+	disconnectedIndex, resumedIndex := -1, -1
+	for index, event := range events {
+		switch event.Type {
+		case "PLAYER_DISCONNECTED":
+			if event.Payload.PlayerID == domain.PlayerID(host) {
+				disconnectedIndex = index
+			}
+		case "GAME_RESUMED":
+			if event.Payload.Reason == "host_disconnected" {
+				resumedIndex = index
+			}
+		}
+	}
+	if disconnectedIndex < 0 || resumedIndex != disconnectedIndex+1 {
+		t.Fatalf("host disconnect/resume order = disconnect %d, resume %d, events=%+v", disconnectedIndex, resumedIndex, events)
+	}
 }
 
 func TestAllPlayersDisconnectedWatchdogRecoversAt29Seconds(t *testing.T) {
@@ -129,9 +147,121 @@ func TestAllPlayersDisconnectedWatchdogRecoversAt29Seconds(t *testing.T) {
 	if fixture.runtime() == nil || fixture.runtime().allPlayersDisconnected {
 		t.Fatal("reconnect did not cancel all-player suspension")
 	}
+	reconnected := fixture.recorder.ofTypes("PLAYER_RECONNECTED")
+	if len(reconnected) != 1 || reconnected[0].Payload.PlayerID != domain.PlayerID(fixture.users[0]) || !reconnected[0].Payload.ControlRestored {
+		t.Fatalf("PLAYER_RECONNECTED = %+v", reconnected)
+	}
 	fixture.clock.Advance(time.Second)
 	if fixture.runtime() == nil {
 		t.Fatal("stale watchdog closed the recovered match")
+	}
+}
+
+func TestNonCurrentReconnectCancelsWatchdogAndRunsAbsentCurrentPlayer(t *testing.T) {
+	fixture := newPresenceMatchFixture(t)
+	defer fixture.recorder.close()
+	current := fixture.runtime().currentPlayer()
+	nonCurrent := fixture.otherPlayer(current)
+	for _, user := range fixture.users {
+		if err := fixture.registry.ConnectionClosed(user); err != nil {
+			t.Fatalf("ConnectionClosed(%s) error = %v", user, err)
+		}
+	}
+	if err := fixture.registry.ConnectionOpened(auth.UserID(nonCurrent)); err != nil {
+		t.Fatalf("ConnectionOpened(non-current) error = %v", err)
+	}
+	rt := fixture.runtime()
+	if rt == nil || rt.allPlayersDisconnected || rt.currentPlayer() != nonCurrent || rt.cpuControlled {
+		t.Fatalf("non-current recovery state = %+v", rt)
+	}
+	cpu := fixture.recorder.ofTypes("CPU_CONTROL_STARTED")
+	if len(cpu) == 0 || cpu[len(cpu)-1].Payload.PlayerID != current || cpu[len(cpu)-1].Payload.Reason != "disconnected" {
+		t.Fatalf("absent-current CPU control = %+v", cpu)
+	}
+}
+
+func TestSpectatorPresenceDoesNotEmitPlayerEventsOrKeepMatchAlive(t *testing.T) {
+	spectator := auth.UserID(reconnectSpectatorID)
+	fixture := newMatchFixture(t, nil, func(fixture *matchFixture) {
+		for _, user := range fixture.users {
+			if err := fixture.registry.ConnectionOpened(user); err != nil {
+				t.Fatalf("ConnectionOpened(%s) error = %v", user, err)
+			}
+		}
+		if err := fixture.registry.ConnectionOpened(spectator); err != nil {
+			t.Fatalf("ConnectionOpened(spectator) error = %v", err)
+		}
+		if _, err := fixture.registry.Join(JoinRoomInput{User: spectator, RoomID: fixture.roomID, Role: RoleSpectator}); err != nil {
+			t.Fatalf("Join(spectator) error = %v", err)
+		}
+	})
+	defer fixture.recorder.close()
+	if err := fixture.registry.ConnectionClosed(spectator); err != nil {
+		t.Fatalf("ConnectionClosed(spectator) error = %v", err)
+	}
+	if got := fixture.recorder.ofTypes("PLAYER_DISCONNECTED"); len(got) != 0 {
+		t.Fatalf("spectator emitted player disconnect = %+v", got)
+	}
+	if err := fixture.registry.ConnectionOpened(spectator); err != nil {
+		t.Fatalf("ConnectionOpened(spectator) error = %v", err)
+	}
+	for _, user := range fixture.users {
+		if err := fixture.registry.ConnectionClosed(user); err != nil {
+			t.Fatalf("ConnectionClosed(%s) error = %v", user, err)
+		}
+	}
+	fixture.clock.Advance(allPlayersDisconnectedGrace)
+	if fixture.runtime() != nil {
+		t.Fatal("connected spectator kept abandoned match alive")
+	}
+}
+
+func TestSoloHumanDisconnectSuspendsMatchWithCPUSeat(t *testing.T) {
+	wallClock := &manualClock{current: time.Date(2026, 9, 5, 16, 0, 0, 0, time.UTC)}
+	registry := newTestRegistryWithClock(t, wallClock.Now)
+	matchClock := &manualMatchClock{now: wallClock.current}
+	registry.setMatchClock(matchClock)
+	registry.setMatchRandomSeed(func() (uint64, uint64, error) { return 0xA11CE, 0xB0B, nil })
+	host := auth.UserID(matchHostID)
+	settings := room.DefaultSettings()
+	settings.MaxPlayers = 2
+	summary, err := registry.Create(CreateRoomInput{Creator: host, Creation: room.Creation{Title: "presence CPU 방"}, Settings: settings, Team: domain.TeamA})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := registry.AddCPUPlayer(host, summary.RoomID, domain.TeamB); err != nil {
+		t.Fatalf("AddCPUPlayer() error = %v", err)
+	}
+	if err := registry.ConnectionOpened(host); err != nil {
+		t.Fatalf("ConnectionOpened(host) error = %v", err)
+	}
+	if err := registry.SetReady(host, summary.RoomID, true); err != nil {
+		t.Fatalf("SetReady(host) error = %v", err)
+	}
+	recorder := newEventRecorder(t, registry, host)
+	defer recorder.close()
+	if err := registry.RequestStart(host, summary.RoomID); err != nil {
+		t.Fatalf("RequestStart() error = %v", err)
+	}
+	matchID := readActiveStart(t, registry, summary.RoomID).MatchID
+	if err := registry.ConfirmStart(host, summary.RoomID, matchID); err != nil {
+		t.Fatalf("ConfirmStart(host) error = %v", err)
+	}
+	cpuBefore := len(recorder.ofTypes("CPU_CONTROL_STARTED"))
+	if err := registry.ConnectionClosed(host); err != nil {
+		t.Fatalf("ConnectionClosed(host) error = %v", err)
+	}
+	rt := registry.rooms[summary.RoomID].runtime
+	if rt == nil || !rt.allPlayersDisconnected {
+		t.Fatalf("solo-human disconnect did not suspend match: %+v", rt)
+	}
+	matchClock.Advance(29 * time.Second)
+	if got := len(recorder.ofTypes("CPU_CONTROL_STARTED")); got != cpuBefore {
+		t.Fatalf("CPU advanced abandoned match: before=%d after=%d", cpuBefore, got)
+	}
+	matchClock.Advance(time.Second)
+	if _, err := registry.Detail(host, summary.RoomID); !errors.Is(err, ErrRoomNotFound) {
+		t.Fatalf("abandoned CPU room survived deadline: %v", err)
 	}
 }
 

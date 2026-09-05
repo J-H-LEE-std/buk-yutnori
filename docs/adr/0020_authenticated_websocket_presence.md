@@ -43,6 +43,10 @@ Accepted — 2026-09-05, Issue #157
   중 저장 재시도 횟수가 먼저 소진되더라도 30초 복귀 유예보다 앞서 저장 장애 사유로
   경기를 끝내지 않는다. 이때 pending batch를 유지하고, 30초 전에 인간 플레이어가
   복귀하면 새 저장 재시도 주기를 시작한다.
+- 연결 등록 중 `PLAYER_RECONNECTED` 저장이 실패해 진행 경기가 저장 장애 정지로
+  전환됐더라도 이미 인증·등록된 WebSocket은 끊지 않는다. 해당 연결을 유지해 복구
+  이벤트와 재동기화를 받을 수 있게 하며, 실제 session 종료 때 정상적으로 refcount를
+  한 번 감소시킨다.
 - 서버 shutdown에서 active connection을 어떤 close frame과 제한 시간으로 drain할지는
   Milestone 6 운영 정책으로 남긴다. session context 종료 자체는 마지막 연결 해제에
   포함한다.

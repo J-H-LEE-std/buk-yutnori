@@ -81,8 +81,14 @@ func (session *RealtimeSession) serve(ctx context.Context, user auth.User, conne
 	}
 	if session.presence != nil {
 		if err := session.presence.ConnectionOpened(user.ID); err != nil {
-			closeErr := session.presence.ConnectionClosed(user.ID)
-			return errors.Join(fmt.Errorf("register connection presence: %w", err), closeErr)
+			// A started match deliberately enters its durable storage-pause
+			// recovery path when a presence event cannot be persisted. The
+			// connection is already registered and must remain available for
+			// recovery instead of being torn down and immediately marked absent.
+			if !errors.Is(err, application.ErrEventStoreUnavailable) {
+				closeErr := session.presence.ConnectionClosed(user.ID)
+				return errors.Join(fmt.Errorf("register connection presence: %w", err), closeErr)
+			}
 		}
 		defer func() {
 			if err := session.presence.ConnectionClosed(user.ID); err != nil {
@@ -107,6 +113,7 @@ func (session *RealtimeSession) serve(ctx context.Context, user auth.User, conne
 		subscription.Close()
 		return fmt.Errorf("%w: chat subscription channels are required", ErrInvalidConfiguration)
 	}
+	defer subscription.Close()
 
 	var lobbyEvents <-chan application.RoomEvent
 	var lobbySubscription *application.RoomEventSubscription
@@ -148,7 +155,6 @@ func (session *RealtimeSession) serve(ctx context.Context, user auth.User, conne
 		cancelCommands()
 		cancelSession()
 		<-watcherDone
-		subscription.Close()
 		if lobbySubscription != nil {
 			lobbySubscription.Close()
 		}

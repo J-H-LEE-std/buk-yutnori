@@ -211,14 +211,63 @@ func TestRealtimeSessionRegistersAndReleasesPresenceOnContextCancellation(t *tes
 	}
 }
 
+func TestRealtimeSessionKeepsRegisteredPresenceDuringStorageRecovery(t *testing.T) {
+	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
+	if err != nil {
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
+	}
+	processor, err := application.NewProcessor(room)
+	if err != nil {
+		t.Fatalf("NewProcessor() error = %v", err)
+	}
+	subscription := &controlledChatSubscription{events: make(chan protocol.ChatMessageEvent), done: make(chan struct{})}
+	session, err := NewRealtimeSession(processor, staticChatEventSource{subscription: subscription})
+	if err != nil {
+		t.Fatalf("NewRealtimeSession() error = %v", err)
+	}
+	presence := &recordingPresence{
+		opened:  make(chan auth.UserID, 1),
+		closed:  make(chan auth.UserID, 1),
+		openErr: application.ErrEventStoreUnavailable,
+	}
+	if err := session.SetPresence(presence); err != nil {
+		t.Fatalf("SetPresence() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() {
+		served <- session.serve(ctx, auth.User{ID: testUserID}, &blockingRealtimeConnection{})
+	}()
+	select {
+	case <-presence.opened:
+	case <-time.After(time.Second):
+		t.Fatal("presence was not registered")
+	}
+	select {
+	case err := <-served:
+		t.Fatalf("storage recovery aborted session: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	if err := <-served; !errors.Is(err, context.Canceled) {
+		t.Fatalf("serve() error = %v, want context cancellation", err)
+	}
+	select {
+	case <-presence.closed:
+	default:
+		t.Fatal("presence was not released after recovered session ended")
+	}
+}
+
 type recordingPresence struct {
-	opened chan auth.UserID
-	closed chan auth.UserID
+	opened  chan auth.UserID
+	closed  chan auth.UserID
+	openErr error
 }
 
 func (presence *recordingPresence) ConnectionOpened(user auth.UserID) error {
 	presence.opened <- user
-	return nil
+	return presence.openErr
 }
 
 func (presence *recordingPresence) ConnectionClosed(user auth.UserID) error {
@@ -362,6 +411,37 @@ func TestRealtimeSessionClosesInvalidSubscription(t *testing.T) {
 	}
 }
 
+func TestRealtimeSessionClosesChatSubscriptionWhenLobbySubscribeFails(t *testing.T) {
+	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
+	if err != nil {
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
+	}
+	processor, err := application.NewProcessor(room)
+	if err != nil {
+		t.Fatalf("NewProcessor() error = %v", err)
+	}
+	subscription := &controlledChatSubscription{
+		events: make(chan protocol.ChatMessageEvent),
+		done:   make(chan struct{}),
+		closed: make(chan struct{}),
+	}
+	session, err := NewRealtimeSession(processor, staticChatEventSource{subscription: subscription})
+	if err != nil {
+		t.Fatalf("NewRealtimeSession() error = %v", err)
+	}
+	if err := session.SetLobbyEvents(failingRoomEventSource{err: errors.New("lobby unavailable")}); err != nil {
+		t.Fatalf("SetLobbyEvents() error = %v", err)
+	}
+	if err := session.serve(context.Background(), auth.User{ID: testUserID}, &blockingRealtimeConnection{}); err == nil {
+		t.Fatal("serve() error = nil, want lobby subscription failure")
+	}
+	select {
+	case <-subscription.closed:
+	default:
+		t.Fatal("chat subscription leaked after lobby subscription failure")
+	}
+}
+
 func readWebSocketJSON(t *testing.T, connection *websocket.Conn, command []byte, destination any) {
 	t.Helper()
 	if command != nil {
@@ -399,6 +479,12 @@ func assertNoWebSocketFrame(t *testing.T, connection *websocket.Conn) {
 
 type staticChatEventSource struct {
 	subscription application.ChatSubscription
+}
+
+type failingRoomEventSource struct{ err error }
+
+func (source failingRoomEventSource) SubscribeEvents(auth.UserID) (*application.RoomEventSubscription, error) {
+	return nil, source.err
 }
 
 func (source staticChatEventSource) Subscribe(auth.User) (application.ChatSubscription, error) {
