@@ -102,6 +102,10 @@
     }
 
     #chat-messages li { margin: 4px 0; overflow-wrap: anywhere; }
+    .profile-link {
+      padding: 0; border: 0; color: inherit; background: transparent;
+      font-weight: 700; text-decoration: underline; text-underline-offset: 2px;
+    }
 
     #chat-form {
       display: grid;
@@ -180,6 +184,10 @@
       box-shadow: 0 20px 60px rgb(0 0 0 / 45%);
     }
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    .profile-form { display: grid; gap: 12px; }
+    .profile-public-option { display: flex; align-items: center; gap: 8px; }
+    .profile-public-option input { width: auto; }
+    .profile-record { font-weight: 700; }
     #room-members details { margin: 6px 0; }
     #room-members details[open] {
       min-height: 112px; padding: 28px 34px 34px;
@@ -212,6 +220,7 @@
       </div>
       <div class="auth-actions">
         <div id="google-signin"></div>
+        <button id="my-profile" type="button" hidden>내 프로필</button>
         <button id="logout" type="button" hidden>로그아웃</button>
       </div>
     </section>
@@ -305,6 +314,33 @@
       <button id="resume-game" type="button" hidden>일시정지 해제</button>
     </div>
   </div>
+  <div id="profile-modal" class="game-modal" hidden role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+    <form id="profile-form" class="modal-card profile-form">
+      <h2 id="profile-modal-title">내 프로필</h2>
+      <label for="profile-nickname">닉네임</label>
+      <input id="profile-nickname" type="text" autocomplete="nickname" required
+             aria-describedby="profile-nickname-help">
+      <small id="profile-nickname-help">앞뒤 공백 없이 한글 등 Unicode 문자 2~20자</small>
+      <label class="profile-public-option" for="profile-public">
+        <input id="profile-public" type="checkbox"> 다른 사용자에게 승·패 공개
+      </label>
+      <p>전적: <span id="profile-record" class="profile-record">불러오는 중…</span></p>
+      <span id="profile-status" role="status">프로필을 불러오는 중…</span>
+      <div class="modal-actions">
+        <button id="profile-cancel" type="button">닫기</button>
+        <button id="profile-save" type="submit" disabled>저장</button>
+      </div>
+    </form>
+  </div>
+  <div id="public-profile-modal" class="game-modal" hidden role="dialog" aria-modal="true" aria-labelledby="public-profile-title">
+    <div class="modal-card">
+      <h2 id="public-profile-title">사용자 프로필</h2>
+      <p id="public-profile-name">불러오는 중…</p>
+      <p>전적: <span id="public-profile-record" class="profile-record">불러오는 중…</span></p>
+      <span id="public-profile-status" role="status"></span>
+      <div class="modal-actions"><button id="public-profile-close" type="button">닫기</button></div>
+    </div>
+  </div>
 
   <script>
     const input = document.getElementById("ime-input");
@@ -313,6 +349,7 @@
     const authStatus = document.getElementById("auth-status");
     const realtimeStatus = document.getElementById("realtime-status");
     const googleSignin = document.getElementById("google-signin");
+    const myProfile = document.getElementById("my-profile");
     const logout = document.getElementById("logout");
     const chatForm = document.getElementById("chat-form");
     const chatInput = document.getElementById("chat-input");
@@ -358,6 +395,19 @@
     const pauseRemaining = document.getElementById("pause-remaining");
     const resumeGame = document.getElementById("resume-game");
     const roomMembers = document.getElementById("room-members");
+    const profileModal = document.getElementById("profile-modal");
+    const profileForm = document.getElementById("profile-form");
+    const profileNickname = document.getElementById("profile-nickname");
+    const profilePublic = document.getElementById("profile-public");
+    const profileRecord = document.getElementById("profile-record");
+    const profileStatus = document.getElementById("profile-status");
+    const profileCancel = document.getElementById("profile-cancel");
+    const profileSave = document.getElementById("profile-save");
+    const publicProfileModal = document.getElementById("public-profile-modal");
+    const publicProfileName = document.getElementById("public-profile-name");
+    const publicProfileRecord = document.getElementById("public-profile-record");
+    const publicProfileStatus = document.getElementById("public-profile-status");
+    const publicProfileClose = document.getElementById("public-profile-close");
     const LOBBY_CHAT_ROOM_ID = "lobby";
     const MAX_CHAT_CODE_POINTS = 200;
     const MAX_RENDERED_CHAT_MESSAGES = 100;
@@ -411,6 +461,7 @@
     let activeStartScope = null;
     let activeViewerRole = null;
     let pauseCountdownTimer = null;
+    let profileRequestGeneration = 0;
 
     function setRoomEntryEnabled(enabled) {
       for (const element of [roomTitle, roomPassword, roomTeam, roomCreate]) element.disabled = !enabled;
@@ -488,6 +539,187 @@
       }
     }
 
+    function validatePrivateProfile(payload) {
+      return payload && typeof payload.user_id === "string" && payload.user_id.length > 0
+        && typeof payload.nickname === "string" && payload.nickname.length > 0
+        && typeof payload.is_public === "boolean"
+        && Number.isSafeInteger(payload.wins) && payload.wins >= 0
+        && Number.isSafeInteger(payload.losses) && payload.losses >= 0;
+    }
+
+    function validatePublicProfile(payload) {
+      if (!payload || typeof payload.user_id !== "string" || payload.user_id.length === 0
+          || typeof payload.nickname !== "string" || payload.nickname.length === 0) return false;
+      const recordFields = ["is_public", "wins", "losses"].filter((key) => Object.hasOwn(payload, key));
+      return recordFields.length === 0
+        || (recordFields.length === 3 && payload.is_public === true && validatePrivateProfile(payload));
+    }
+
+    async function readProfileError(response) {
+      try {
+        const payload = await response.json();
+        return typeof payload?.error === "string" ? payload.error : "internal_error";
+      } catch (_) {
+        return "internal_error";
+      }
+    }
+
+    function profileErrorMessage(code) {
+      switch (code) {
+        case "invalid_nickname": return "닉네임은 앞뒤 공백 없이 2~20자로 입력해 주세요.";
+        case "nickname_taken": return "이미 사용 중인 별명입니다.";
+        case "unauthenticated": return "로그인 세션이 만료되었습니다. 다시 로그인해 주세요.";
+        case "request_not_allowed": return "프로필 저장 요청이 허용되지 않았습니다.";
+        case "json_required":
+        case "invalid_request": return "프로필 입력을 확인해 주세요.";
+        case "profile_not_found": return "프로필을 찾을 수 없습니다.";
+        default: return "프로필을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      }
+    }
+
+    function setProfileFormEnabled(enabled) {
+      profileNickname.disabled = !enabled;
+      profilePublic.disabled = !enabled;
+      profileSave.disabled = !enabled;
+    }
+
+    function closeOwnProfile() {
+      profileRequestGeneration += 1;
+      profileModal.hidden = true;
+      setProfileFormEnabled(false);
+    }
+
+    async function openOwnProfile() {
+      if (!authenticatedUserId || !roomListAuthenticated) return false;
+      const userId = authenticatedUserId;
+      const generation = ++profileRequestGeneration;
+      publicProfileModal.hidden = true;
+      profileModal.hidden = false;
+      profileNickname.value = "";
+      profilePublic.checked = false;
+      profileRecord.textContent = "불러오는 중…";
+      profileStatus.textContent = "프로필을 불러오는 중…";
+      setProfileFormEnabled(false);
+      try {
+        const response = await fetch("/api/v1/profile/me", { credentials: "same-origin", cache: "no-store" });
+        if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
+        if (!response.ok) {
+          const code = await readProfileError(response);
+          if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
+          if (response.status === 404 && code === "profile_not_found") {
+            profileRecord.textContent = "프로필 저장 후 확인";
+            profileStatus.textContent = "프로필을 처음 설정해 주세요.";
+            setProfileFormEnabled(true);
+            profileNickname.focus();
+            return true;
+          }
+          profileRecord.textContent = "확인할 수 없음";
+          profileStatus.textContent = profileErrorMessage(code);
+          return false;
+        }
+        const payload = await response.json();
+        if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
+        if (!validatePrivateProfile(payload) || payload.user_id !== userId) throw new Error("invalid self profile");
+        profileNickname.value = payload.nickname;
+        profilePublic.checked = payload.is_public;
+        profileRecord.textContent = `${payload.wins}승 ${payload.losses}패`;
+        profileStatus.textContent = "프로필을 불러왔습니다.";
+        setProfileFormEnabled(true);
+        profileNickname.focus();
+        return true;
+      } catch (error) {
+        console.error(error);
+        if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
+        profileRecord.textContent = "확인할 수 없음";
+        profileStatus.textContent = profileErrorMessage("internal_error");
+        return false;
+      }
+    }
+
+    async function saveOwnProfile() {
+      if (!authenticatedUserId || profileModal.hidden || profileSave.disabled) return false;
+      const userId = authenticatedUserId;
+      const generation = ++profileRequestGeneration;
+      setProfileFormEnabled(false);
+      profileStatus.textContent = "프로필을 저장하는 중…";
+      try {
+        const response = await fetch("/api/v1/profile/me", {
+          method: "PUT", credentials: "same-origin", cache: "no-store",
+          headers: { "Content-Type": "application/json", "X-Buk-Request": "1" },
+          body: JSON.stringify({ nickname: profileNickname.value, is_public: profilePublic.checked }),
+        });
+        if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
+        if (!response.ok) {
+          const code = await readProfileError(response);
+          if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
+          profileStatus.textContent = profileErrorMessage(code);
+          setProfileFormEnabled(true);
+          return false;
+        }
+        const payload = await response.json();
+        if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
+        if (!validatePrivateProfile(payload) || payload.user_id !== userId) throw new Error("invalid saved profile");
+        profileNickname.value = payload.nickname;
+        profilePublic.checked = payload.is_public;
+        profileRecord.textContent = `${payload.wins}승 ${payload.losses}패`;
+        profileStatus.textContent = "프로필을 저장했습니다.";
+        setProfileFormEnabled(true);
+        return true;
+      } catch (error) {
+        console.error(error);
+        if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
+        profileStatus.textContent = profileErrorMessage("internal_error");
+        setProfileFormEnabled(true);
+        return false;
+      }
+    }
+
+    function closePublicProfile() {
+      profileRequestGeneration += 1;
+      publicProfileModal.hidden = true;
+    }
+
+    async function openPublicProfile(userId) {
+      if (!authenticatedUserId || !roomListAuthenticated
+          || typeof userId !== "string" || userId.length === 0) return false;
+      if (userId === authenticatedUserId) return openOwnProfile();
+      const generation = ++profileRequestGeneration;
+      profileModal.hidden = true;
+      publicProfileModal.hidden = false;
+      publicProfileName.textContent = "불러오는 중…";
+      publicProfileRecord.textContent = "불러오는 중…";
+      publicProfileStatus.textContent = "프로필을 불러오는 중…";
+      try {
+        const response = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
+          credentials: "same-origin", cache: "no-store",
+        });
+        if (generation !== profileRequestGeneration) return false;
+        if (!response.ok) {
+          const code = await readProfileError(response);
+          if (generation !== profileRequestGeneration) return false;
+          publicProfileName.textContent = "프로필 조회 실패";
+          publicProfileRecord.textContent = "확인할 수 없음";
+          publicProfileStatus.textContent = profileErrorMessage(code);
+          return false;
+        }
+        const payload = await response.json();
+        if (generation !== profileRequestGeneration) return false;
+        if (!validatePublicProfile(payload) || payload.user_id !== userId) throw new Error("invalid public profile");
+        publicProfileName.textContent = payload.nickname;
+        publicProfileRecord.textContent = Object.hasOwn(payload, "wins")
+          ? `${payload.wins}승 ${payload.losses}패` : "전적 비공개";
+        publicProfileStatus.textContent = "";
+        return true;
+      } catch (error) {
+        console.error(error);
+        if (generation !== profileRequestGeneration) return false;
+        publicProfileName.textContent = "프로필 조회 실패";
+        publicProfileRecord.textContent = "확인할 수 없음";
+        publicProfileStatus.textContent = profileErrorMessage("internal_error");
+        return false;
+      }
+    }
+
     function renderRoomDetail(detail) {
       roomDetail.hidden = false;
       roomDetailTitle.textContent = detail.summary.title;
@@ -521,6 +753,13 @@
         const profile = document.createElement("summary");
         profile.textContent = `${member.nickname}${member.is_host ? " · 방장" : ""}${member.is_cpu ? " · CPU" : ""} · ${member.role}${member.team ? ` · ${member.team}팀` : ""} · ${member.ready ? "준비 완료" : "미준비"}`;
         menu.append(profile);
+        if (!member.is_cpu) {
+          const viewProfile = document.createElement("button");
+          viewProfile.type = "button";
+          viewProfile.textContent = "프로필 보기";
+          viewProfile.addEventListener("click", () => { void openPublicProfile(member.user_id); });
+          menu.append(viewProfile);
+        }
         if (member.user_id === authenticatedUserId) {
           const leave = document.createElement("button");
           leave.type = "button"; leave.textContent = "방 나가기";
@@ -867,6 +1106,7 @@
     function showAuthenticated(userId) {
       authStatus.textContent = `로그인됨: ${userId}`;
       googleSignin.hidden = true;
+      myProfile.hidden = false;
       logout.hidden = false;
       authenticatedUserId = userId;
       roomListAuthenticated = true;
@@ -1762,8 +2002,12 @@
 
     function appendChatMessage(message) {
       const item = document.createElement("li");
-      const sender = document.createElement("strong");
+      const sender = document.createElement("button");
+      sender.type = "button";
+      sender.className = "profile-link";
       sender.textContent = message.sender_nickname;
+      sender.setAttribute("aria-label", `${message.sender_nickname} 프로필 보기`);
+      sender.addEventListener("click", () => { void openPublicProfile(message.sender_user_id); });
       item.append(sender, document.createTextNode(`: ${message.text}`));
       chatMessages.append(item);
       while (chatMessages.childElementCount > MAX_RENDERED_CHAT_MESSAGES) {
@@ -2075,8 +2319,12 @@
         if (!response.ok) throw new Error("Logout rejected");
         disconnectRealtime();
         authenticatedUserId = null;
+        profileRequestGeneration += 1;
+        profileModal.hidden = true;
+        publicProfileModal.hidden = true;
         clearStateReconnectScope();
         clearRoomList();
+        myProfile.hidden = true;
         logout.hidden = true;
         googleSignin.hidden = false;
         googleSignin.replaceChildren();
@@ -2112,6 +2360,14 @@
     input.addEventListener("input", () => {
       if (!composing) syncInputToWasm();
     });
+
+    myProfile.addEventListener("click", () => { void openOwnProfile(); });
+    profileCancel.addEventListener("click", closeOwnProfile);
+    profileForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void saveOwnProfile();
+    });
+    publicProfileClose.addEventListener("click", closePublicProfile);
 
     chatInput.addEventListener("compositionstart", () => { chatComposing = true; });
     chatInput.addEventListener("compositionend", () => { chatComposing = false; });
