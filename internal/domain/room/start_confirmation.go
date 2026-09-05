@@ -128,6 +128,26 @@ func (confirmation *StartConfirmation) Confirm(id domain.PlayerID, receivedAt ti
 	return true, nil
 }
 
+// MarkDisconnected makes a response pending again while the start window is
+// open. A player must still be connected when the roster reaches unanimous
+// confirmation (docs/05).
+func (confirmation *StartConfirmation) MarkDisconnected(id domain.PlayerID) error {
+	if confirmation == nil || confirmation.confirmed == nil {
+		return ErrInvalidStartConfirmation
+	}
+	if err := id.Validate(); err != nil {
+		return err
+	}
+	if confirmation.status != StartConfirmationPending {
+		return ErrStartConfirmationClosed
+	}
+	if _, exists := confirmation.confirmed[id]; !exists {
+		return fmt.Errorf("%w: %s", ErrStartConfirmationPlayerNotFound, id)
+	}
+	confirmation.confirmed[id] = false
+	return nil
+}
+
 // Expire applies the canonical failed-start lobby transition at or after the
 // deadline. The attempt becomes failed only after the lobby transition succeeds.
 func (confirmation *StartConfirmation) Expire(lobby *Lobby, now time.Time) ([]domain.PlayerID, error) {

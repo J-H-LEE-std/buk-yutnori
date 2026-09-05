@@ -113,6 +113,8 @@ type RoomRegistry struct {
 	ordering         []domain.RoomID
 	eventSubscribers map[*RoomEventSubscription]auth.UserID
 	eventBufferSize  int
+	presenceEnabled  bool
+	connections      map[auth.UserID]uint64
 }
 
 type registeredRoom struct {
@@ -147,6 +149,7 @@ func NewRoomRegistry(clock func() time.Time) (*RoomRegistry, error) {
 		sequences:        NewRoomEventSequences(),
 		rooms:            make(map[domain.RoomID]*registeredRoom),
 		eventSubscribers: make(map[*RoomEventSubscription]auth.UserID),
+		connections:      make(map[auth.UserID]uint64),
 	}, nil
 }
 

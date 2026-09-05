@@ -116,6 +116,9 @@ func run() error {
 	if err := realtimeSession.SetLobbyEvents(realtimeRuntime.Lobbies()); err != nil {
 		return err
 	}
+	if err := realtimeSession.SetPresence(realtimeRuntime.Lobbies()); err != nil {
+		return err
+	}
 	websocketHandler, err := wsapi.NewHandler(
 		authService,
 		realtimeSession,

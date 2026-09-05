@@ -94,13 +94,14 @@ type matchEventEnvelope struct {
 }
 
 type matchEventFields struct {
-	Status        string          `json:"status,omitempty"`
-	PlayerID      domain.PlayerID `json:"player_id,omitempty"`
-	FirstPlayerID domain.PlayerID `json:"first_player_id,omitempty"`
-	RequiredInput string          `json:"required_input,omitempty"`
-	Phase         string          `json:"phase,omitempty"`
-	Reason        string          `json:"reason,omitempty"`
-	WinnerTeamID  *domain.TeamID  `json:"winner_team_id,omitempty"`
+	Status          string          `json:"status,omitempty"`
+	PlayerID        domain.PlayerID `json:"player_id,omitempty"`
+	FirstPlayerID   domain.PlayerID `json:"first_player_id,omitempty"`
+	RequiredInput   string          `json:"required_input,omitempty"`
+	Phase           string          `json:"phase,omitempty"`
+	Reason          string          `json:"reason,omitempty"`
+	ControlRestored bool            `json:"control_restored,omitempty"`
+	WinnerTeamID    *domain.TeamID  `json:"winner_team_id,omitempty"`
 
 	Token   *protocolTokenView   `json:"token,omitempty"`
 	TokenID domain.ResultTokenID `json:"token_id,omitempty"`

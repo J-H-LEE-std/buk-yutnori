@@ -66,6 +66,16 @@ timeouts:
     continue_all_players_disconnected_watchdog: true
     all_players_disconnected_grace_seconds: 30
     storage_failure_pause_consumes_user_pause: false
+  presence:
+    authority: authenticated_websocket_count
+    disconnect_on: last_connection_closed
+    reconnect_on: first_connection_opened
+    multi_tab_intermediate_transition: none
+    all_players_disconnected_action: suspend_turn_and_start_watchdog
+    all_players_disconnected_grace_seconds: 30
+    spectator_counts_for_watchdog: false
+    cpu_player_counts_for_watchdog: false
+    reconnect_action: cancel_watchdog_and_resume_or_cpu_current_turn
 
 start_confirmation:
   deadline_seconds: 10

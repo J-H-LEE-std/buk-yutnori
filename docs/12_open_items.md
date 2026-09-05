@@ -48,17 +48,16 @@
   규칙도 ADR-0016에 명시되었다. 시작 전 방장 퇴장 시 남은 인간 플레이어 무작위
   위임과 인간 플레이어가 없을 때 방 폐쇄는 #153에서 연결했다.
 - 사용자 일시 정지·재개는 #86으로 해소되었다(방장 1회·1~30분, 타이머 종류와
-  남은 밀리초 보존, 만료 자동 재개, 스냅샷 표현). 남는 것: 방장 연결 끊김 자동
-  재개와 정지 중 전원 이탈 30초 감시는 presence 추적 선행이며, 저장 장애 자동
-  일시 정지·재시도(1s→2s→5s)·경기 무효 전이는 #87에서 ADR-0017 차단 위에
-  구현한다.
+  남은 밀리초 보존, 만료 자동 재개, 스냅샷 표현). 방장 연결 끊김 자동 재개와 정지 중
+  전원 이탈 30초 감시는 ADR-0020/#157에서 presence에 연결한다. 저장 장애 자동
+  일시 정지·재시도(1s→2s→5s)·경기 무효 전이는 #87/ADR-0017에서 구현됐다.
 - 선택 불가 결과의 서버 자동 폐기. v1 WebSocket command에는 클라이언트 폐기
   타입이 없으므로 이동 가능한 말이 없는 일반 토큰을 런타임이 자동 폐기하고
   RESULT_QUEUE_UPDATED로 알린다(docs/03 discard_only_that_token과 결과 동일).
   클라이언트 명시 폐기 계약이 필요해지면 퇴장·강퇴 전송 계약과 함께 정의한다.
 - game_snapshot 참가자의 `nickname`은 #139부터 profile nickname(없거나 읽기 실패·손상
-  record면 `user_id`)으로 해석한다. `connected=true`는 실제 presence 추적 전의 임시값으로
-  남는다.
+  record면 `user_id`)으로 해석한다. 실제 `connected`는 ADR-0020/#157의 사용자별 활성
+  WebSocket 수를 따른다.
 
 ## 구현 전 ADR 필요
 
@@ -73,9 +72,8 @@
 
 ## 제품 세부 정책 미결정
 
-- 실제 presence 연결 상태. #137은 전체 채팅, #139는 `game_snapshot`, #141은 member-only
-  room detail의 nickname을 profile nickname(없거나 읽기 실패 시 `user_id`)으로 정했다.
-  연결 여부의 정식 추적과 nickname 변경 realtime push는 별도 구현에서 확정한다.
+- 실제 presence 연결 상태는 ADR-0020/#157에서 확정한다. nickname 변경 realtime push는
+  별도 구현에서 판단한다.
 - 방 비밀번호 실패 시도 제한
 - 채팅·게임 로그 보존 기간
 - 사용자 계정 삭제 정책

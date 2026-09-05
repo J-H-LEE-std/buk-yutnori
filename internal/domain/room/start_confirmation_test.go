@@ -202,6 +202,24 @@ func TestStartConfirmationConfirmsEveryPlayerBeforeDeadline(t *testing.T) {
 	}
 }
 
+func TestStartConfirmationDisconnectMakesEarlierResponsePendingAgain(t *testing.T) {
+	lobby := readyTwoPlayerLobby(t)
+	confirmation := mustStartConfirmation(t, lobby)
+	beforeDeadline := confirmation.Snapshot().DeadlineAt.Add(-time.Second)
+	if complete, err := confirmation.Confirm("player-a", beforeDeadline); err != nil || complete {
+		t.Fatalf("Confirm(player-a) = %v, %v", complete, err)
+	}
+	if err := confirmation.MarkDisconnected("player-a"); err != nil {
+		t.Fatalf("MarkDisconnected(player-a) error = %v", err)
+	}
+	if got, want := confirmation.Snapshot().PendingPlayerIDs, []domain.PlayerID{"player-a", "player-b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("pending after disconnect = %v, want %v", got, want)
+	}
+	if err := confirmation.MarkDisconnected("missing-player"); !errors.Is(err, ErrStartConfirmationPlayerNotFound) {
+		t.Fatalf("MarkDisconnected(missing) error = %v", err)
+	}
+}
+
 func TestStartConfirmationRejectsInvalidPlayerAndDeadlineWithoutMutation(t *testing.T) {
 	lobby := readyTwoPlayerLobby(t)
 	confirmation := mustStartConfirmation(t, lobby)

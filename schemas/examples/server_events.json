@@ -226,8 +226,19 @@
   {
     "version": 1,
     "direction": "server_event",
-    "type": "PLAYER_RECONNECTED",
+    "type": "PLAYER_DISCONNECTED",
     "sequence": 15,
+    "room_id": "room-1",
+    "match_id": "match-1",
+    "payload": {
+      "player_id": "user-b"
+    }
+  },
+  {
+    "version": 1,
+    "direction": "server_event",
+    "type": "PLAYER_RECONNECTED",
+    "sequence": 16,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -239,7 +250,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "GAME_PAUSED",
-    "sequence": 16,
+    "sequence": 17,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -253,7 +264,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "GAME_RESUMED",
-    "sequence": 17,
+    "sequence": 18,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {
@@ -264,7 +275,7 @@
     "version": 1,
     "direction": "server_event",
     "type": "GAME_ENDED",
-    "sequence": 18,
+    "sequence": 19,
     "room_id": "room-1",
     "match_id": "match-1",
     "payload": {

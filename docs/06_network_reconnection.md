@@ -125,10 +125,11 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   채 `GAME_PAUSED(reason=host_request)`를 방송하며, 일시 정지 중 경기 명령은
   retriable `MATCH_PAUSED`로 거부되고 RECONNECT는 계속 허용된다. 방장의 조기
   재개와 예약 시각 만료는 같은 타이머를 보존된 남은 시간으로 되돌리고
-  `GAME_RESUMED(host_request|pause_expired)`를 방송한다. 스냅샷의
+  `GAME_RESUMED(host_request|pause_expired|host_disconnected)`를 방송한다. 스냅샷의
   `pause{used,paused,ends_at}`와 `current_turn.phase=paused`,
-  `timer.phase=paused`가 이 상태를 그대로 표현한다. 방장 연결 끊김 자동 재개와
-  전원 이탈 감시는 presence 추적 후속 과제다. 던지기·선택 제한 시간이 만료되면 서버가 해당 턴에
+  `timer.phase=paused`가 이 상태를 그대로 표현한다. 방장의 마지막 인증 WebSocket이
+  끊기면 자동 재개하며, 모든 인간 플레이어의 마지막 연결이 끊기면 행동 진행을 멈추고
+  30초 복귀 watchdog을 시작한다(ADR-0020). 던지기·선택 제한 시간이 만료되면 서버가 해당 턴에
   한해 CPU로 대체하고 `CPU_CONTROL_STARTED(reason=timeout)`를 방송한다(docs/03).
   경기 이벤트는 ROOM_UPDATED·GAME_STARTING과 같은 방 sequence 공간과 허브로
   live 방송되며, 저장·replay는 ADR-0014 구현 이후 과제다.
@@ -239,6 +240,7 @@ snapshot의 `move_request`가 `null`이다.
 - `PIECES_CAPTURED`
 - `BUK_RESOLVED`
 - `CPU_CONTROL_STARTED`
+- `PLAYER_DISCONNECTED`
 - `PLAYER_RECONNECTED`
 - `GAME_PAUSED`
 - `GAME_RESUMED`

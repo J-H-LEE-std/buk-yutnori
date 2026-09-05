@@ -88,6 +88,7 @@ func (registry *RoomRegistry) fireTurnTimeout(roomID domain.RoomID, generation u
 	}
 	player := rt.currentPlayer()
 	rt.cpuControlled = true
+	rt.cpuControlReason = cpuControlReasonTimeout
 	registry.cancelTimerLocked(rt)
 	tx := registry.newEventTx(roomID)
 	tx.emit(func(sequence uint64) (any, error) {

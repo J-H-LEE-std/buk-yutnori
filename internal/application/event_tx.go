@@ -211,6 +211,10 @@ func serverEventType(message any) string {
 		return protocol.EventBukResolved
 	case protocol.CPUControlStartedEvent:
 		return protocol.EventCPUControlStarted
+	case protocol.PlayerDisconnectedEvent:
+		return protocol.EventPlayerDisconnected
+	case protocol.PlayerReconnectedEvent:
+		return protocol.EventPlayerReconnected
 	case protocol.GameEndedEvent:
 		return protocol.EventGameEnded
 	case protocol.GamePausedEvent:

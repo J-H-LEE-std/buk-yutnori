@@ -73,7 +73,7 @@ room/match registry·참가자 상태·게임 snapshot 조립으로 대체해야
   retriable `RESYNC_REQUIRED`. 승인 결과만 멱등 보존한다.
 - #139부터 참가자 nickname은 snapshot 조립 전에 server-owned profile store에서 해석한다.
   profile이 없거나 읽기 실패·손상 record면 snapshot을 거부하지 않고 `user_id`를 쓴다.
-  `connected=true`만 실제 presence 추적 전의 임시값으로 남는다(docs/12 기록).
+  `connected`는 ADR-0020/#157부터 인증 WebSocket ref-count를 따른다.
 
 ### 직렬화 경계
 
@@ -89,5 +89,5 @@ room/match registry·참가자 상태·게임 snapshot 조립으로 대체해야
 - ADR-0013의 고정 scope, bootstrap sequence 1, 빈 로스터 스냅샷과 예제 파일은
   제거되었고 브라우저 셸은 로그인 시 scope를 위조하지 않는다. 재접속 machinery는
   정식 화면이 실제 match_id로 scope를 설정할 때 동일하게 동작한다.
-- 남는 미결: 경기 이벤트 저장·replay(ADR-0014), 일시 정지·재개, 방장 위임·퇴장
-  전송 계약, ERROR 코드 목록 표준화, presence·닉네임.
+- 남는 미결: 체크포인트 기반 replay, ERROR 코드 목록 표준화, nickname 변경 realtime
+  push와 운영 connection drain 정책.

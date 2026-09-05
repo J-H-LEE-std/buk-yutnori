@@ -19,15 +19,18 @@ const (
 	EventPiecesCaptured     = "PIECES_CAPTURED"
 	EventBukResolved        = "BUK_RESOLVED"
 	EventCPUControlStarted  = "CPU_CONTROL_STARTED"
+	EventPlayerDisconnected = "PLAYER_DISCONNECTED"
+	EventPlayerReconnected  = "PLAYER_RECONNECTED"
 	EventGamePaused         = "GAME_PAUSED"
 	EventGameResumed        = "GAME_RESUMED"
 	EventGameEnded          = "GAME_ENDED"
 
 	// Pause reasons follow schemas/ws_server_event.schema.json enums.
-	PauseReasonHostRequest    = "host_request"
-	PauseReasonStorageFailure = "storage_failure"
-	ResumeReasonHostRequest   = "host_request"
-	ResumeReasonPauseExpired  = "pause_expired"
+	PauseReasonHostRequest       = "host_request"
+	PauseReasonStorageFailure    = "storage_failure"
+	ResumeReasonHostRequest      = "host_request"
+	ResumeReasonPauseExpired     = "pause_expired"
+	ResumeReasonHostDisconnected = "host_disconnected"
 	// ResumeReasonStorageRecovered closes the operational pause from #87.
 	ResumeReasonStorageRecovered = "storage_recovered"
 
@@ -35,6 +38,69 @@ const (
 	// when every piece of one team finished.
 	GameEndedReasonAllFinished = "all_pieces_finished"
 )
+
+// PlayerDisconnectedPayload identifies a human match player whose last
+// authenticated WebSocket closed.
+type PlayerDisconnectedPayload struct {
+	PlayerID domain.PlayerID `json:"player_id"`
+}
+
+// PlayerDisconnectedEvent announces a server-authoritative presence loss.
+type PlayerDisconnectedEvent struct {
+	Version   int                       `json:"version"`
+	Direction Direction                 `json:"direction"`
+	Type      string                    `json:"type"`
+	Sequence  uint64                    `json:"sequence"`
+	RoomID    domain.RoomID             `json:"room_id"`
+	MatchID   domain.MatchID            `json:"match_id"`
+	Payload   PlayerDisconnectedPayload `json:"payload"`
+}
+
+func NewPlayerDisconnectedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence uint64, playerID domain.PlayerID) (PlayerDisconnectedEvent, error) {
+	if err := validateMatchEventScope(roomID, matchID, sequence); err != nil {
+		return PlayerDisconnectedEvent{}, err
+	}
+	if err := playerID.Validate(); err != nil {
+		return PlayerDisconnectedEvent{}, fmt.Errorf("%w: player_id: %v", ErrInvalidServerEvent, err)
+	}
+	return PlayerDisconnectedEvent{
+		Version: Version1, Direction: DirectionServerEvent, Type: EventPlayerDisconnected,
+		Sequence: sequence, RoomID: roomID, MatchID: matchID,
+		Payload: PlayerDisconnectedPayload{PlayerID: playerID},
+	}, nil
+}
+
+// PlayerReconnectedPayload identifies a returned human player. ControlRestored
+// means future eligible windows are human-controlled; committed CPU work is
+// never rolled back.
+type PlayerReconnectedPayload struct {
+	PlayerID        domain.PlayerID `json:"player_id"`
+	ControlRestored bool            `json:"control_restored"`
+}
+
+type PlayerReconnectedEvent struct {
+	Version   int                      `json:"version"`
+	Direction Direction                `json:"direction"`
+	Type      string                   `json:"type"`
+	Sequence  uint64                   `json:"sequence"`
+	RoomID    domain.RoomID            `json:"room_id"`
+	MatchID   domain.MatchID           `json:"match_id"`
+	Payload   PlayerReconnectedPayload `json:"payload"`
+}
+
+func NewPlayerReconnectedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence uint64, playerID domain.PlayerID, controlRestored bool) (PlayerReconnectedEvent, error) {
+	if err := validateMatchEventScope(roomID, matchID, sequence); err != nil {
+		return PlayerReconnectedEvent{}, err
+	}
+	if err := playerID.Validate(); err != nil {
+		return PlayerReconnectedEvent{}, fmt.Errorf("%w: player_id: %v", ErrInvalidServerEvent, err)
+	}
+	return PlayerReconnectedEvent{
+		Version: Version1, Direction: DirectionServerEvent, Type: EventPlayerReconnected,
+		Sequence: sequence, RoomID: roomID, MatchID: matchID,
+		Payload: PlayerReconnectedPayload{PlayerID: playerID, ControlRestored: controlRestored},
+	}, nil
+}
 
 // ResultTokenView is the public v1 result token shape. It intentionally omits
 // the generating player because YUT_RESULT already carries player_id.
@@ -640,7 +706,7 @@ func NewGameResumedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence 
 		return GameResumedEvent{}, err
 	}
 	switch payload.Reason {
-	case ResumeReasonHostRequest, ResumeReasonPauseExpired, ResumeReasonStorageRecovered:
+	case ResumeReasonHostRequest, ResumeReasonPauseExpired, ResumeReasonHostDisconnected, ResumeReasonStorageRecovered:
 	default:
 		return GameResumedEvent{}, fmt.Errorf("%w: reason %q", ErrInvalidServerEvent, payload.Reason)
 	}
