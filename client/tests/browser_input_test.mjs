@@ -780,6 +780,7 @@ try {
     myProfileButton.hidden = false;
     myProfileButton.focus();
     myProfileButton.click();
+    const focusDuringLoad = document.activeElement?.id;
     await new Promise((resolve) => setTimeout(resolve, 0));
     const modal = document.getElementById("profile-modal");
     const nickname = document.getElementById("profile-nickname");
@@ -790,6 +791,7 @@ try {
       public: isPublic.checked,
       record: document.getElementById("profile-record").textContent,
       imageCount: modal.querySelectorAll("img").length,
+      focusDuringLoad,
     };
     nickname.value = "새 별명";
     isPublic.checked = true;
@@ -833,6 +835,7 @@ try {
       || ownProfileFlow.initial.nickname !== "<img onerror=x>"
       || ownProfileFlow.initial.public || ownProfileFlow.initial.record !== "3승 2패"
       || ownProfileFlow.initial.imageCount !== 0
+      || ownProfileFlow.initial.focusDuringLoad !== "profile-cancel"
       || ownProfileFlow.requests[0]?.url !== "/api/v1/profile/me"
       || ownProfileFlow.requests[0]?.method !== "GET"
       || ownProfileFlow.requests[1]?.url !== "/api/v1/profile/me"

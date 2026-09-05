@@ -632,6 +632,7 @@
       profileRecord.textContent = "불러오는 중…";
       profileStatus.textContent = "프로필을 불러오는 중…";
       setProfileFormEnabled(false);
+      profileCancel.focus();
       try {
         const response = await fetch("/api/v1/profile/me", { credentials: "same-origin", cache: "no-store" });
         if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
