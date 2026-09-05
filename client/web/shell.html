@@ -104,7 +104,8 @@
     #chat-messages li { margin: 4px 0; overflow-wrap: anywhere; }
     .profile-link {
       padding: 0; border: 0; color: inherit; background: transparent;
-      font-weight: 700; text-decoration: underline; text-underline-offset: 2px;
+      min-height: auto; font-weight: 700;
+      text-decoration: underline; text-underline-offset: 2px;
     }
 
     #chat-form {
@@ -462,6 +463,7 @@
     let activeViewerRole = null;
     let pauseCountdownTimer = null;
     let profileRequestGeneration = 0;
+    let profileReturnFocus = null;
 
     function setRoomEntryEnabled(enabled) {
       for (const element of [roomTitle, roomPassword, roomTeam, roomCreate]) element.disabled = !enabled;
@@ -583,14 +585,44 @@
       profileSave.disabled = !enabled;
     }
 
+    function rememberProfileTrigger(trigger) {
+      profileReturnFocus = trigger instanceof HTMLElement
+        ? trigger
+        : document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+
+    function restoreProfileFocus() {
+      const target = profileReturnFocus;
+      profileReturnFocus = null;
+      if (target?.isConnected && !target.hidden && !target.disabled) target.focus();
+    }
+
+    function trapModalFocus(event, modal) {
+      if (event.key !== "Tab" || modal.hidden) return;
+      const focusable = [...modal.querySelectorAll("button:not([disabled]), input:not([disabled])")]
+        .filter((element) => !element.hidden);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
     function closeOwnProfile() {
       profileRequestGeneration += 1;
       profileModal.hidden = true;
       setProfileFormEnabled(false);
+      restoreProfileFocus();
     }
 
-    async function openOwnProfile() {
+    async function openOwnProfile(trigger = null) {
       if (!authenticatedUserId || !roomListAuthenticated) return false;
+      rememberProfileTrigger(trigger);
       const userId = authenticatedUserId;
       const generation = ++profileRequestGeneration;
       publicProfileModal.hidden = true;
@@ -677,18 +709,21 @@
     function closePublicProfile() {
       profileRequestGeneration += 1;
       publicProfileModal.hidden = true;
+      restoreProfileFocus();
     }
 
-    async function openPublicProfile(userId) {
+    async function openPublicProfile(userId, trigger = null) {
       if (!authenticatedUserId || !roomListAuthenticated
           || typeof userId !== "string" || userId.length === 0) return false;
-      if (userId === authenticatedUserId) return openOwnProfile();
+      if (userId === authenticatedUserId) return openOwnProfile(trigger);
+      rememberProfileTrigger(trigger);
       const generation = ++profileRequestGeneration;
       profileModal.hidden = true;
       publicProfileModal.hidden = false;
       publicProfileName.textContent = "불러오는 중…";
       publicProfileRecord.textContent = "불러오는 중…";
       publicProfileStatus.textContent = "프로필을 불러오는 중…";
+      publicProfileClose.focus();
       try {
         const response = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
           credentials: "same-origin", cache: "no-store",
@@ -757,7 +792,7 @@
           const viewProfile = document.createElement("button");
           viewProfile.type = "button";
           viewProfile.textContent = "프로필 보기";
-          viewProfile.addEventListener("click", () => { void openPublicProfile(member.user_id); });
+          viewProfile.addEventListener("click", () => { void openPublicProfile(member.user_id, viewProfile); });
           menu.append(viewProfile);
         }
         if (member.user_id === authenticatedUserId) {
@@ -2007,7 +2042,7 @@
       sender.className = "profile-link";
       sender.textContent = message.sender_nickname;
       sender.setAttribute("aria-label", `${message.sender_nickname} 프로필 보기`);
-      sender.addEventListener("click", () => { void openPublicProfile(message.sender_user_id); });
+      sender.addEventListener("click", () => { void openPublicProfile(message.sender_user_id, sender); });
       item.append(sender, document.createTextNode(`: ${message.text}`));
       chatMessages.append(item);
       while (chatMessages.childElementCount > MAX_RENDERED_CHAT_MESSAGES) {
@@ -2361,13 +2396,20 @@
       if (!composing) syncInputToWasm();
     });
 
-    myProfile.addEventListener("click", () => { void openOwnProfile(); });
+    myProfile.addEventListener("click", () => { void openOwnProfile(myProfile); });
     profileCancel.addEventListener("click", closeOwnProfile);
     profileForm.addEventListener("submit", (event) => {
       event.preventDefault();
       void saveOwnProfile();
     });
     publicProfileClose.addEventListener("click", closePublicProfile);
+    profileModal.addEventListener("keydown", (event) => { trapModalFocus(event, profileModal); });
+    publicProfileModal.addEventListener("keydown", (event) => { trapModalFocus(event, publicProfileModal); });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if (!profileModal.hidden) closeOwnProfile();
+      else if (!publicProfileModal.hidden) closePublicProfile();
+    });
 
     chatInput.addEventListener("compositionstart", () => { chatComposing = true; });
     chatInput.addEventListener("compositionend", () => { chatComposing = false; });
