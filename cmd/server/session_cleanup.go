@@ -65,3 +65,9 @@ func runExpiredSessionCleanup(
 		}
 	}
 }
+
+func stopExpiredSessionCleanup(cancel context.CancelFunc, ticker *time.Ticker, done <-chan struct{}) {
+	cancel()
+	ticker.Stop()
+	<-done
+}

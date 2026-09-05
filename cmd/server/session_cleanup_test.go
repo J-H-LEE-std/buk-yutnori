@@ -69,6 +69,32 @@ func TestRunExpiredSessionCleanupRunsImmediatelyRetriesAndStops(t *testing.T) {
 	}
 }
 
+func TestStopExpiredSessionCleanupCancelsStopsAndJoinsWorker(t *testing.T) {
+	t.Parallel()
+
+	cancelCalled := make(chan struct{})
+	ticker := time.NewTicker(time.Hour)
+	workerDone := make(chan struct{})
+	stopReturned := make(chan struct{})
+	go func() {
+		stopExpiredSessionCleanup(func() { close(cancelCalled) }, ticker, workerDone)
+		close(stopReturned)
+	}()
+
+	<-cancelCalled
+	select {
+	case <-stopReturned:
+		t.Fatal("cleanup stop returned before worker joined")
+	default:
+	}
+	close(workerDone)
+	select {
+	case <-stopReturned:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup stop did not return after worker finished")
+	}
+}
+
 type cleanupResult struct {
 	deleted int
 	err     error

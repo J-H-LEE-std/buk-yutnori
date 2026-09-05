@@ -411,6 +411,7 @@ func TestSQLiteDeleteExpiredSessionsIsInclusiveBoundedAndPreservesAccountData(t 
 		expiresAt time.Time
 	}{
 		{name: "oldest", expiresAt: cutoff.Add(-time.Hour)},
+		{name: "expired-revoked", expiresAt: cutoff.Add(-30 * time.Minute)},
 		{name: "boundary", expiresAt: cutoff},
 		{name: "future", expiresAt: cutoff.Add(time.Hour)},
 	}
@@ -422,6 +423,10 @@ func TestSQLiteDeleteExpiredSessionsIsInclusiveBoundedAndPreservesAccountData(t 
 		}); err != nil {
 			t.Fatalf("IssueSession(%s) error = %v", candidate.name, err)
 		}
+	}
+	expiredRevokedDigest := sha256.Sum256([]byte("expired-revoked"))
+	if err := store.RevokeSession(ctx, expiredRevokedDigest, cutoff.Add(-45*time.Minute)); err != nil {
+		t.Fatalf("RevokeSession(expired) error = %v", err)
 	}
 	if err := store.Save(ctx, profile.Profile{UserID: userID, Nickname: "정리사용자", Public: true}); err != nil {
 		t.Fatalf("Save(profile) error = %v", err)
@@ -448,13 +453,15 @@ func TestSQLiteDeleteExpiredSessionsIsInclusiveBoundedAndPreservesAccountData(t 
 		t.Fatalf("first DeleteExpiredSessions() = %d, %v; want 1, nil", deleted, err)
 	}
 	assertSessionRowCount(t, store, "oldest", 0)
+	assertSessionRowCount(t, store, "expired-revoked", 1)
 	assertSessionRowCount(t, store, "boundary", 1)
 	assertSessionRowCount(t, store, "future", 1)
 
 	deleted, err = store.DeleteExpiredSessions(ctx, cutoff, 10)
-	if err != nil || deleted != 1 {
-		t.Fatalf("second DeleteExpiredSessions() = %d, %v; want 1, nil", deleted, err)
+	if err != nil || deleted != 2 {
+		t.Fatalf("second DeleteExpiredSessions() = %d, %v; want 2, nil", deleted, err)
 	}
+	assertSessionRowCount(t, store, "expired-revoked", 0)
 	assertSessionRowCount(t, store, "boundary", 0)
 	assertSessionRowCount(t, store, "future", 1)
 	if _, err := store.UseSession(ctx, futureDigest, cutoff.Add(30*time.Minute)); !errors.Is(err, auth.ErrUnauthenticated) {
@@ -480,6 +487,65 @@ func TestSQLiteDeleteExpiredSessionsIsInclusiveBoundedAndPreservesAccountData(t 
 	}
 	if wins != 3 || losses != 2 {
 		t.Fatalf("preserved user_stats = %d/%d, want 3/2", wins, losses)
+	}
+}
+
+func TestOpenSQLiteUpgradesPopulatedV4AuthSchemaWithoutLosingData(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "v4-auth.db")
+	store, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("OpenSQLite() error = %v", err)
+	}
+	ctx := context.Background()
+	created := time.Date(2026, time.September, 5, 12, 0, 0, 0, time.UTC)
+	digest := sha256.Sum256([]byte("v4-surviving-session"))
+	userID := auth.UserID("usr_EREREREREREREREREREREQ")
+	if _, err := store.IssueSession(ctx, "v4-subject", userID, auth.NewSession{
+		Digest: digest, CreatedAt: created, LastUsedAt: created, ExpiresAt: created.Add(auth.SessionLifetime),
+	}); err != nil {
+		t.Fatalf("IssueSession() error = %v", err)
+	}
+	if err := store.Save(ctx, profile.Profile{UserID: userID, Nickname: "이전사용자", Public: true}); err != nil {
+		t.Fatalf("Save(profile) error = %v", err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO user_stats (user_id, wins, losses) VALUES (?, 7, 4)`, string(userID)); err != nil {
+		t.Fatalf("insert user_stats error = %v", err)
+	}
+	if _, err := store.db.Exec(`DROP INDEX sessions_expires_at_idx`); err != nil {
+		t.Fatalf("drop v5 session index error = %v", err)
+	}
+	if _, err := store.db.Exec(`PRAGMA user_version = 4`); err != nil {
+		t.Fatalf("set v4 user_version error = %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close(v4 fixture) error = %v", err)
+	}
+
+	store, err = OpenSQLite(path)
+	if err != nil {
+		t.Fatalf("OpenSQLite(v4 fixture) error = %v", err)
+	}
+	defer store.Close()
+	user, err := store.UseSession(ctx, digest, created.Add(time.Hour))
+	if err != nil || user.ID != userID {
+		t.Fatalf("UseSession() after v4 upgrade = %+v, %v", user, err)
+	}
+	profileValue, err := store.Lookup(ctx, userID)
+	if err != nil || profileValue.Nickname != "이전사용자" || profileValue.Wins != 7 || profileValue.Losses != 4 {
+		t.Fatalf("profile after v4 upgrade = %+v, %v", profileValue, err)
+	}
+	var version, indexCount int
+	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatalf("read upgraded user_version error = %v", err)
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'sessions_expires_at_idx'`).Scan(&indexCount); err != nil {
+		t.Fatalf("read upgraded session index error = %v", err)
+	}
+	if version != sqliteSchemaVersion || indexCount != 1 {
+		t.Fatalf("upgraded version/index = %d/%d, want %d/1", version, indexCount, sqliteSchemaVersion)
 	}
 }
 

@@ -154,9 +154,7 @@ func run() error {
 		)
 	}()
 	defer func() {
-		cancelSessionCleanup()
-		sessionCleanupTicker.Stop()
-		<-sessionCleanupDone
+		stopExpiredSessionCleanup(cancelSessionCleanup, sessionCleanupTicker, sessionCleanupDone)
 	}()
 	go func() {
 		<-shutdownContext.Done()
