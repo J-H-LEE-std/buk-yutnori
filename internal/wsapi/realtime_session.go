@@ -17,10 +17,28 @@ type RoomEventSource interface {
 	SubscribeEvents(user auth.UserID) (*application.RoomEventSubscription, error)
 }
 
+// Presence receives authenticated WebSocket lifecycle transitions. The
+// implementation owns multi-connection reference counting.
+type Presence interface {
+	ConnectionOpened(user auth.UserID) error
+	ConnectionClosed(user auth.UserID) error
+}
+
 type RealtimeSession struct {
 	processor CommandProcessor
 	events    application.ChatEventSource
 	lobbies   RoomEventSource
+	presence  Presence
+}
+
+// SetPresence attaches the authoritative authenticated connection tracker.
+// Call before Serve.
+func (session *RealtimeSession) SetPresence(presence Presence) error {
+	if isNilSessionDependency(presence) {
+		return fmt.Errorf("%w: presence tracker is required", ErrInvalidConfiguration)
+	}
+	session.presence = presence
+	return nil
 }
 
 // SetLobbyEvents attaches the registry event hub. Call before Serve.
@@ -57,9 +75,25 @@ func (session *RealtimeSession) Serve(ctx context.Context, user auth.User, conne
 	return session.serve(ctx, user, connection)
 }
 
-func (session *RealtimeSession) serve(ctx context.Context, user auth.User, connection realtimeConnection) error {
+func (session *RealtimeSession) serve(ctx context.Context, user auth.User, connection realtimeConnection) (serveErr error) {
 	if session == nil || session.processor == nil || session.events == nil || isNilSessionDependency(connection) {
 		return ErrInvalidConfiguration
+	}
+	if session.presence != nil {
+		if err := session.presence.ConnectionOpened(user.ID); err != nil {
+			closeErr := session.presence.ConnectionClosed(user.ID)
+			return errors.Join(fmt.Errorf("register connection presence: %w", err), closeErr)
+		}
+		defer func() {
+			if err := session.presence.ConnectionClosed(user.ID); err != nil {
+				presenceErr := fmt.Errorf("release connection presence: %w", err)
+				if serveErr == nil {
+					serveErr = presenceErr
+				} else {
+					serveErr = errors.Join(serveErr, presenceErr)
+				}
+			}
+		}()
 	}
 	subscription, err := session.events.Subscribe(user)
 	if err != nil {

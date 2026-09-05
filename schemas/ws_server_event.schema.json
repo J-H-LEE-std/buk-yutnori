@@ -47,6 +47,7 @@
         { "$ref": "ws_server_event.schema.json#/$defs/pieces_captured" },
         { "$ref": "ws_server_event.schema.json#/$defs/buk_resolved" },
         { "$ref": "ws_server_event.schema.json#/$defs/cpu_control_started" },
+        { "$ref": "ws_server_event.schema.json#/$defs/player_disconnected" },
         { "$ref": "ws_server_event.schema.json#/$defs/player_reconnected" },
         { "$ref": "ws_server_event.schema.json#/$defs/game_paused" },
         { "$ref": "ws_server_event.schema.json#/$defs/game_resumed" },
@@ -417,6 +418,24 @@
               "properties": {
                 "player_id": { "type": "string", "minLength": 1 },
                 "reason": { "enum": ["disconnected", "timeout", "lobby_player"] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "player_disconnected": {
+      "allOf": [
+        { "$ref": "ws_server_event.schema.json#/$defs/match_scope" },
+        {
+          "properties": {
+            "type": { "const": "PLAYER_DISCONNECTED" },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["player_id"],
+              "properties": {
+                "player_id": { "type": "string", "minLength": 1 }
               }
             }
           }

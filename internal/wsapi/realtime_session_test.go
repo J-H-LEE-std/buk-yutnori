@@ -161,6 +161,71 @@ func TestNewRealtimeSessionRejectsMissingDependencies(t *testing.T) {
 	}
 }
 
+func TestRealtimeSessionRegistersAndReleasesPresenceOnContextCancellation(t *testing.T) {
+	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
+	if err != nil {
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
+	}
+	processor, err := application.NewProcessor(room)
+	if err != nil {
+		t.Fatalf("NewProcessor() error = %v", err)
+	}
+	subscription := &controlledChatSubscription{events: make(chan protocol.ChatMessageEvent), done: make(chan struct{})}
+	session, err := NewRealtimeSession(processor, staticChatEventSource{subscription: subscription})
+	if err != nil {
+		t.Fatalf("NewRealtimeSession() error = %v", err)
+	}
+	presence := &recordingPresence{opened: make(chan auth.UserID, 1), closed: make(chan auth.UserID, 1)}
+	if err := session.SetPresence(presence); err != nil {
+		t.Fatalf("SetPresence() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	served := make(chan error, 1)
+	go func() {
+		served <- session.serve(ctx, auth.User{ID: testUserID}, &blockingRealtimeConnection{})
+	}()
+	select {
+	case user := <-presence.opened:
+		if user != testUserID {
+			t.Fatalf("opened user = %s, want %s", user, testUserID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("presence was not registered")
+	}
+	cancel()
+	select {
+	case err := <-served:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("serve() error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session did not stop")
+	}
+	select {
+	case user := <-presence.closed:
+		if user != testUserID {
+			t.Fatalf("closed user = %s, want %s", user, testUserID)
+		}
+	default:
+		t.Fatal("presence was not released")
+	}
+}
+
+type recordingPresence struct {
+	opened chan auth.UserID
+	closed chan auth.UserID
+}
+
+func (presence *recordingPresence) ConnectionOpened(user auth.UserID) error {
+	presence.opened <- user
+	return nil
+}
+
+func (presence *recordingPresence) ConnectionClosed(user auth.UserID) error {
+	presence.closed <- user
+	return nil
+}
+
 func TestRealtimeSessionInitiatesBackpressureCloseBeforeEndingBlockedWrite(t *testing.T) {
 	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
 	if err != nil {
@@ -272,6 +337,10 @@ func TestRealtimeSessionClosesInvalidSubscription(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRealtimeSession() error = %v", err)
 	}
+	presence := &recordingPresence{opened: make(chan auth.UserID, 1), closed: make(chan auth.UserID, 1)}
+	if err := session.SetPresence(presence); err != nil {
+		t.Fatalf("SetPresence() error = %v", err)
+	}
 	connection := &blockingRealtimeConnection{}
 
 	err = session.serve(context.Background(), auth.User{ID: testUserID}, connection)
@@ -282,6 +351,14 @@ func TestRealtimeSessionClosesInvalidSubscription(t *testing.T) {
 	case <-subscription.closed:
 	default:
 		t.Fatal("invalid subscription was not closed")
+	}
+	select {
+	case user := <-presence.closed:
+		if user != testUserID {
+			t.Fatalf("closed user = %s, want %s", user, testUserID)
+		}
+	default:
+		t.Fatal("presence was not released on subscription validation failure")
 	}
 }
 

@@ -42,8 +42,6 @@ const (
 	participantPermissionChat    = "chat"
 	participantPermissionPause   = "pause_game"
 	participantPermissionManage  = "manage_room"
-
-	cpuControlReasonDisconnected = "disconnected"
 )
 
 type gameSnapshotJSON struct {
@@ -206,7 +204,10 @@ func (registry *RoomRegistry) assembleGameSnapshotWithNicknamesLocked(entry *reg
 			reason := cpuControlReasonLobbyPlayer
 			cpuControl = snapshotCPUControlJSON{Active: true, Reason: &reason}
 		} else if rt.cpuControlled && id == currentPlayer {
-			reason := cpuControlReasonTimeout
+			reason := rt.cpuControlReason
+			if reason == "" {
+				reason = cpuControlReasonTimeout
+			}
 			cpuControl = snapshotCPUControlJSON{Active: true, Reason: &reason}
 		}
 		userID := auth.UserID(id)
@@ -220,7 +221,7 @@ func (registry *RoomRegistry) assembleGameSnapshotWithNicknamesLocked(entry *reg
 			Role:        RolePlayer,
 			TeamID:      &team,
 			Permissions: permissions,
-			Connected:   !player.CPU,
+			Connected:   !player.CPU && registry.userConnectedLocked(userID),
 			CPUControl:  cpuControl,
 		})
 	}
@@ -236,7 +237,7 @@ func (registry *RoomRegistry) assembleGameSnapshotWithNicknamesLocked(entry *reg
 			Role:        RoleSpectator,
 			TeamID:      nil,
 			Permissions: []string{participantPermissionChat},
-			Connected:   true,
+			Connected:   registry.userConnectedLocked(id),
 			CPUControl:  snapshotCPUControlJSON{},
 		})
 	}

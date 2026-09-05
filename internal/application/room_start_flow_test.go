@@ -221,6 +221,44 @@ func TestConfirmStartLifecycleReachesStartedState(t *testing.T) {
 	}
 }
 
+func TestConfirmedPlayerDisconnectDuringStartWindowBecomesNonResponder(t *testing.T) {
+	fixture := newStartFixture(t, 2)
+	host := lobbyCreatorID
+	guest := auth.UserID(startRosterIDs[1])
+	for _, user := range []auth.UserID{host, guest} {
+		if err := fixture.registry.ConnectionOpened(user); err != nil {
+			t.Fatalf("ConnectionOpened(%s) error = %v", user, err)
+		}
+	}
+	if err := fixture.registry.RequestStart(host, fixture.roomID); err != nil {
+		t.Fatalf("RequestStart() error = %v", err)
+	}
+	matchID := fixture.matchID()
+	if err := fixture.registry.ConfirmStart(guest, fixture.roomID, matchID); err != nil {
+		t.Fatalf("ConfirmStart(guest) error = %v", err)
+	}
+	if err := fixture.registry.ConnectionClosed(guest); err != nil {
+		t.Fatalf("ConnectionClosed(guest) error = %v", err)
+	}
+	if err := fixture.registry.ConfirmStart(host, fixture.roomID, matchID); err != nil {
+		t.Fatalf("ConfirmStart(host) error = %v", err)
+	}
+	if fixture.registry.rooms[fixture.roomID].started {
+		t.Fatal("disconnected confirmed guest incorrectly completed the start")
+	}
+	pending := fixture.registry.rooms[fixture.roomID].confirmation.Snapshot().PendingPlayerIDs
+	if len(pending) != 1 || pending[0] != domain.PlayerID(guest) {
+		t.Fatalf("pending players = %v, want disconnected guest", pending)
+	}
+	fixture.clock.Advance(room.StartConfirmationWindow)
+	if err := fixture.registry.ExpireStartConfirmation(fixture.roomID); err != nil {
+		t.Fatalf("ExpireStartConfirmation() error = %v", err)
+	}
+	if _, err := fixture.registry.Membership(guest, fixture.roomID); !errors.Is(err, ErrNotMember) {
+		t.Fatalf("guest membership error = %v, want ErrNotMember", err)
+	}
+}
+
 // A runtime assembly failure after the irreversible domain confirmation must
 // compensate back to a retryable lobby state instead of wedging the room
 // (Claude review blocker, issue #82).

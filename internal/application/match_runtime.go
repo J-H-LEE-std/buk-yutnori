@@ -66,9 +66,10 @@ const (
 	matchTimerKindThrow = "throw"
 	matchTimerKindMove  = "move"
 
-	cpuControlReasonTimeout     = "timeout"
-	cpuControlReasonLobbyPlayer = "lobby_player"
-	gameEndedReasonAllFinished  = "all_pieces_finished"
+	cpuControlReasonTimeout      = "timeout"
+	cpuControlReasonDisconnected = "disconnected"
+	cpuControlReasonLobbyPlayer  = "lobby_player"
+	gameEndedReasonAllFinished   = "all_pieces_finished"
 )
 
 type matchTimer interface {
@@ -160,6 +161,7 @@ type matchRuntime struct {
 	timerDeadline    time.Time
 	activeTimer      matchTimer
 	cpuControlled    bool
+	cpuControlReason string
 	pendingMovePiece domain.PieceID
 
 	pauseUsed          bool
@@ -168,6 +170,12 @@ type matchRuntime struct {
 	pauseExpiryTimer   matchTimer
 	preservedTimerKind string
 	preservedRemaining time.Duration
+
+	allPlayersDisconnected bool
+	presenceGeneration     uint64
+	presenceTimer          matchTimer
+	presenceTimerKind      string
+	presenceRemaining      time.Duration
 
 	// Operational storage-failure pause (#87). Mutually exclusive with the
 	// host pause in practice because every command path is fenced while a
@@ -323,16 +331,23 @@ func (registry *RoomRegistry) beginTurnLocked(entry *registeredRoom, rt *matchRu
 	}
 	rt.machine = machine
 	rt.pendingMovePiece = ""
-	rt.cpuControlled = rt.cpuPlayers[rt.currentPlayer()]
+	current := rt.currentPlayer()
+	rt.cpuControlled = rt.cpuPlayers[current] || !registry.playerConnectedLocked(current)
+	rt.cpuControlReason = ""
 	if err := machine.Start(); err != nil {
 		return fmt.Errorf("%w: start turn: %v", ErrInvalidConfiguration, err)
 	}
 	registry.stageTurnStarted(tx, rt)
 	if rt.cpuControlled {
 		player := rt.currentPlayer()
+		reason := cpuControlReasonLobbyPlayer
+		if !rt.cpuPlayers[player] {
+			reason = cpuControlReasonDisconnected
+		}
+		rt.cpuControlReason = reason
 		tx.emit(func(sequence uint64) (any, error) {
 			return protocol.NewCPUControlStartedEvent(rt.roomID, rt.matchID, sequence, protocol.CPUControlStartedPayload{
-				PlayerID: player, Reason: cpuControlReasonLobbyPlayer,
+				PlayerID: player, Reason: reason,
 			})
 		})
 		registry.runCpuTurnLocked(entry, rt, tx)
@@ -472,11 +487,14 @@ func (registry *RoomRegistry) firePauseExpiry(roomID domain.RoomID, deadline tim
 // GAME_RESUMED broadcast.
 func (registry *RoomRegistry) resumeMatchLocked(tx *eventTx, rt *matchRuntime, reason string) error {
 	rt.paused = false
-	if rt.activeTimer != nil {
+	// During an operational storage pause activeTimer owns the retry schedule,
+	// not a turn window. A host disconnect may end the overlapping user pause
+	// but must never cancel that recovery timer.
+	if !rt.storagePaused && rt.activeTimer != nil {
 		rt.activeTimer.Stop()
 		rt.activeTimer = nil
 	}
-	if rt.preservedTimerKind != "" && rt.preservedRemaining > 0 && !rt.cpuControlled {
+	if !rt.storagePaused && rt.preservedTimerKind != "" && rt.preservedRemaining > 0 && !rt.cpuControlled {
 		switch rt.preservedTimerKind {
 		case matchTimerKindThrow:
 			registry.armTimerLocked(rt, matchTimerKindThrow, rt.preservedRemaining)
@@ -484,8 +502,10 @@ func (registry *RoomRegistry) resumeMatchLocked(tx *eventTx, rt *matchRuntime, r
 			registry.armTimerLocked(rt, matchTimerKindMove, rt.preservedRemaining)
 		}
 	}
-	rt.preservedTimerKind = ""
-	rt.preservedRemaining = 0
+	if !rt.storagePaused {
+		rt.preservedTimerKind = ""
+		rt.preservedRemaining = 0
+	}
 	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewGameResumedEvent(rt.roomID, rt.matchID, sequence, protocol.GameResumedPayload{Reason: reason})
 	})
@@ -682,6 +702,16 @@ func (registry *RoomRegistry) fireStorageRetry(roomID domain.RoomID, expectedAtt
 			})
 			return
 		}
+		// Presence grace is an independent lifecycle guarantee. Once the
+		// canonical retry schedule is exhausted while every human is away,
+		// retain the pending batch for the 30-second watchdog instead of
+		// invalidating early. A reconnect starts a fresh retry cycle; an
+		// absent room is closed by the presence watchdog even if persistence
+		// is still unavailable.
+		if rt.allPlayersDisconnected {
+			rt.activeTimer = nil
+			return
+		}
 		registry.invalidateMatchLocked(entry, rt, appendErr)
 		return
 	}
@@ -760,6 +790,29 @@ func (registry *RoomRegistry) fireStorageRetry(roomID domain.RoomID, expectedAtt
 	// touching the turn window it is preserving.
 	if rt.paused {
 		registry.settleUserPauseAfterRecoveryLocked(entry, rt)
+		return
+	}
+	if rt.allPlayersDisconnected {
+		return
+	}
+	if rt.cpuPlayers[rt.currentPlayer()] || !registry.playerConnectedLocked(rt.currentPlayer()) {
+		tx := registry.newEventTx(rt.roomID)
+		rt.cpuControlled = true
+		reason := cpuControlReasonLobbyPlayer
+		if !rt.cpuPlayers[rt.currentPlayer()] {
+			reason = cpuControlReasonDisconnected
+		}
+		rt.cpuControlReason = reason
+		rt.preservedTimerKind = ""
+		rt.preservedRemaining = 0
+		player := rt.currentPlayer()
+		tx.emit(func(sequence uint64) (any, error) {
+			return protocol.NewCPUControlStartedEvent(rt.roomID, rt.matchID, sequence, protocol.CPUControlStartedPayload{PlayerID: player, Reason: reason})
+		})
+		registry.runCpuTurnLocked(entry, rt, tx)
+		if err := tx.flush(); err != nil {
+			slog.Error("post-recovery disconnected CPU control failed", "room_id", rt.roomID, "error", err)
+		}
 		return
 	}
 	switch rt.preservedTimerKind {

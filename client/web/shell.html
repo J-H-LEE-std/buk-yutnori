@@ -1956,6 +1956,7 @@
       if (message.direction === "server_event"
           && ["TURN_STARTED", "YUT_RESULT", "RESULT_SELECTED", "PIECE_SELECTED",
               "RESULT_QUEUE_UPDATED", "MOVE_REQUIRED", "PIECES_CAPTURED", "PIECES_STACKED",
+              "CPU_CONTROL_STARTED", "PLAYER_DISCONNECTED", "PLAYER_RECONNECTED",
               "GAME_PAUSED", "GAME_RESUMED", "GAME_ENDED"].includes(message.type)
           && stateReconnectScope !== null
           && message.room_id === stateReconnectScope.roomId
