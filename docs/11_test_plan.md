@@ -38,6 +38,11 @@ SQLite·WebSocket 통합 검사와 Docker smoke 검사는 해당 서버·배포 
 검사한다. 실제 Google 서명과 키 회전은 공식 검증 라이브러리에 맡기고 저장소 및
 HTTP 테스트에서는 검증기 경계를 대역으로 주입한다.
 
+SQLite 세션 수명주기 검사는 만료 경계의 포함 삭제, 제한된 batch 진행, 유효 세션과
+사용자·profile·전적 보존, 서버 시작 직후와 주기 실행, shutdown 취소 및 일시 오류 뒤
+다음 주기 재시도를 포함한다. 정리 전후에도 만료·폐기 세션 인증 거부는 변하지 않아야
+한다.
+
 WebSocket 전송 코드가 있는 PR은 세션 인증이 upgrade 전에 수행되는지, 쿠키 원문이
 application session으로 내려가지 않는지, same-host Origin만 허용하는지 검사한다.
 또한 UTF-8 텍스트 JSON과 모든 v1 client command payload를 엄격히 decode하고,

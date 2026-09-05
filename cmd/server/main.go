@@ -139,6 +139,25 @@ func run() error {
 	}
 	shutdownContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	sessionCleanupContext, cancelSessionCleanup := context.WithCancel(shutdownContext)
+	sessionCleanupTicker := time.NewTicker(sessionCleanupInterval)
+	sessionCleanupDone := make(chan struct{})
+	go func() {
+		defer close(sessionCleanupDone)
+		runExpiredSessionCleanup(
+			sessionCleanupContext,
+			eventStore,
+			time.Now,
+			sessionCleanupTicker.C,
+			sessionCleanupBatchSize,
+			func(err error) { slog.Error("expired session cleanup failed", "error", err) },
+		)
+	}()
+	defer func() {
+		cancelSessionCleanup()
+		sessionCleanupTicker.Stop()
+		<-sessionCleanupDone
+	}()
 	go func() {
 		<-shutdownContext.Done()
 		deadline, cancel := context.WithTimeout(context.Background(), 10*time.Second)
