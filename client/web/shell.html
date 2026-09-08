@@ -211,6 +211,8 @@
       #chat-form button { min-height: 44px; }
     }
   </style>
+  <link rel="stylesheet" href="screens.css">
+  <script src="screen-model.js"></script>
 </head>
 <body>
   <main>
@@ -439,6 +441,7 @@
     let realtimeReconnectTimer = null;
     let stateReconnectScope = null;
     let fullResynchronizationAttempted = false;
+    let latestRequestedGameSequence = 0;
     let authenticatedUserId = null;
     let wasmRuntimeReady = false;
     const pendingChatCommands = new Set();
@@ -815,6 +818,7 @@
         item.append(menu);
         roomMembers.append(item);
       }
+      globalThis.BukScreens?.room(detail);
     }
 
     async function loadRoomDetail(roomId, generation) {
@@ -1003,7 +1007,7 @@
         const response = await fetch("/api/v1/rooms", {
           method: "POST", credentials: "same-origin", cache: "no-store",
           headers: { "Content-Type": "application/json", "X-Buk-Request": "1" },
-          body: JSON.stringify({ title: roomTitle.value, password: roomPassword.value, team: roomTeam.value }),
+          body: JSON.stringify({ title: roomTitle.value, password: roomPassword.value, team: roomTeam.value, settings: globalThis.BukScreens?.settings() }),
         });
         if (!response.ok) throw new Error(`room create request failed: ${response.status}`);
         const summary = await response.json();
@@ -1152,6 +1156,7 @@
       realtimeReconnectEnabled = true;
       realtimeReconnectAttempt = 0;
       connectRealtime();
+      void globalThis.BukScreens?.authenticated();
     }
 
     function connectRealtime() {
@@ -1237,9 +1242,11 @@
       pendingPauseCommands.clear();
       confirmedRouteRequest = null;
       stateReconnectScope = { roomId, matchId };
+      latestRequestedGameSequence = 0;
+      globalThis.BukScreens?.sync();
       fullResynchronizationAttempted = false;
-      Module.ccall("BukClientBeginSynchronization", "number", [], []);
-      if (realtimeSocket?.readyState === WebSocket.OPEN) {
+      if (wasmRuntimeReady) Module.ccall("BukClientBeginSynchronization", "number", [], []);
+      if (wasmRuntimeReady && realtimeSocket?.readyState === WebSocket.OPEN) {
         requestStateSynchronization(false);
       }
       return true;
@@ -1289,6 +1296,7 @@
     }
 
     function leaveActiveRoomView() {
+      globalThis.BukScreens?.forgetRoom();
       roomDetailRequestGeneration++;
       activeRoomId = null;
       activeRoomRole = null;
@@ -1298,6 +1306,7 @@
       clearStateReconnectScope();
       clearMatchSession();
       refreshRoomList();
+      globalThis.BukScreens?.sync();
     }
 
     function sendStartConfirmation() {
@@ -1402,6 +1411,7 @@
           moveCandidates.append(button);
         }
       }
+      globalThis.BukScreens?.match(snapshot);
       return true;
     }
 
@@ -1464,6 +1474,7 @@
     }
 
     function requestStateSynchronization(full) {
+      if (!wasmRuntimeReady) return false;
       const socket = realtimeSocket;
       if (stateReconnectScope === null || !socket || socket.readyState !== WebSocket.OPEN) {
         return false;
@@ -1573,10 +1584,28 @@
           || !Array.isArray(request.candidates) || request.candidates.length === 0) return false;
       const seen = new Set();
       for (const candidate of request.candidates) {
-        if (!hasExactKeys(candidate, ["token_id", "piece_id", "routes"])
+        if (!isRecord(candidate)) return false;
+        const candidateKeys = ["token_id", "piece_id", "routes"];
+        if (Object.hasOwn(candidate, "previews")) candidateKeys.push("previews");
+        if (!hasExactKeys(candidate, candidateKeys)
             || !isStringId(candidate.token_id) || !isStringId(candidate.piece_id)
             || !Array.isArray(candidate.routes) || !candidate.routes.every((route) => ROUTES.has(route))
             || new Set(candidate.routes).size !== candidate.routes.length) return false;
+        if (Object.hasOwn(candidate, "previews")) {
+          if (!Array.isArray(candidate.previews) || candidate.previews.length === 0) return false;
+          const previewRoutes = new Set();
+          for (const preview of candidate.previews) {
+            if (!hasExactKeys(preview, ["route", "traversed", "destination_state", "destination_space_id"])
+              || !(preview.route === null ? candidate.routes.length === 0 : candidate.routes.includes(preview.route))
+              || previewRoutes.has(preview.route)
+              || !Array.isArray(preview.traversed) || !preview.traversed.every(isCanonicalBoardSpace)
+              || !["on_board", "home_checkpoint", "finished"].includes(preview.destination_state)
+              || (preview.destination_state === "finished" ? preview.destination_space_id !== null
+                : !isCanonicalBoardSpace(preview.destination_space_id))) return false;
+            previewRoutes.add(preview.route);
+          }
+          if (previewRoutes.size !== Math.max(1, candidate.routes.length)) return false;
+        }
         const key = `${candidate.token_id}\u0000${candidate.piece_id}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -2144,6 +2173,9 @@
             && applySynchronizationSequenceBundle(message)) {
           fullResynchronizationAttempted = false;
           realtimeStatus.textContent = "실시간 서버 상태 동기화 완료";
+          if (latestRequestedGameSequence > Number(Module.ccall("BukClientLastSequence", "string", [], []))) {
+            requestStateSynchronization(false);
+          }
         } else if (message.payload?.error?.code === "RESYNC_REQUIRED"
                    && !fullResynchronizationAttempted) {
           fullResynchronizationAttempted = true;
@@ -2196,12 +2228,19 @@
       if (message.direction === "server_event" && message.room_id === activeRoomId
           && message.type === "ROOM_UPDATED" && Number.isSafeInteger(message.sequence)
           && message.sequence >= 1 && ["lobby", "starting", "in_match", "post_match", "closed"].includes(message.payload?.status)) {
+        if (message.payload.status === "closed") {
+          leaveActiveRoomView();
+          roomListStatus.textContent = "방이 종료되었습니다.";
+          return;
+        }
         // The server emits ROOM_UPDATED(in_match) before GAME_STARTED, so retain
         // the start scope for that event. Every other terminal/failed start state
         // must discard it rather than allowing a stale confirmation command.
         if (["lobby", "post_match", "closed"].includes(message.payload.status)) {
           activeStartScope = null;
           clearStateReconnectScope();
+          clearMatchSession();
+          globalThis.BukScreens?.sync();
         }
         roomLobbyStatus.textContent = "방 상태가 변경되어 동기화 중…";
         refreshActiveRoomDetail();
@@ -2242,6 +2281,8 @@
           && message.room_id === stateReconnectScope.roomId
           && message.match_id === stateReconnectScope.matchId
           && Number.isSafeInteger(message.sequence) && message.sequence >= 1) {
+        globalThis.BukScreens?.event(message);
+        latestRequestedGameSequence = Math.max(latestRequestedGameSequence, message.sequence);
         requestStateSynchronization(false);
         return;
       }
@@ -2360,6 +2401,7 @@
         publicProfileModal.hidden = true;
         clearStateReconnectScope();
         clearRoomList();
+        globalThis.BukScreens?.sync();
         myProfile.hidden = true;
         logout.hidden = true;
         googleSignin.hidden = false;
@@ -2450,18 +2492,21 @@
       printErr: (...args) => console.error(...args),
       onRuntimeInitialized: () => {
         wasmRuntimeReady = true;
+        if (stateReconnectScope !== null) requestStateSynchronization(false);
         if (routeIntentTimer === null) {
           routeIntentTimer = setInterval(drainRouteSelectionIntent, 50);
         }
         refreshRouteInteraction();
         input.disabled = false;
         status.textContent = "WASM 준비 완료";
-        input.focus();
+        if (new URLSearchParams(location.search).has('diagnostics')) input.focus();
       },
     };
 
-    initializeAuth();
+    // Screen controllers initialize before authentication starts.
   </script>
+  <script src="screens.js"></script>
+  <script>initializeAuth();</script>
   {{{ SCRIPT }}}
 </body>
 </html>

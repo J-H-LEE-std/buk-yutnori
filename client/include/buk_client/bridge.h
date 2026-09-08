@@ -55,5 +55,9 @@ int BukClientCanSelectRoute(void);
 int BukClientRequestRouteSelection(const char *route);
 const char *BukClientConsumeRouteSelection(void);
 int BukClientResolveRouteCommand(void);
+float BukClientPieceLogicalX(int index);
+float BukClientPieceLogicalY(int index);
+float BukClientSpaceLogicalX(const char *space);
+float BukClientSpaceLogicalY(const char *space);
 
 #endif

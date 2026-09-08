@@ -23,3 +23,6 @@ __pycache__/
 # Local browser OAuth configuration. This file contains only a public web
 # client ID, but is machine-specific and must never grow into a secret store.
 google.yaml
+
+# Local findings and acceptance notes captured during hands-on browser testing.
+/MANUAL_TEST_REQUIRED.local.md

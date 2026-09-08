@@ -312,9 +312,18 @@ func NewPieceSelectedEvent(roomID domain.RoomID, matchID domain.MatchID, sequenc
 // MoveCandidate is one server-calculated legal result/piece pair and its
 // possible routes. An empty route list is valid for a Backdo move.
 type MoveCandidate struct {
-	TokenID domain.ResultTokenID `json:"token_id"`
-	PieceID domain.PieceID       `json:"piece_id"`
-	Routes  []domain.Route       `json:"routes"`
+	TokenID  domain.ResultTokenID `json:"token_id"`
+	PieceID  domain.PieceID       `json:"piece_id"`
+	Routes   []domain.Route       `json:"routes"`
+	Previews []MovePreview        `json:"previews,omitempty"`
+}
+
+// MovePreview projects a server plan; nil route is backdo, nil space is finish.
+type MovePreview struct {
+	Route              *domain.Route     `json:"route"`
+	Traversed          []domain.SpaceID  `json:"traversed"`
+	DestinationState   domain.PieceState `json:"destination_state"`
+	DestinationSpaceID *domain.SpaceID   `json:"destination_space_id"`
 }
 
 // MoveRequiredPayload asks the acting player for the next atomic move or

@@ -30,6 +30,58 @@ static Texture2D piece_texture_a;
 static Texture2D piece_texture_b;
 static Texture2D result_textures[BUK_CLIENT_RESULT_COUNT];
 
+/* Shared renderer coordinates for accessible DOM hit targets, not move rules. */
+static BukClientPoint PieceLogicalPoint(int index)
+{
+    static const float dx[] = {0, -15, 15, 0, 0, -15, 15, -15, 15};
+    static const float dy[] = {0, 0, 0, -15, 15, -15, -15, 15, 15};
+    const BukClientPresentationSnapshot *snapshot = BukClientConfirmedPresentation();
+    BukClientGameLayout layout;
+    BukClientPoint point = {-1, -1};
+    size_t preceding = 0U;
+    if (snapshot == NULL || index < 0 || (size_t)index >= snapshot->piece_count) return point;
+    const BukClientPresentationPiece piece = snapshot->pieces[index];
+    if (piece.state != BUK_CLIENT_PIECE_ON_BOARD && piece.state != BUK_CLIENT_PIECE_HOME_CHECKPOINT) return point;
+    if (!BukClientCalculateGameLayout(1280, 720, &layout) ||
+        !BukClientBoardMapNode(layout.board, piece.node, &point)) return (BukClientPoint){-1, -1};
+    for (int i = 0; i < index; i++) {
+        const BukClientPresentationPiece previous = snapshot->pieces[i];
+        if (previous.node == piece.node && previous.team == piece.team && previous.state == piece.state) preceding++;
+    }
+    const float ring = 1.0F + (float)(preceding / 9U);
+    point.x += dx[preceding % 9U] * ring;
+    point.y += dy[preceding % 9U] * ring;
+    return point;
+}
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+float BukClientPieceLogicalX(int index) { return PieceLogicalPoint(index).x; }
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+float BukClientPieceLogicalY(int index) { return PieceLogicalPoint(index).y; }
+
+static BukClientPoint SpaceLogicalPoint(const char *space)
+{
+    BukClientBoardNodeId node;
+    BukClientGameLayout layout;
+    BukClientPoint point = {-1, -1};
+    if (!BukClientBoardFindNode(space, &node) || !BukClientCalculateGameLayout(1280,720,&layout) ||
+        !BukClientBoardMapNode(layout.board,node,&point)) return (BukClientPoint){-1,-1};
+    return point;
+}
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+float BukClientSpaceLogicalX(const char *space) { return SpaceLogicalPoint(space).x; }
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+float BukClientSpaceLogicalY(const char *space) { return SpaceLogicalPoint(space).y; }
+
 static Texture2D LoadAssetTexture(size_t index)
 {
     const char *relative = BukClientAssetRuntimePath(index);
@@ -88,15 +140,9 @@ static void DrawCanonicalBoard(const BukClientGameLayout *layout)
 
     rendered_board_node_count = 0;
     rendered_board_edge_count = 0;
-    if (board_texture.id != 0U) {
-        DrawTexturePro(board_texture,
-                       (Rectangle){ 0.0F, 0.0F, (float)board_texture.width,
-                                   (float)board_texture.height },
-                       RaylibRectangle(layout->board), (Vector2){ 0.0F, 0.0F }, 0.0F,
-                       WHITE);
-    } else {
-        DrawRectangleRounded(RaylibRectangle(layout->board), 0.04F, 12, board_background);
-    }
+    /* The temporary illustration contains a different decorative board. Draw
+     * only the canonical graph so decorative nodes cannot look playable. */
+    DrawRectangleRounded(RaylibRectangle(layout->board), 0.04F, 12, board_background);
     edges = BukClientBoardEdges(&edge_count);
     for (edge_index = 0U; edge_index < edge_count; edge_index++) {
         BukClientPoint from;
@@ -238,6 +284,7 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
         Texture2D texture = piece.team == BUK_CLIENT_TEAM_A ? piece_texture_a : piece_texture_b;
         if (texture.id != 0U) {
             float diameter = radius * 2.0F;
+            DrawCircleV((Vector2){point.x, point.y}, radius + 3.0F * layout->scale, fill);
             DrawTexturePro(texture,
                            (Rectangle){ 0.0F, 0.0F, (float)texture.width,
                                        (float)texture.height },

@@ -188,13 +188,37 @@ async function evaluate(expression, awaitPromise = false) {
     returnByValue: true,
   });
   if (response.exceptionDetails) {
-    throw new Error(response.exceptionDetails.text);
+    throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
   }
   return response.result.value;
 }
 
 try {
   await command("Runtime.enable");
+  await command("Page.reload", { ignoreCache: true });
+  await delay(500);
+  await evaluate(`new Promise((resolve, reject) => {
+    const deadline = Date.now() + 10000;
+    const ready = () => {
+      if (typeof wasmRuntimeReady !== 'undefined' && wasmRuntimeReady) resolve();
+      else if (Date.now() >= deadline) reject(new Error('WASM runtime unavailable'));
+      else setTimeout(ready, 50);
+    };
+    ready();
+  })`, true);
+  const previewValidation = await evaluate(`(() => {
+    const request = {required_input:'select_move', candidates:[{
+      token_id:'token', piece_id:'A-1', routes:['normal'], previews:[{
+        route:'normal', traversed:['chammeogi'], destination_state:'on_board', destination_space_id:'chammeogi'
+      }]
+    }]};
+    const valid = validateMoveRequest(request,'select_move');
+    request.candidates[0].previews[0].traversed = ['not-a-board-space'];
+    const invalidSpace = !validateMoveRequest(request,'select_move');
+    request.candidates = [null];
+    return valid && invalidSpace && !validateMoveRequest(request,'select_move');
+  })()`);
+  if (!previewValidation) throw new Error('server preview validation failed');
   await evaluate(`new Promise((resolve, reject) => {
     const deadline = Date.now() + 10000;
     const waitForRuntime = () => {
@@ -309,6 +333,8 @@ try {
   })()`);
 
   const initial = await evaluate(`(() => {
+    document.querySelector('main').dataset.diagnostics = 'true';
+    document.querySelector('.bridge').hidden = false;
     const input = document.getElementById("ime-input");
     const canvas = document.getElementById("canvas");
     input.focus();
@@ -330,7 +356,7 @@ try {
       roomRefreshDisabled: document.getElementById("room-refresh").disabled,
       canvasWidth: canvas.width,
       canvasHeight: canvas.height,
-      canvasAspectRatio: canvas.clientWidth / canvas.clientHeight,
+      gameHiddenBeforeLogin: document.getElementById('screen-game').hidden,
       renderedBoardNodeCount: Module.ccall(
         "BukClientRenderedBoardNodeCount", "number", [], [],
       ),
@@ -352,7 +378,7 @@ try {
       || initial.roomListStatus !== "로그인 후 방 목록을 확인할 수 있습니다."
       || !initial.roomRefreshDisabled
       || initial.canvasWidth !== 1280 || initial.canvasHeight !== 720
-      || Math.abs(initial.canvasAspectRatio - (16 / 9)) > 0.01
+      || !initial.gameHiddenBeforeLogin
       || initial.renderedBoardNodeCount !== 29
       || initial.renderedBoardEdgeCount !== 32 || initial.renderedPieceCount !== 0
       || initial.assetsInitialized !== 1 || initial.assetsLoadedCount !== 49
@@ -580,7 +606,7 @@ try {
       documentWidth: document.documentElement.scrollWidth,
       roomCreateColumns: getComputedStyle(roomCreate).gridTemplateColumns,
       chatColumns: getComputedStyle(chatForm).gridTemplateColumns,
-      canvasAspectRatio: canvas.clientWidth / canvas.clientHeight,
+      roomScreenVisible: !document.getElementById('screen-room').hidden,
       touchTarget: getComputedStyle(document.getElementById("room-team-a")).minHeight,
       roomTitleOverflow: getComputedStyle(document.querySelector("#room-list strong")).overflowY,
       detailTitleMaxHeight: getComputedStyle(document.getElementById("room-detail-title")).maxHeight,
@@ -588,7 +614,7 @@ try {
   })()`);
   if (mobileLayout.viewportWidth !== 390 || mobileLayout.documentWidth > mobileLayout.viewportWidth
       || mobileLayout.roomCreateColumns === "none" || mobileLayout.chatColumns === "none"
-      || Math.abs(mobileLayout.canvasAspectRatio - (16 / 9)) > 0.01
+      || !mobileLayout.roomScreenVisible
       || mobileLayout.touchTarget !== "44px"
       || mobileLayout.roomTitleOverflow !== "auto"
       || mobileLayout.detailTitleMaxHeight === "none") {
@@ -801,6 +827,7 @@ try {
     const savedRecord = document.getElementById("profile-record").textContent;
     document.getElementById("profile-cancel").click();
     const topButtonFocusRestored = document.activeElement === myProfileButton;
+    activeRoomId = "profile-self-room";
     renderRoomDetail({
       summary: { room_id: "profile-self-room", title: "프로필 방", has_password: false, player_count: 1, max_players: 2 },
       members: [{ user_id: authenticatedUserId, nickname: "새 별명", role: "player", team: "A", ready: false }],
@@ -1235,6 +1262,7 @@ try {
     realtimeSocket = capture;
     authenticatedUserId = "user-a";
     stateReconnectScope = { roomId: "room-controls", matchId: "match-controls" };
+    activeRoomId = "room-controls";
     pendingThrowCommands.clear();
     pendingMoveCommands.clear();
     pendingPauseCommands.clear();
@@ -1261,6 +1289,7 @@ try {
     moveSnapshot.participants[0].permissions.push("pause_game");
     moveSnapshot.pieces[1] = { ...moveSnapshot.pieces[1], state: "finished" };
     renderMatchSession(moveSnapshot);
+    document.querySelector('#piece-targets button:not(:disabled)')?.click();
     const candidate = document.querySelector("#move-candidates button");
     const candidateText = candidate?.textContent;
     candidate?.click();
@@ -1309,11 +1338,11 @@ try {
     return result;
   })()`);
   if (!manualGameControls.applied || !manualGameControls.throwEnabled
-      || !manualGameControls.throwVisible || manualGameControls.throwPosition !== "absolute"
+      || !manualGameControls.throwVisible || manualGameControls.throwPosition !== "static"
       || manualGameControls.throwCommand?.type !== "THROW_YUT"
       || manualGameControls.throwCommand?.room_id !== "room-controls"
       || manualGameControls.throwCommand?.match_id !== "match-controls"
-      || manualGameControls.candidateText !== "말 A-1 · 결과 token-1"
+      || manualGameControls.candidateText !== "개로 이동"
       || manualGameControls.moveCommand?.type !== "SELECT_MOVE"
       || manualGameControls.moveCommand?.payload?.token_id !== "token-1"
       || manualGameControls.moveCommand?.payload?.piece_id !== "A-1"
@@ -1919,6 +1948,12 @@ try {
     throw new Error(`replay topology reducer failed: ${JSON.stringify(replayTopology)}`);
   }
 
+  await evaluate(`(() => {
+    document.querySelector('main').dataset.diagnostics = 'true';
+    document.querySelector('.bridge').hidden = false;
+    const field = document.getElementById('ime-input');
+    field.focus(); field.setSelectionRange(field.value.length, field.value.length);
+  })()`);
   await command("Input.dispatchKeyEvent", {
     type: "keyDown",
     key: "Backspace",

@@ -28,6 +28,7 @@ PRESENTATION_STATE_TEST := $(BUILD_DIR)/presentation_state_test
 ASSET_RUNTIME_TEST := $(BUILD_DIR)/asset_runtime_test
 RAYLIB_WEB_LIB := $(RAYLIB_PATH)/src/libraylib.web.a
 WEB_OUTPUT := $(BUILD_DIR)/web/index.html
+WEB_SUPPORT := $(addprefix $(BUILD_DIR)/web/,screen-model.js screens.js screens.css)
 WEB_SOURCES := $(CURDIR)/src/main.c $(STATE_SOURCE) $(PROTOCOL_STATE_SOURCE) $(PROTOCOL_BRIDGE_SOURCE) $(BOARD_LAYOUT_SOURCE) $(PRESENTATION_STATE_SOURCE) $(ASSET_RUNTIME_SOURCE)
 WEB_CFLAGS := -std=c11 -Os -Wall -Wextra -Wpedantic -Werror \
 	-Werror=implicit-function-declaration -Wmissing-prototypes -Wstrict-prototypes \
@@ -48,8 +49,9 @@ test: $(STATE_TEST) $(PROTOCOL_STATE_TEST) $(PROTOCOL_BRIDGE_TEST) $(BOARD_LAYOU
 	$(BOARD_LAYOUT_TEST)
 	$(PRESENTATION_STATE_TEST)
 	$(ASSET_RUNTIME_TEST)
+	node tests/screen_flow_test.mjs
 
-wasm: check-raylib $(WEB_OUTPUT)
+wasm: check-raylib $(WEB_OUTPUT) $(WEB_SUPPORT)
 
 check-raylib:
 	@test -f "$(RAYLIB_PATH)/src/raylib.h" || \
@@ -88,3 +90,7 @@ $(WEB_OUTPUT): $(WEB_SOURCES) $(STATE_HEADER) $(PROTOCOL_STATE_HEADER) $(BRIDGE_
 	$(EMCC) $(WEB_CFLAGS) $(INCLUDES) -I$(RAYLIB_PATH)/src $(WEB_SOURCES) \
 		$(RAYLIB_WEB_LIB) $(WEB_LDFLAGS) -o $@
 	if test -d "$(ASSET_SOURCE_DIR)"; then mkdir -p "$(BUILD_DIR)/web/assets"; cp -R "$(ASSET_SOURCE_DIR)/." "$(BUILD_DIR)/web/assets/"; fi
+
+$(WEB_SUPPORT): $(BUILD_DIR)/web/%: $(CURDIR)/web/%
+	mkdir -p $(dir $@)
+	cp $< $@

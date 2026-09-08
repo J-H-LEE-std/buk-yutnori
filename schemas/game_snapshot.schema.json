@@ -245,6 +245,19 @@
       "additionalProperties": false,
       "required": ["token_id", "piece_id", "routes"],
       "properties": {
+        "previews": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["route", "traversed", "destination_state", "destination_space_id"],
+            "properties": {
+              "route": { "enum": ["normal", "shortcut", null] },
+              "traversed": { "type": "array", "items": { "$ref": "#/$defs/string_id" } },
+              "destination_state": { "enum": ["on_board", "home_checkpoint", "finished"] },
+              "destination_space_id": { "$ref": "#/$defs/nullable_string_id" }
+            }
+          }
+        },
         "token_id": { "$ref": "#/$defs/string_id" },
         "piece_id": { "$ref": "#/$defs/string_id" },
         "routes": {

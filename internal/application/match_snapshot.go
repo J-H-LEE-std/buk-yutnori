@@ -369,7 +369,40 @@ func (rt *matchRuntime) snapshotMoveRequest(machine turn.Snapshot) (*protocol.Mo
 	default:
 		return nil, nil
 	}
+	for index := range request.Candidates {
+		candidate := &request.Candidates[index]
+		for _, token := range machine.ResultQueue {
+			if token.ID != candidate.TokenID {
+				continue
+			}
+			if token.Result == domain.YutBackdo {
+				plan, err := rt.game.BackdoMovePlan(rt.currentTeam(), candidate.PieceID)
+				if err != nil {
+					return nil, err
+				}
+				candidate.Previews = []protocol.MovePreview{previewPlan(nil, plan.Traversed, plan.DestinationState, plan.DestinationSpaceID)}
+			} else {
+				plans, err := rt.game.OrdinaryMovePlans(rt.currentTeam(), candidate.PieceID, token.Result)
+				if err != nil {
+					return nil, err
+				}
+				for _, plan := range plans {
+					route := plan.Route
+					candidate.Previews = append(candidate.Previews, previewPlan(&route, plan.Traversed, plan.DestinationState, plan.DestinationSpaceID))
+				}
+			}
+		}
+	}
 	return request, nil
+}
+
+func previewPlan(route *domain.Route, traversed []domain.SpaceID, state domain.PieceState, space domain.SpaceID) protocol.MovePreview {
+	var destination *domain.SpaceID
+	if space != "" {
+		value := space
+		destination = &value
+	}
+	return protocol.MovePreview{Route: route, Traversed: append([]domain.SpaceID{}, traversed...), DestinationState: state, DestinationSpaceID: destination}
 }
 
 func pauseEndsAtPointer(rt *matchRuntime) *string {
