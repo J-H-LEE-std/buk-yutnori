@@ -64,6 +64,9 @@ func TestNewHandlerRoutesAPIBeforeStaticClientAndSetsSecurityHeaders(t *testing.
 	if got := staticResponse.Header().Get("Cross-Origin-Opener-Policy"); got != "same-origin-allow-popups" {
 		t.Fatalf("Cross-Origin-Opener-Policy = %q", got)
 	}
+	if got := staticResponse.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q", got)
+	}
 }
 
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {

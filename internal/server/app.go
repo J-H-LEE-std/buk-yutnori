@@ -45,6 +45,12 @@ func securityHeaders(next http.Handler) http.Handler {
 		response.Header().Set("X-Content-Type-Options", "nosniff")
 		response.Header().Set("Referrer-Policy", "no-referrer")
 		response.Header().Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+		// The generated shell changes with every local WASM build. Avoid a
+		// stale cached index hiding the latest client flow during development;
+		// fingerprinted/static assets remain cacheable by the file server.
+		if request.URL.Path == "/" || request.URL.Path == "/index.html" {
+			response.Header().Set("Cache-Control", "no-store")
+		}
 		next.ServeHTTP(response, request)
 	})
 }
