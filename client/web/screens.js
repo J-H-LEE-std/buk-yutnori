@@ -85,6 +85,7 @@ globalThis.BukScreens = (() => {
   let matchKey = null;
   let resultSequence = 0;
   const recentResults = [];
+  const seenResultTokenIds = new Set();
   let timer = null;
   const resultName = BukScreenModel.resultName;
   const nickname = id => snapshot?.participants.find(p => p.user_id === id)?.nickname ?? id;
@@ -97,6 +98,7 @@ globalThis.BukScreens = (() => {
     latest.replaceChildren(document.createTextNode('아직 던진 결과가 없습니다.'));
     bukIndicator.replaceChildren();
     recentResults.length = 0;
+    seenResultTokenIds.clear();
     history.replaceChildren(); queue.replaceChildren(); targets.replaceChildren(); waiting.replaceChildren(); paths.replaceChildren(); boardAnnotations.replaceChildren();
     if (timer !== null) clearInterval(timer); timer = null;
   }
@@ -230,6 +232,29 @@ globalThis.BukScreens = (() => {
     const key = `${value.room_id}/${value.match_id}`;
     if (matchKey !== key) { if (matchKey !== null) resetMatch(); matchKey = key; }
     snapshot = value; selectedPiece = null;
+    // A CPU capture can resolve a result in the same server transaction that
+    // produced it. Keep unresolved queue entries visible even if a live event
+    // was delivered while a synchronization bundle was in flight.
+    for (const token of value.result_queue ?? []) {
+      if (!RESULTS.has(token.result) || typeof token.token_id !== 'string'
+          || seenResultTokenIds.has(token.token_id)) continue;
+      seenResultTokenIds.add(token.token_id);
+      const playerId = token.generated_by_player_id;
+      recentResults.push({
+        result: token.result,
+        label: typeof playerId === 'string'
+          ? `${playerId === authenticatedUserId ? '내 결과' : `${nickname(playerId)}의 결과`}: ${resultName(token.result)}`
+          : `서버 결과: ${resultName(token.result)}`,
+      });
+    }
+    while (recentResults.length > 4) recentResults.shift();
+    if (recentResults.length > 0) {
+      latest.replaceChildren();
+      for (const recent of recentResults) {
+        const item = make('span', null, recent.label); item.className = 'latest-result-entry';
+        item.prepend(resultImage(recent.result)); latest.append(item);
+      }
+    }
     bukIndicator.replaceChildren();
     if (value.buk?.enabled && typeof value.buk.destination_space_id === 'string') {
       bukIndicator.textContent = `북 위치: ${value.buk.destination_space_id}`;
@@ -270,10 +295,13 @@ globalThis.BukScreens = (() => {
     pieces();
   }
   function event(message) {
-    if (message.type !== 'YUT_RESULT' || !RESULTS.has(message.payload?.token?.result)
-      || typeof message.payload.player_id !== 'string' || message.sequence <= resultSequence) return;
-    resultSequence = message.sequence;
-    const {token, player_id: playerId} = message.payload;
+    const token = message.payload?.token;
+    if (message.type !== 'YUT_RESULT' || !RESULTS.has(token?.result)
+      || typeof token.token_id !== 'string' || typeof message.payload.player_id !== 'string'
+      || seenResultTokenIds.has(token.token_id)) return;
+    seenResultTokenIds.add(token.token_id);
+    if (Number.isSafeInteger(message.sequence)) resultSequence = Math.max(resultSequence, message.sequence);
+    const {player_id: playerId} = message.payload;
     const label = `${playerId === authenticatedUserId ? '내 결과' : `${nickname(playerId)}의 결과`}: ${resultName(token.result)}`;
     recentResults.push({result: token.result, label});
     while (recentResults.length > 4) recentResults.shift();
