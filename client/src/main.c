@@ -1,6 +1,7 @@
 #include "buk_client/board_layout.h"
 #include "buk_client/asset_runtime.h"
 #include "buk_client/bridge.h"
+#include "buk_client/presentation_state.h"
 #include "buk_client/state.h"
 
 #include "raylib.h"
@@ -29,6 +30,29 @@ static Texture2D board_texture;
 static Texture2D piece_texture_a;
 static Texture2D piece_texture_b;
 static Texture2D result_textures[BUK_CLIENT_RESULT_COUNT];
+static bool latest_result_set;
+static BukClientResult latest_result;
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientSetLatestResult(const char *result)
+{
+    BukClientResult parsed;
+    if (result == NULL || !BukClientParseResult(result, &parsed)) return 0;
+    latest_result = parsed;
+    latest_result_set = true;
+    return 1;
+}
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientClearLatestResult(void)
+{
+    latest_result_set = false;
+    return 1;
+}
 
 /* Shared renderer coordinates for accessible DOM hit targets, not move rules. */
 static BukClientPoint PieceLogicalPoint(int index)
@@ -397,6 +421,25 @@ static void DrawGameHud(const BukClientGameLayout *layout)
                             (double)snapshot->remaining_ms / 1000.0),
                  (int)(status.x + (24.0F * layout->scale)),
                  (int)(status.y + (116.0F * layout->scale)), body_size, muted);
+    }
+    if (latest_result_set) {
+        const BukClientRect latest = LogicalRectangle(layout, 1118.0F, 174.0F, 70.0F, 86.0F);
+        Texture2D texture = result_textures[latest_result];
+        DrawText("RESULT", (int)(latest.x + (1.0F * layout->scale)),
+                 (int)(latest.y - (18.0F * layout->scale)),
+                 (int)(12.0F * layout->scale), muted);
+        if (texture.id != 0U) {
+            DrawTexturePro(texture,
+                           (Rectangle){ 0.0F, 0.0F, (float)texture.width,
+                                       (float)texture.height },
+                           RaylibRectangle(latest), (Vector2){ 0.0F, 0.0F }, 0.0F, WHITE);
+        } else {
+            DrawRectangleRounded(RaylibRectangle(latest), 0.14F, 6,
+                                 (Color){ 255, 250, 240, 255 });
+            DrawText(BukClientResultName(latest_result),
+                     (int)(latest.x + (8.0F * layout->scale)),
+                     (int)(latest.y + (32.0F * layout->scale)), body_size, ink);
+        }
     }
 
     DrawRectangleRounded(RaylibRectangle(queue), 0.06F, 8,

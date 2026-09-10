@@ -1321,6 +1321,7 @@
       pauseOverlay.hidden = true;
       resumeGame.hidden = true;
       clearPauseCountdown();
+      if (wasmRuntimeReady) Module.ccall("BukClientClearLatestResult", "number", [], []);
     }
 
     function clearPauseCountdown() {
@@ -2243,6 +2244,11 @@
           && message.room_id === stateReconnectScope.roomId
           && message.match_id === stateReconnectScope.matchId
           && Number.isSafeInteger(message.sequence) && message.sequence >= 1) {
+        if (message.type === "YUT_RESULT" && wasmRuntimeReady
+            && typeof message.payload?.token?.result === "string") {
+          Module.ccall("BukClientSetLatestResult", "number", ["string"],
+            [message.payload.token.result]);
+        }
         globalThis.BukScreens?.event(message);
         latestRequestedGameSequence = Math.max(latestRequestedGameSequence, message.sequence);
         scheduleEventSynchronization();

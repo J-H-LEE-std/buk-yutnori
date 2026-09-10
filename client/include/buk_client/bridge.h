@@ -17,6 +17,8 @@ int BukClientAssetsFallbackCount(void);
 int BukClientSetEventCue(const char *cue);
 int BukClientClearEventCue(void);
 const char *BukClientEventCueName(void);
+int BukClientSetLatestResult(const char *result);
+int BukClientClearLatestResult(void);
 void BukClientProtocolRuntimeInit(void);
 int BukClientBeginSynchronization(void);
 int BukClientApplySnapshotSequence(const char *sequence);
