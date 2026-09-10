@@ -265,10 +265,13 @@ globalThis.BukScreens = (() => {
         const x = Module.ccall('BukClientSpaceLogicalX','number',['string'],[value.buk.destination_space_id]);
         const y = Module.ccall('BukClientSpaceLogicalY','number',['string'],[value.buk.destination_space_id]);
         if (Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0) {
-          const ring = document.createElementNS(boardAnnotations.namespaceURI,'circle');
-          ring.setAttribute('cx',x); ring.setAttribute('cy',y); ring.setAttribute('r','25');
-          ring.setAttribute('fill','none'); ring.setAttribute('stroke','#bd5516'); ring.setAttribute('stroke-width','7');
-          boardAnnotations.append(ring);
+          const marker = document.createElementNS(boardAnnotations.namespaceURI,'image');
+          marker.setAttribute('x', x - 28); marker.setAttribute('y', y - 28);
+          marker.setAttribute('width', '56'); marker.setAttribute('height', '56');
+          marker.setAttribute('href', 'assets/yut/result_buk.png');
+          marker.setAttributeNS('http://www.w3.org/1999/xlink', 'href', 'assets/yut/result_buk.png');
+          marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', '북 위치');
+          boardAnnotations.append(marker);
           const text = document.createElementNS(boardAnnotations.namespaceURI,'text');
           text.setAttribute('x',x + 28); text.setAttribute('y',y - 20); text.setAttribute('fill','#bd5516');
           text.textContent = '북'; boardAnnotations.append(text);
