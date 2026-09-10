@@ -62,10 +62,14 @@ main[data-screen="login"] .screen-shell { display:block; }
 #move-paths { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
 .piece-target { position:absolute; pointer-events:auto; transform:translate(-50%,-50%); padding:0; width:34px; height:34px; min-height:0; border-radius:50%; background:transparent; border:2px solid transparent; color:transparent; }
 .piece-target:not(:disabled) { border:3px solid #15854c; box-shadow:0 0 0 3px #fff9; cursor:pointer; }
+.piece-target.team-a:not(:disabled) { border-color:#c6453a; box-shadow:0 0 0 3px #ffd8d2; }
+.piece-target.team-b:not(:disabled) { border-color:#3366ae; box-shadow:0 0 0 3px #d6e5ff; }
 .piece-target[aria-pressed="true"] { border-color:#df8b13; box-shadow:0 0 0 4px #ffe9a4; }
 .waiting-pieces { display:flex; flex-wrap:wrap; gap:8px; }
 .waiting-piece { display:flex; align-items:center; gap:6px; }
 .waiting-piece img { width:34px; height:34px; }
+.finished-piece.team-a { color:#c6453a; }
+.finished-piece.team-b { color:#3366ae; }
 #move-candidates { display:flex; flex-wrap:wrap; gap:8px; }
 .game-logs { max-height:200px; overflow:auto; }
 .bridge { display:none; }

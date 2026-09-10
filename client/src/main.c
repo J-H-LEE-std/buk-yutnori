@@ -298,10 +298,23 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
                            (Rectangle){ 0.0F, 0.0F, (float)texture.width,
                                        (float)texture.height },
                            (Rectangle){ point.x - radius, point.y - radius, diameter, diameter },
-                           (Vector2){ 0.0F, 0.0F }, 0.0F, WHITE);
+                           (Vector2){ 0.0F, 0.0F }, 0.0F,
+                           piece.team == BUK_CLIENT_TEAM_A
+                               ? (Color){ 255, 150, 150, 255 }
+                               : (Color){ 110, 170, 255, 255 });
             DrawText(piece.team == BUK_CLIENT_TEAM_A ? "A" : "B",
                      (int)(point.x - (4.0F * layout->scale)),
                      (int)(point.y - (6.0F * layout->scale)), label_size, label);
+            /* The temporary A/B source files are intentionally identical.
+             * Keep an unmistakable team badge outside the sprite so the
+             * distinction survives until final art replaces the assets. */
+            DrawCircleV((Vector2){ point.x + (radius * 0.78F),
+                                   point.y + (radius * 0.78F) },
+                        6.0F * layout->scale, fill);
+            DrawText(piece.team == BUK_CLIENT_TEAM_A ? "A" : "B",
+                     (int)(point.x + (radius * 0.78F) - (3.0F * layout->scale)),
+                     (int)(point.y + (radius * 0.78F) - (5.0F * layout->scale)),
+                     (int)(8.0F * layout->scale), outline);
         } else {
             DrawCircleV((Vector2){ point.x, point.y }, radius + (2.0F * layout->scale), outline);
             DrawCircleV((Vector2){ point.x, point.y }, radius, fill);

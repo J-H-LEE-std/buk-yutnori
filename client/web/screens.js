@@ -68,6 +68,7 @@ globalThis.BukScreens = (() => {
   boardAnnotations.setAttribute('aria-label','북 위치'); stage.insertBefore(boardAnnotations, paths);
   const turn = make('div', 'turn-description');
   const clock = make('div', 'turn-clock');
+  const eventPhase = make('div', 'event-phase');
   const participants = make('ul', 'game-participants');
   const latest = make('div', 'latest-result', '아직 던진 결과가 없습니다.');
   const bukIndicator = make('div', 'buk-indicator'); bukIndicator.setAttribute('role', 'status');
@@ -75,7 +76,7 @@ globalThis.BukScreens = (() => {
   const queue = make('ol', 'result-queue'); queue.setAttribute('aria-label', '남은 윷 결과');
   const history = make('ol', 'throw-history'); history.setAttribute('aria-label', '최근 던지기');
   const waiting = make('div', 'waiting-pieces'); waiting.className = 'waiting-pieces';
-  gameSession.prepend(turn, clock, participants, bukIndicator, latest, queue, history);
+  gameSession.prepend(turn, clock, eventPhase, participants, bukIndicator, latest, queue, history);
   boardColumn.append(waiting, moveCandidates, finishedPieces);
   const leave = make('button', 'game-leave', '방 나가기'); leave.type = 'button';
   leave.addEventListener('click', () => sendRoomLobbyCommand('LEAVE_ROOM'));
@@ -96,6 +97,7 @@ globalThis.BukScreens = (() => {
   function resetMatch() {
     snapshot = null; selectedPiece = null; matchKey = null; resultSequence = 0;
     latest.replaceChildren(document.createTextNode('아직 던진 결과가 없습니다.'));
+    eventPhase.replaceChildren();
     bukIndicator.replaceChildren();
     recentResults.length = 0;
     seenResultTokenIds.clear();
@@ -211,7 +213,8 @@ globalThis.BukScreens = (() => {
         const x = Module.ccall('BukClientPieceLogicalX', 'number', ['number'], [index]);
         const y = Module.ccall('BukClientPieceLogicalY', 'number', ['number'], [index]);
         if (x < 0 || y < 0) continue;
-        button.className = 'piece-target'; button.style.left = `${x / 7.2}%`; button.style.top = `${y / 7.2}%`;
+        button.className = `piece-target team-${piece.team_id.toLowerCase()}`;
+        button.style.left = `${x / 7.2}%`; button.style.top = `${y / 7.2}%`;
         button.textContent = piece.piece_id; targets.append(button);
       }
     }
@@ -296,23 +299,38 @@ globalThis.BukScreens = (() => {
   }
   function event(message) {
     const token = message.payload?.token;
-    if (message.type !== 'YUT_RESULT' || !RESULTS.has(token?.result)
-      || typeof token.token_id !== 'string' || typeof message.payload.player_id !== 'string'
-      || seenResultTokenIds.has(token.token_id)) return;
-    seenResultTokenIds.add(token.token_id);
-    if (Number.isSafeInteger(message.sequence)) resultSequence = Math.max(resultSequence, message.sequence);
-    const {player_id: playerId} = message.payload;
-    const label = `${playerId === authenticatedUserId ? '내 결과' : `${nickname(playerId)}의 결과`}: ${resultName(token.result)}`;
-    recentResults.push({result: token.result, label});
-    while (recentResults.length > 4) recentResults.shift();
-    latest.replaceChildren();
-    for (const recent of recentResults) {
-      const item = make('span', null, recent.label); item.className = 'latest-result-entry';
-      item.prepend(resultImage(recent.result)); latest.append(item);
+    if (message.type === 'YUT_RESULT') {
+      if (!RESULTS.has(token?.result) || typeof token.token_id !== 'string'
+        || typeof message.payload.player_id !== 'string'
+        || seenResultTokenIds.has(token.token_id)) return;
+      seenResultTokenIds.add(token.token_id);
+      if (Number.isSafeInteger(message.sequence)) resultSequence = Math.max(resultSequence, message.sequence);
+      const {player_id: playerId} = message.payload;
+      const label = `${playerId === authenticatedUserId ? '내 결과' : `${nickname(playerId)}의 결과`}: ${resultName(token.result)}`;
+      recentResults.push({result: token.result, label});
+      while (recentResults.length > 4) recentResults.shift();
+      latest.replaceChildren();
+      for (const recent of recentResults) {
+        const item = make('span', null, recent.label); item.className = 'latest-result-entry';
+        item.prepend(resultImage(recent.result)); latest.append(item);
+      }
+      history.append(make('li', null, label));
+      while (history.children.length > 20) history.firstElementChild.remove();
+      history.scrollTop = history.scrollHeight;
+      eventPhase.textContent = `${label} · 결과 표시`;
+      eventPhase.dataset.phase = 'result';
+      return;
     }
-    history.append(make('li', null, label));
-    while (history.children.length > 20) history.firstElementChild.remove();
-    history.scrollTop = history.scrollHeight;
+    if (message.type === 'PIECE_MOVED') {
+      eventPhase.textContent = '말 이동 중…';
+      eventPhase.dataset.phase = 'move';
+    } else if (message.type === 'PIECES_CAPTURED') {
+      eventPhase.textContent = '잡기 처리 완료';
+      eventPhase.dataset.phase = 'capture';
+    } else if (message.type === 'RESULT_QUEUE_UPDATED') {
+      eventPhase.textContent = '결과 큐 갱신';
+      eventPhase.dataset.phase = 'queue';
+    }
   }
   sync();
   return {sync, room, match, event, resetMatch, settings, authenticated, forgetRoom};

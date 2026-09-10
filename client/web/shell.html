@@ -166,6 +166,7 @@
     .room-lobby-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .game-session { display: grid; gap: 6px; margin: 18px 0; padding: 14px 16px; border: 1px solid #6f5b4e; border-radius: 12px; background: rgb(255 250 240 / 8%); }
     #buk-indicator { color: #ffd08a; font-weight: 700; }
+    #event-phase { min-height: 1.5em; color: #ffd08a; font-weight: 700; }
     #board-annotations { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
     #move-paths { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
     #piece-targets { z-index: 3; }
@@ -444,6 +445,7 @@
     let realtimeReconnectEnabled = false;
     let realtimeReconnectAttempt = 0;
     let realtimeReconnectTimer = null;
+    let eventSynchronizationTimer = null;
     let stateReconnectScope = null;
     let fullResynchronizationAttempted = false;
     let latestRequestedGameSequence = 0;
@@ -1245,6 +1247,10 @@
     }
 
     function clearStateReconnectScope() {
+      if (eventSynchronizationTimer !== null) {
+        clearTimeout(eventSynchronizationTimer);
+        eventSynchronizationTimer = null;
+      }
       stateReconnectScope = null;
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
@@ -1349,6 +1355,7 @@
       finishedPieces.replaceChildren();
       for (const piece of snapshot.pieces.filter((candidate) => candidate.state === "finished")) {
         const completed = document.createElement("span");
+        completed.className = `finished-piece team-${piece.team_id.toLowerCase()}`;
         const crown = document.createElement("img");
         crown.src = "assets/piece/finished_crown.png";
         crown.alt = "완주";
@@ -1477,6 +1484,14 @@
         payload: { last_sequence: lastSequence },
       }));
       return true;
+    }
+
+    function scheduleEventSynchronization() {
+      if (eventSynchronizationTimer !== null) clearTimeout(eventSynchronizationTimer);
+      eventSynchronizationTimer = setTimeout(() => {
+        eventSynchronizationTimer = null;
+        requestStateSynchronization(false);
+      }, 120);
     }
 
     function isRecord(value) {
@@ -2230,11 +2245,12 @@
           && Number.isSafeInteger(message.sequence) && message.sequence >= 1) {
         globalThis.BukScreens?.event(message);
         latestRequestedGameSequence = Math.max(latestRequestedGameSequence, message.sequence);
-        requestStateSynchronization(false);
+        scheduleEventSynchronization();
         return;
       }
       if (message.direction === "server_event"
           && (message.type === "PIECE_MOVED" || message.type === "BUK_RESOLVED")) {
+        globalThis.BukScreens?.event(message);
         acceptGameEventCue(message);
         return;
       }
