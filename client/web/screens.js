@@ -346,12 +346,20 @@ globalThis.BukScreens = (() => {
     if (message.type === 'PIECE_MOVED') {
       eventPhase.textContent = '말 이동 중…';
       eventPhase.dataset.phase = 'move';
+      const payload = message.payload ?? {};
+      const moved = Array.isArray(payload.piece_ids) ? payload.piece_ids.join(', ') : '말';
+      const destination = payload.to_space_id ?? '완주';
+      appendHistory(`말 이동: ${moved} → ${destination}`);
     } else if (message.type === 'PIECES_CAPTURED') {
       eventPhase.textContent = '잡기 처리 완료';
       eventPhase.dataset.phase = 'capture';
       const count = Array.isArray(message.payload?.captured_piece_ids)
         ? message.payload.captured_piece_ids.length : 0;
       appendHistory(count > 0 ? `말 잡기 (${count}개)` : '말 잡기');
+    } else if (message.type === 'PIECES_STACKED') {
+      const count = Array.isArray(message.payload?.piece_ids)
+        ? message.payload.piece_ids.length : 0;
+      appendHistory(count > 1 ? `말 업기 (${count}개)` : '말 업기');
     } else if (message.type === 'RESULT_QUEUE_UPDATED') {
       eventPhase.textContent = '결과 큐 갱신';
       eventPhase.dataset.phase = 'queue';
