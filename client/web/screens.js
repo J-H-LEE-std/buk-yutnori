@@ -110,7 +110,7 @@ globalThis.BukScreens = (() => {
     while (history.children.length > 20) history.firstElementChild.remove();
     history.scrollTop = history.scrollHeight;
   }
-  function appendResult(result, playerId) {
+  function appendResult(result, playerId, sequence = null) {
     const participant = typeof playerId === 'string'
       ? snapshot?.participants.find((item) => item.user_id === playerId) : null;
     const prefix = playerId === authenticatedUserId ? '내 결과'
@@ -120,7 +120,7 @@ globalThis.BukScreens = (() => {
     recentResults.push({result, label});
     while (recentResults.length > 4) recentResults.shift();
     renderRecentResults();
-    appendHistory(label);
+    appendHistory(Number.isSafeInteger(sequence) ? `[${sequence}] ${label}` : label);
     return label;
   }
   function renderBukMarker(value) {
@@ -334,11 +334,7 @@ globalThis.BukScreens = (() => {
       seenResultTokenIds.add(token.token_id);
       if (Number.isSafeInteger(message.sequence)) resultSequence = Math.max(resultSequence, message.sequence);
       const {player_id: playerId} = message.payload;
-      const label = `${playerId === authenticatedUserId ? '내 결과' : `${nickname(playerId)}의 결과`}: ${resultName(token.result)}`;
-      recentResults.push({result: token.result, label});
-      while (recentResults.length > 4) recentResults.shift();
-      renderRecentResults();
-      appendHistory(label);
+      const label = appendResult(token.result, playerId, message.sequence);
       eventPhase.textContent = `${label} · 결과 표시`;
       eventPhase.dataset.phase = 'result';
       return;
@@ -349,17 +345,21 @@ globalThis.BukScreens = (() => {
       const payload = message.payload ?? {};
       const moved = Array.isArray(payload.piece_ids) ? payload.piece_ids.join(', ') : '말';
       const destination = payload.to_space_id ?? '완주';
-      appendHistory(`말 이동: ${moved} → ${destination}`);
+      appendHistory(Number.isSafeInteger(message.sequence)
+        ? `[${message.sequence}] 말 이동: ${moved} → ${destination}`
+        : `말 이동: ${moved} → ${destination}`);
     } else if (message.type === 'PIECES_CAPTURED') {
       eventPhase.textContent = '잡기 처리 완료';
       eventPhase.dataset.phase = 'capture';
       const count = Array.isArray(message.payload?.captured_piece_ids)
         ? message.payload.captured_piece_ids.length : 0;
-      appendHistory(count > 0 ? `말 잡기 (${count}개)` : '말 잡기');
+      const captureLabel = count > 0 ? `말 잡기 (${count}개)` : '말 잡기';
+      appendHistory(Number.isSafeInteger(message.sequence) ? `[${message.sequence}] ${captureLabel}` : captureLabel);
     } else if (message.type === 'PIECES_STACKED') {
       const count = Array.isArray(message.payload?.piece_ids)
         ? message.payload.piece_ids.length : 0;
-      appendHistory(count > 1 ? `말 업기 (${count}개)` : '말 업기');
+      const stackLabel = count > 1 ? `말 업기 (${count}개)` : '말 업기';
+      appendHistory(Number.isSafeInteger(message.sequence) ? `[${message.sequence}] ${stackLabel}` : stackLabel);
     } else if (message.type === 'RESULT_QUEUE_UPDATED') {
       eventPhase.textContent = '결과 큐 갱신';
       eventPhase.dataset.phase = 'queue';
