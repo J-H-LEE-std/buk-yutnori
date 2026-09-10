@@ -80,6 +80,7 @@ globalThis.BukScreens = (() => {
   let selectedPiece = null;
   let matchKey = null;
   let resultSequence = 0;
+  const recentResults = [];
   let timer = null;
   const resultName = BukScreenModel.resultName;
   const nickname = id => snapshot?.participants.find(p => p.user_id === id)?.nickname ?? id;
@@ -90,6 +91,7 @@ globalThis.BukScreens = (() => {
   function resetMatch() {
     snapshot = null; selectedPiece = null; matchKey = null; resultSequence = 0;
     latest.replaceChildren(document.createTextNode('아직 던진 결과가 없습니다.'));
+    recentResults.length = 0;
     history.replaceChildren(); queue.replaceChildren(); targets.replaceChildren(); waiting.replaceChildren(); paths.replaceChildren();
     if (timer !== null) clearInterval(timer); timer = null;
   }
@@ -249,7 +251,13 @@ globalThis.BukScreens = (() => {
     resultSequence = message.sequence;
     const {token, player_id: playerId} = message.payload;
     const label = `${playerId === authenticatedUserId ? '내 결과' : `${nickname(playerId)}의 결과`}: ${resultName(token.result)}`;
-    latest.replaceChildren(resultImage(token.result), document.createTextNode(label));
+    recentResults.push({result: token.result, label});
+    while (recentResults.length > 4) recentResults.shift();
+    latest.replaceChildren();
+    for (const recent of recentResults) {
+      const item = make('span', null, recent.label); item.className = 'latest-result-entry';
+      item.prepend(resultImage(recent.result)); latest.append(item);
+    }
     history.append(make('li', null, label));
     while (history.children.length > 20) history.firstElementChild.remove();
     history.scrollTop = history.scrollHeight;

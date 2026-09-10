@@ -771,7 +771,8 @@
       // confirmation scope from active_start so the player can still confirm.
       if (detail.summary.room_id === activeRoomId && detail.active_start) {
         activeStartScope = { roomId: detail.summary.room_id, matchId: detail.active_start.match_id };
-        roomConfirmStart.disabled = self?.role !== "player";
+        roomConfirmStart.disabled = true;
+        confirmStartAutomatically();
       } else if (!detail.active_match) {
         activeStartScope = null;
         roomConfirmStart.disabled = self?.role !== "player";
@@ -1332,6 +1333,15 @@
         command_id: commandID, room_id: scope.roomId, match_id: scope.matchId, payload: {},
       }));
       return true;
+    }
+
+    function confirmStartAutomatically() {
+      if (activeRoomRole !== "player" || activeStartScope === null) return false;
+      for (const pending of pendingStartConfirmationCommands.values()) {
+        if (pending.roomId === activeStartScope.roomId && pending.matchId === activeStartScope.matchId) return true;
+      }
+      roomConfirmStart.disabled = false;
+      return sendStartConfirmation();
     }
 
     function clearMatchSession() {
@@ -2260,8 +2270,9 @@
           && message.type === "GAME_STARTING" && typeof message.match_id === "string"
           && message.match_id.length > 0 && typeof message.payload?.confirmation_deadline_at === "string") {
         activeStartScope = { roomId: message.room_id, matchId: message.match_id };
-        roomConfirmStart.disabled = activeRoomRole !== "player";
-        roomLobbyStatus.textContent = "게임 시작 확인이 진행 중입니다.";
+        roomConfirmStart.disabled = true;
+        roomLobbyStatus.textContent = "서버가 게임 시작을 확인하는 중입니다.";
+        confirmStartAutomatically();
         refreshActiveRoomDetail();
         return;
       }

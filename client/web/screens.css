@@ -51,6 +51,9 @@ main[data-screen="login"] .screen-shell { display:block; }
 #turn-clock { font-size:22px; font-variant-numeric:tabular-nums; }
 #latest-result { display:flex; align-items:center; gap:10px; min-height:70px; font-size:24px; font-weight:700; }
 #latest-result img { width:64px; height:64px; object-fit:contain; }
+#latest-result { flex-wrap:wrap; }
+.latest-result-entry { display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border-radius:8px; background:#eee2c8; font-size:16px; }
+.latest-result-entry img { width:36px; height:36px; }
 #result-queue { display:flex; gap:8px; flex-wrap:wrap; max-height:160px; overflow:auto; padding:0; list-style:none; }
 .result-token { padding:8px; background:#eee2c8; border-radius:8px; display:flex; align-items:center; gap:6px; }
 .result-token img { width:36px; height:36px; object-fit:contain; }
