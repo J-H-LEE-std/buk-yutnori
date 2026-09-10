@@ -156,13 +156,15 @@ type matchRuntime struct {
 	turnIndex int
 	tokenSeq  uint64
 
-	timerGeneration  uint64
-	timerKind        string
-	timerDeadline    time.Time
-	activeTimer      matchTimer
-	cpuControlled    bool
-	cpuControlReason string
-	pendingMovePiece domain.PieceID
+	timerGeneration     uint64
+	timerKind           string
+	timerDeadline       time.Time
+	activeTimer         matchTimer
+	cpuControlled       bool
+	cpuControlReason    string
+	cpuActionTimer      matchTimer
+	cpuActionGeneration uint64
+	pendingMovePiece    domain.PieceID
 
 	pauseUsed          bool
 	paused             bool
