@@ -505,8 +505,9 @@ func (registry *RoomRegistry) completeMoveLocked(
 // observation; the zero-delay default keeps deterministic tests synchronous.
 func (registry *RoomRegistry) runCpuTurnLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) {
 	if registry.cpuActionDelay > 0 {
-		registry.runCpuStepLocked(entry, rt, tx)
-		if entry.runtime == rt && rt.machine != nil && rt.cpuControlled {
+		if registry.runCpuStepLocked(entry, rt, tx) &&
+			entry.runtime == rt && rt.machine != nil && rt.cpuControlled &&
+			rt.machine.Snapshot().Phase != domain.TurnMatchEnd {
 			registry.scheduleCPUActionLocked(entry, rt)
 		}
 		return
