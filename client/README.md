@@ -44,17 +44,45 @@ HTML 입력은 조합 중인 IME 값을 C에 보내지 않고 `compositionend` �
 기본 편집 키가 정상 동작한다.
 
 현재 게임 캔버스는 최종 이미지가 없어도 raylib 프리미티브로 정본 판의 32개 간선과
-29개 노드를 렌더링한다. HTML 셸이 1280×720 캔버스를 16:9로 축소하고, 네이티브
-창은 같은 논리 화면을 유지하면서 창 크기에 맞춰 letterbox한다. 유효한 authoritative
+29개 노드를 렌더링한다. HTML 셸은 1280×720 논리 캔버스의 왼쪽 정사각형 판 영역을
+표시하고 오른쪽 상태·입력은 한글 DOM 패널로 배치한다. 네이티브 창은 같은 논리
+화면을 유지하면서 창 크기에 맞춰 letterbox한다. 유효한 authoritative
 `game_snapshot`이 확정되면 실제 말 위치, 대기·완주 수, 경기·턴·입력·타이머 상태와
 결과 큐를 같은 캔버스에 표시한다. 말 ID 원문은 JavaScript가 snapshot 순번과 함께
 보관하고 C/WASM에는 길이 제한이 없는 순번 매핑만 전달한다. 지름길 선택 입력과
-업기·겹침 전용 표현, 애니메이션은 후속 Milestone 4 슬라이스다.
+업기·겹침 전용 표현은 서버 snapshot을 따른다. 말 선택 시 서버가 제공한 이동 경로를
+판 위에 표시하며 결과 선택 후 필요한 지름길 선택을 별도로 확정한다.
+
+로그인·메인 로비·방 로비·게임은 하나씩만 보인다. IME 진단 패널은 URL에
+`?diagnostics`를 붙였을 때만 표시한다.
+
+## 실제 브라우저 회귀 테스트
+
+WASM 빌드 후 별도 터미널에서 격리된 테스트 서버를 실행한다.
+
+```sh
+BUK_BROWSER_HARNESS=1 go test ./cmd/server -run '^TestBrowserHarness$' -v -timeout 12m
+```
+
+이 서버는 테스트 바이너리 전용 인증 검증기와 임시 SQLite를 사용하며 `google.yaml`과
+개발 DB를 읽지 않는다. 10분 후 자동 종료된다. 실제 Google 로그인 검증을 대신하지는 않는다.
+별도 테스트 프로필의 Chrome을 remote debugging 포트 9231로 실행하여
+`http://localhost:8766/`을 연 다음 Node.js 18 이상에서 실행한다.
+
+```sh
+node client/tests/playable_browser_test.mjs http://localhost:9231 http://localhost:8766/ build/evidence-161
+```
+
+테스트는 해당 브라우저의 쿠키를 초기화하므로 개인 브라우저 프로필을 사용하지 않는다.
+로그인·프로필·방 생성·CPU 추가·준비·시작·던지기 결과·서버 경로·내 말 이동·모바일
+폭·새로고침 복구를 실제 HTTP/WebSocket과 브라우저 클릭으로 검증한다.
 
 ## Google 로그인 수직 프로토타입
 
 Google Cloud에서 Web application client ID를 만들고 authorized JavaScript origin에
-`http://localhost:8080`을 등록한다. WASM build 뒤 저장소 루트에서 실행한다.
+`http://localhost:8080`을 등록한다. 저장소의 `google.yaml.example`을
+`google.yaml`로 복사한 뒤 `web_client_id`를 실제 값으로 교체하거나, 아래처럼 환경
+변수를 지정한다. WASM build 뒤 저장소 루트에서 실행한다.
 
 ```sh
 BUK_GOOGLE_CLIENT_ID="<web-client-id>.apps.googleusercontent.com" \

@@ -143,6 +143,22 @@ func TestRequestStartRequiresHostAndEligibility(t *testing.T) {
 	resolveWindow(t, fixture)
 }
 
+func TestStartImmediatelySkipsConfirmationWindow(t *testing.T) {
+	t.Parallel()
+
+	fixture := newStartFixture(t, 2)
+	if err := fixture.registry.StartImmediately(lobbyCreatorID, fixture.roomID); err != nil {
+		t.Fatalf("StartImmediately() error = %v", err)
+	}
+	detail, err := fixture.registry.Detail(auth.UserID(lobbyCreatorID), fixture.roomID)
+	if err != nil {
+		t.Fatalf("RoomDetail() error = %v", err)
+	}
+	if detail.ActiveStart != nil || detail.ActiveMatch == nil {
+		t.Fatalf("start detail = %+v, want active match without active start", detail)
+	}
+}
+
 func TestStartWindowBlocksLobbyMutationsAndRepeatStarts(t *testing.T) {
 	t.Parallel()
 

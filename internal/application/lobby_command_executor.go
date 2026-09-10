@@ -114,7 +114,7 @@ func (executor *LobbyCommandExecutor) Execute(ctx context.Context, user auth.Use
 		if _, ok := command.Payload.(protocol.EmptyPayload); !ok {
 			return protocol.CommandOutcome{}, fmt.Errorf("%w: invalid START_GAME payload", ErrInvalidCommand)
 		}
-		if err := executor.lobbies.RequestStart(user.ID, command.RoomID); err != nil {
+		if err := executor.lobbies.StartImmediately(user.ID, command.RoomID); err != nil {
 			return executor.rejectStartError(err), nil
 		}
 		return acceptedLobbyOutcome(), nil

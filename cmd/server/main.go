@@ -81,6 +81,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Keep the production prototype readable during CPU turns while tests and
+	// embedded registries retain the zero-delay default.
+	roomsRegistry.SetCPUActionDelay(time.Second)
 	boardGraph, err := board.LoadFile("spec/board_graph.yaml")
 	if err != nil {
 		return fmt.Errorf("load canonical board graph: %w", err)

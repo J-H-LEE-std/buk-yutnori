@@ -165,8 +165,17 @@
     .room-detail[hidden] { display: none; }
     .room-lobby-actions { display: flex; gap: 6px; flex-wrap: wrap; }
     .game-session { display: grid; gap: 6px; margin: 18px 0; padding: 14px 16px; border: 1px solid #6f5b4e; border-radius: 12px; background: rgb(255 250 240 / 8%); }
+    #buk-indicator { color: #ffd08a; font-weight: 700; }
+    #buk-indicator img { width: 42px; height: 42px; object-fit: contain; vertical-align: middle; margin-left: 8px; }
+    #event-phase { min-height: 1.5em; color: #ffd08a; font-weight: 700; }
+    #board-annotations { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+    #move-paths { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+    #piece-targets { z-index: 3; }
     .game-session[hidden] { display: none; }
     .move-candidates { display: flex; flex-wrap: wrap; gap: 6px; }
+    .waiting-piece { border-width: 3px; }
+    .waiting-piece.team-a { border-color: #c6453a; color: #ffd8d2; }
+    .waiting-piece.team-b { border-color: #3366ae; color: #d6e5ff; }
     .game-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .game-stage { position: relative; }
     #throw-yut { position: absolute; right: 24px; bottom: 24px; z-index: 4; }
@@ -211,6 +220,8 @@
       #chat-form button { min-height: 44px; }
     }
   </style>
+  <link rel="stylesheet" href="screens.css">
+  <script src="screen-model.js"></script>
 </head>
 <body>
   <main>
@@ -249,7 +260,6 @@
           <button id="room-team-b" type="button" disabled>B팀 선택</button>
           <button id="room-ready" type="button" disabled>준비</button>
           <button id="room-start" type="button" disabled>게임 시작</button>
-          <button id="room-confirm-start" type="button" disabled>시작 확인</button>
           <button id="room-add-cpu-a" type="button" disabled>A팀 CPU 추가</button>
           <button id="room-add-cpu-b" type="button" disabled>B팀 CPU 추가</button>
           <button id="room-leave" type="button" disabled>방 나가기</button>
@@ -372,7 +382,6 @@
     const roomTeamB = document.getElementById("room-team-b");
     const roomReady = document.getElementById("room-ready");
     const roomStart = document.getElementById("room-start");
-    const roomConfirmStart = document.getElementById("room-confirm-start");
   const roomAddCPUA = document.getElementById("room-add-cpu-a");
   const roomAddCPUB = document.getElementById("room-add-cpu-b");
   const roomLeave = document.getElementById("room-leave");
@@ -437,8 +446,10 @@
     let realtimeReconnectEnabled = false;
     let realtimeReconnectAttempt = 0;
     let realtimeReconnectTimer = null;
+    let eventSynchronizationTimer = null;
     let stateReconnectScope = null;
     let fullResynchronizationAttempted = false;
+    let latestRequestedGameSequence = 0;
     let authenticatedUserId = null;
     let wasmRuntimeReady = false;
     const pendingChatCommands = new Set();
@@ -448,7 +459,6 @@
     const pendingThrowCommands = new Map();
     const pendingPauseCommands = new Map();
     const pendingLobbyCommands = new Map();
-    const pendingStartConfirmationCommands = new Map();
     let confirmedSnapshotPieceIds = [];
     let confirmedRouteRequest = null;
     let routeIntentTimer = null;
@@ -459,7 +469,6 @@
     let roomDetailRequestGeneration = 0;
     let activeRoomId = null;
     let activeRoomRole = null;
-    let activeStartScope = null;
     let activeViewerRole = null;
     let pauseCountdownTimer = null;
     let profileRequestGeneration = 0;
@@ -476,7 +485,6 @@
       roomTeamB.disabled = !player;
       roomReady.disabled = !player;
       roomStart.disabled = !enabled;
-      roomConfirmStart.disabled = !player || activeStartScope?.roomId !== activeRoomId;
       roomAddCPUA.disabled = true;
       roomAddCPUB.disabled = true;
       roomLeave.disabled = !enabled;
@@ -497,12 +505,9 @@
           && typeof member.ready === "boolean"
           && (member.is_cpu === undefined || typeof member.is_cpu === "boolean")
           && (member.is_host === undefined || typeof member.is_host === "boolean"))
-        && (payload.active_start === undefined || (payload.active_start && typeof payload.active_start.match_id === "string"
-          && payload.active_start.match_id.length > 0 && typeof payload.active_start.confirmation_deadline_at === "string"
-          && payload.active_start.confirmation_deadline_at.length > 0))
         && (payload.active_match === undefined || (payload.active_match && typeof payload.active_match.match_id === "string"
           && payload.active_match.match_id.length > 0))
-        && !(payload.active_start && payload.active_match);
+        && payload.active_start === undefined;
     }
 
     function validateGameLogs(payload) {
@@ -759,12 +764,12 @@
     function renderRoomDetail(detail) {
       roomDetail.hidden = false;
       roomDetailTitle.textContent = detail.summary.title;
-      roomDetailStatus.textContent = `${detail.summary.player_count}/${detail.summary.max_players}명${detail.active_start ? " · 시작 확인 중" : detail.active_match ? " · 경기 진행 중" : " · 대기 중"}`;
+      roomDetailStatus.textContent = `${detail.summary.player_count}/${detail.summary.max_players}명${detail.active_match ? " · 경기 진행 중" : " · 대기 중"}`;
       const self = detail.members.find((member) => member.user_id === authenticatedUserId);
       activeRoomRole = self?.role ?? null;
       setRoomLobbyControls(roomListAuthenticated && activeRoomId === detail.summary.room_id, self);
     const canEditCPUs = roomListAuthenticated && activeRoomId === detail.summary.room_id
-      && self?.is_host === true && !detail.active_start && !detail.active_match;
+      && self?.is_host === true && !detail.active_match;
     roomAddCPUA.disabled = !canEditCPUs;
     roomAddCPUB.disabled = !canEditCPUs;
       if (self?.role === "player") {
@@ -775,8 +780,6 @@
         // Detail may arrive after a newer lifecycle event. Only an unset scope
         // can be initialized here; a confirmed match scope is never replaced
         // by another detail response.
-        activeStartScope = null;
-        roomConfirmStart.disabled = true;
         gameSession.hidden = false;
         gameSessionTitle.textContent = "게임 화면";
         gameSessionStatus.textContent = "서버 권위 경기 상태를 동기화하는 중…";
@@ -815,6 +818,7 @@
         item.append(menu);
         roomMembers.append(item);
       }
+      globalThis.BukScreens?.room(detail);
     }
 
     async function loadRoomDetail(roomId, generation) {
@@ -981,8 +985,6 @@
       roomDetailRequestGeneration++;
       activeRoomId = null;
       activeRoomRole = null;
-      activeStartScope = null;
-      pendingStartConfirmationCommands.clear();
       roomDetail.hidden = true;
       roomMembers.replaceChildren();
       gameLogList.replaceChildren();
@@ -1003,7 +1005,7 @@
         const response = await fetch("/api/v1/rooms", {
           method: "POST", credentials: "same-origin", cache: "no-store",
           headers: { "Content-Type": "application/json", "X-Buk-Request": "1" },
-          body: JSON.stringify({ title: roomTitle.value, password: roomPassword.value, team: roomTeam.value }),
+          body: JSON.stringify({ title: roomTitle.value, password: roomPassword.value, team: roomTeam.value, settings: globalThis.BukScreens?.settings() }),
         });
         if (!response.ok) throw new Error(`room create request failed: ${response.status}`);
         const summary = await response.json();
@@ -1031,7 +1033,6 @@
       sendRoomLobbyCommand("SET_READY", { ready: shouldReady });
     });
     roomStart.addEventListener("click", () => sendRoomLobbyCommand("START_GAME"));
-    roomConfirmStart.addEventListener("click", sendStartConfirmation);
   roomAddCPUA.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "A" }));
   roomAddCPUB.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "B" }));
   roomLeave.addEventListener("click", () => sendRoomLobbyCommand("LEAVE_ROOM"));
@@ -1138,7 +1139,7 @@
     // ADR-0013's fabricated prototype match scope is retired: the shell no
     // longer invents a RECONNECT scope at login. A real scope is set only
     // when this client joins a started room (future lobby screens will call
-    // setStateReconnectScope with the room's live GAME_STARTING match_id).
+    // setStateReconnectScope with the room's live match_id.
     function showAuthenticated(userId) {
       authStatus.textContent = `로그인됨: ${userId}`;
       googleSignin.hidden = true;
@@ -1152,6 +1153,7 @@
       realtimeReconnectEnabled = true;
       realtimeReconnectAttempt = 0;
       connectRealtime();
+      void globalThis.BukScreens?.authenticated();
     }
 
     function connectRealtime() {
@@ -1187,7 +1189,6 @@
         pendingThrowCommands.clear();
         pendingPauseCommands.clear();
         pendingLobbyCommands.clear();
-        pendingStartConfirmationCommands.clear();
         confirmedRouteRequest = null;
         clearEventCue();
         if (wasmRuntimeReady) {
@@ -1219,7 +1220,6 @@
       pendingThrowCommands.clear();
       pendingPauseCommands.clear();
       pendingLobbyCommands.clear();
-      pendingStartConfirmationCommands.clear();
       confirmedRouteRequest = null;
       if (wasmRuntimeReady) {
         Module.ccall("BukClientSetRouteInteractionEnabled", "number", ["number"], [0]);
@@ -1237,15 +1237,21 @@
       pendingPauseCommands.clear();
       confirmedRouteRequest = null;
       stateReconnectScope = { roomId, matchId };
+      latestRequestedGameSequence = 0;
+      globalThis.BukScreens?.sync();
       fullResynchronizationAttempted = false;
-      Module.ccall("BukClientBeginSynchronization", "number", [], []);
-      if (realtimeSocket?.readyState === WebSocket.OPEN) {
+      if (wasmRuntimeReady) Module.ccall("BukClientBeginSynchronization", "number", [], []);
+      if (wasmRuntimeReady && realtimeSocket?.readyState === WebSocket.OPEN) {
         requestStateSynchronization(false);
       }
       return true;
     }
 
     function clearStateReconnectScope() {
+      if (eventSynchronizationTimer !== null) {
+        clearTimeout(eventSynchronizationTimer);
+        eventSynchronizationTimer = null;
+      }
       stateReconnectScope = null;
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
@@ -1289,30 +1295,16 @@
     }
 
     function leaveActiveRoomView() {
+      globalThis.BukScreens?.forgetRoom();
       roomDetailRequestGeneration++;
       activeRoomId = null;
       activeRoomRole = null;
-      activeStartScope = null;
       roomDetail.hidden = true;
       roomMembers.replaceChildren();
       clearStateReconnectScope();
       clearMatchSession();
       refreshRoomList();
-    }
-
-    function sendStartConfirmation() {
-      const scope = activeStartScope;
-      if (!scope || scope.roomId !== activeRoomId || activeRoomRole !== "player" || roomConfirmStart.disabled
-          || realtimeSocket?.readyState !== WebSocket.OPEN) return false;
-      const commandID = crypto.randomUUID();
-      pendingStartConfirmationCommands.set(commandID, scope);
-      roomConfirmStart.disabled = true;
-      roomLobbyStatus.textContent = "게임 시작 확인을 서버에 전송하는 중…";
-      realtimeSocket.send(JSON.stringify({
-        version: 1, direction: "client_command", type: "CONFIRM_GAME_START",
-        command_id: commandID, room_id: scope.roomId, match_id: scope.matchId, payload: {},
-      }));
-      return true;
+      globalThis.BukScreens?.sync();
     }
 
     function clearMatchSession() {
@@ -1330,6 +1322,7 @@
       pauseOverlay.hidden = true;
       resumeGame.hidden = true;
       clearPauseCountdown();
+      if (wasmRuntimeReady) Module.ccall("BukClientClearLatestResult", "number", [], []);
     }
 
     function clearPauseCountdown() {
@@ -1364,6 +1357,7 @@
       finishedPieces.replaceChildren();
       for (const piece of snapshot.pieces.filter((candidate) => candidate.state === "finished")) {
         const completed = document.createElement("span");
+        completed.className = `finished-piece team-${piece.team_id.toLowerCase()}`;
         const crown = document.createElement("img");
         crown.src = "assets/piece/finished_crown.png";
         crown.alt = "완주";
@@ -1402,6 +1396,7 @@
           moveCandidates.append(button);
         }
       }
+      globalThis.BukScreens?.match(snapshot);
       return true;
     }
 
@@ -1464,6 +1459,7 @@
     }
 
     function requestStateSynchronization(full) {
+      if (!wasmRuntimeReady) return false;
       const socket = realtimeSocket;
       if (stateReconnectScope === null || !socket || socket.readyState !== WebSocket.OPEN) {
         return false;
@@ -1490,6 +1486,14 @@
         payload: { last_sequence: lastSequence },
       }));
       return true;
+    }
+
+    function scheduleEventSynchronization() {
+      if (eventSynchronizationTimer !== null) clearTimeout(eventSynchronizationTimer);
+      eventSynchronizationTimer = setTimeout(() => {
+        eventSynchronizationTimer = null;
+        requestStateSynchronization(false);
+      }, 120);
     }
 
     function isRecord(value) {
@@ -1573,10 +1577,28 @@
           || !Array.isArray(request.candidates) || request.candidates.length === 0) return false;
       const seen = new Set();
       for (const candidate of request.candidates) {
-        if (!hasExactKeys(candidate, ["token_id", "piece_id", "routes"])
+        if (!isRecord(candidate)) return false;
+        const candidateKeys = ["token_id", "piece_id", "routes"];
+        if (Object.hasOwn(candidate, "previews")) candidateKeys.push("previews");
+        if (!hasExactKeys(candidate, candidateKeys)
             || !isStringId(candidate.token_id) || !isStringId(candidate.piece_id)
             || !Array.isArray(candidate.routes) || !candidate.routes.every((route) => ROUTES.has(route))
             || new Set(candidate.routes).size !== candidate.routes.length) return false;
+        if (Object.hasOwn(candidate, "previews")) {
+          if (!Array.isArray(candidate.previews) || candidate.previews.length === 0) return false;
+          const previewRoutes = new Set();
+          for (const preview of candidate.previews) {
+            if (!hasExactKeys(preview, ["route", "traversed", "destination_state", "destination_space_id"])
+              || !(preview.route === null ? candidate.routes.length === 0 : candidate.routes.includes(preview.route))
+              || previewRoutes.has(preview.route)
+              || !Array.isArray(preview.traversed) || !preview.traversed.every(isCanonicalBoardSpace)
+              || !["on_board", "home_checkpoint", "finished"].includes(preview.destination_state)
+              || (preview.destination_state === "finished" ? preview.destination_space_id !== null
+                : !isCanonicalBoardSpace(preview.destination_space_id))) return false;
+            previewRoutes.add(preview.route);
+          }
+          if (previewRoutes.size !== Math.max(1, candidate.routes.length)) return false;
+        }
         const key = `${candidate.token_id}\u0000${candidate.piece_id}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -2144,6 +2166,9 @@
             && applySynchronizationSequenceBundle(message)) {
           fullResynchronizationAttempted = false;
           realtimeStatus.textContent = "실시간 서버 상태 동기화 완료";
+          if (latestRequestedGameSequence > Number(Module.ccall("BukClientLastSequence", "string", [], []))) {
+            requestStateSynchronization(false);
+          }
         } else if (message.payload?.error?.code === "RESYNC_REQUIRED"
                    && !fullResynchronizationAttempted) {
           fullResynchronizationAttempted = true;
@@ -2167,20 +2192,6 @@
         }
         return;
       }
-      if (message.direction === "server_response" && message.type === "COMMAND_RESULT"
-          && pendingStartConfirmationCommands.has(message.command_id)) {
-        const expectedScope = pendingStartConfirmationCommands.get(message.command_id);
-        pendingStartConfirmationCommands.delete(message.command_id);
-        if (message.room_id !== expectedScope.roomId || message.match_id !== expectedScope.matchId
-            || message.room_id !== activeRoomId || activeStartScope?.matchId !== expectedScope.matchId) return;
-        if (message.payload?.status === "accepted") {
-          roomLobbyStatus.textContent = "시작 확인이 서버에 반영되었습니다.";
-        } else {
-          roomLobbyStatus.textContent = message.payload?.error?.message ?? "시작 확인이 거부되었습니다.";
-          roomConfirmStart.disabled = activeRoomRole !== "player";
-        }
-        return;
-      }
       if (message.direction === "server_event" && message.room_id === activeRoomId
           && message.type === "PLAYER_KICKED"
           && typeof message.payload?.player_id === "string") {
@@ -2196,23 +2207,17 @@
       if (message.direction === "server_event" && message.room_id === activeRoomId
           && message.type === "ROOM_UPDATED" && Number.isSafeInteger(message.sequence)
           && message.sequence >= 1 && ["lobby", "starting", "in_match", "post_match", "closed"].includes(message.payload?.status)) {
-        // The server emits ROOM_UPDATED(in_match) before GAME_STARTED, so retain
-        // the start scope for that event. Every other terminal/failed start state
-        // must discard it rather than allowing a stale confirmation command.
+        if (message.payload.status === "closed") {
+          leaveActiveRoomView();
+          roomListStatus.textContent = "방이 종료되었습니다.";
+          return;
+        }
         if (["lobby", "post_match", "closed"].includes(message.payload.status)) {
-          activeStartScope = null;
           clearStateReconnectScope();
+          clearMatchSession();
+          globalThis.BukScreens?.sync();
         }
         roomLobbyStatus.textContent = "방 상태가 변경되어 동기화 중…";
-        refreshActiveRoomDetail();
-        return;
-      }
-      if (message.direction === "server_event" && message.room_id === activeRoomId
-          && message.type === "GAME_STARTING" && typeof message.match_id === "string"
-          && message.match_id.length > 0 && typeof message.payload?.confirmation_deadline_at === "string") {
-        activeStartScope = { roomId: message.room_id, matchId: message.match_id };
-        roomConfirmStart.disabled = activeRoomRole !== "player";
-        roomLobbyStatus.textContent = "게임 시작 확인이 진행 중입니다.";
         refreshActiveRoomDetail();
         return;
       }
@@ -2224,9 +2229,7 @@
           && (message.payload.buk_destination_space_id === null
               || (typeof message.payload.buk_destination_space_id === "string"
                   && message.payload.buk_destination_space_id.length > 0))
-          && activeStartScope?.roomId === message.room_id && activeStartScope.matchId === message.match_id) {
-        activeStartScope = null;
-        roomConfirmStart.disabled = true;
+          ) {
         gameSession.hidden = false;
         gameSessionTitle.textContent = "게임 화면";
         gameSessionStatus.textContent = "서버 권위 경기 상태를 동기화하는 중…";
@@ -2242,11 +2245,19 @@
           && message.room_id === stateReconnectScope.roomId
           && message.match_id === stateReconnectScope.matchId
           && Number.isSafeInteger(message.sequence) && message.sequence >= 1) {
-        requestStateSynchronization(false);
+        if (message.type === "YUT_RESULT" && wasmRuntimeReady
+            && typeof message.payload?.token?.result === "string") {
+          Module.ccall("BukClientSetLatestResult", "number", ["string"],
+            [message.payload.token.result]);
+        }
+        globalThis.BukScreens?.event(message);
+        latestRequestedGameSequence = Math.max(latestRequestedGameSequence, message.sequence);
+        scheduleEventSynchronization();
         return;
       }
       if (message.direction === "server_event"
           && (message.type === "PIECE_MOVED" || message.type === "BUK_RESOLVED")) {
+        globalThis.BukScreens?.event(message);
         acceptGameEventCue(message);
         return;
       }
@@ -2360,6 +2371,7 @@
         publicProfileModal.hidden = true;
         clearStateReconnectScope();
         clearRoomList();
+        globalThis.BukScreens?.sync();
         myProfile.hidden = true;
         logout.hidden = true;
         googleSignin.hidden = false;
@@ -2450,18 +2462,22 @@
       printErr: (...args) => console.error(...args),
       onRuntimeInitialized: () => {
         wasmRuntimeReady = true;
+        globalThis.BukScreens?.sync();
+        if (stateReconnectScope !== null) requestStateSynchronization(false);
         if (routeIntentTimer === null) {
           routeIntentTimer = setInterval(drainRouteSelectionIntent, 50);
         }
         refreshRouteInteraction();
         input.disabled = false;
         status.textContent = "WASM 준비 완료";
-        input.focus();
+        if (new URLSearchParams(location.search).has('diagnostics')) input.focus();
       },
     };
 
-    initializeAuth();
+    // Screen controllers initialize before authentication starts.
   </script>
+  <script src="screens.js"></script>
+  <script>initializeAuth();</script>
   {{{ SCRIPT }}}
 </body>
 </html>

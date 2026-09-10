@@ -17,6 +17,8 @@ int BukClientAssetsFallbackCount(void);
 int BukClientSetEventCue(const char *cue);
 int BukClientClearEventCue(void);
 const char *BukClientEventCueName(void);
+int BukClientSetLatestResult(const char *result);
+int BukClientClearLatestResult(void);
 void BukClientProtocolRuntimeInit(void);
 int BukClientBeginSynchronization(void);
 int BukClientApplySnapshotSequence(const char *sequence);
@@ -55,5 +57,9 @@ int BukClientCanSelectRoute(void);
 int BukClientRequestRouteSelection(const char *route);
 const char *BukClientConsumeRouteSelection(void);
 int BukClientResolveRouteCommand(void);
+float BukClientPieceLogicalX(int index);
+float BukClientPieceLogicalY(int index);
+float BukClientSpaceLogicalX(const char *space);
+float BukClientSpaceLogicalY(const char *space);
 
 #endif

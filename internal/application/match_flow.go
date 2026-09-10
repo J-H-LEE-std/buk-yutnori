@@ -28,6 +28,11 @@ func (registry *RoomRegistry) cancelTimerLocked(rt *matchRuntime) {
 		rt.activeTimer = nil
 	}
 	rt.timerGeneration++
+	if rt.cpuActionTimer != nil {
+		rt.cpuActionTimer.Stop()
+		rt.cpuActionTimer = nil
+	}
+	rt.cpuActionGeneration++
 	rt.timerKind = ""
 	rt.timerDeadline = time.Time{}
 }
@@ -495,35 +500,20 @@ func (registry *RoomRegistry) completeMoveLocked(
 // ---------------------------------------------------------------------------
 // CPU substitution
 
-// runCpuTurnLocked completes the substituted turn synchronously: the CPU
-// throws, selects results, moves pieces, and resolves Buk until the turn
-// ends or the match finishes (docs/03: 해당 턴 전체를 CPU가 이어서 완료한다).
+// runCpuTurnLocked starts CPU processing. Production may configure a delay so
+// each CPU action is committed and broadcast separately for human-readable
+// observation; the zero-delay default keeps deterministic tests synchronous.
 func (registry *RoomRegistry) runCpuTurnLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) {
+	if registry.cpuActionDelay > 0 {
+		if registry.runCpuStepLocked(entry, rt, tx) &&
+			entry.runtime == rt && rt.machine != nil && rt.cpuControlled &&
+			rt.machine.Snapshot().Phase != domain.TurnMatchEnd {
+			registry.scheduleCPUActionLocked(entry, rt)
+		}
+		return
+	}
 	for {
-		if entry.runtime != rt || rt.machine == nil {
-			return
-		}
-		switch rt.machine.Snapshot().Phase {
-		case domain.TurnWaitThrow:
-			if err := registry.performThrowLocked(tx, rt); err != nil {
-				return
-			}
-		case domain.TurnResolveQueue:
-			if err := registry.advanceTurnLocked(entry, rt, tx); err != nil {
-				return
-			}
-		case domain.TurnWaitMoveSelection, domain.TurnWaitRouteSelection:
-			decision, err := rt.cpu.Decide(rt.game, rt.machine.Snapshot(), rt.currentTeam())
-			if err != nil {
-				return
-			}
-			if err := registry.applyCPUDecisionLocked(entry, rt, tx, decision); err != nil {
-				return
-			}
-		default:
-			return
-		}
-		if entry.runtime != rt || rt.machine == nil {
+		if !registry.runCpuStepLocked(entry, rt, tx) {
 			return
 		}
 		if !rt.cpuControlled {
@@ -531,6 +521,53 @@ func (registry *RoomRegistry) runCpuTurnLocked(entry *registeredRoom, rt *matchR
 			return
 		}
 	}
+}
+
+func (registry *RoomRegistry) runCpuStepLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx) bool {
+	if entry.runtime != rt || rt.machine == nil || !rt.cpuControlled {
+		return false
+	}
+	switch rt.machine.Snapshot().Phase {
+	case domain.TurnWaitThrow:
+		if err := registry.performThrowLocked(tx, rt); err != nil {
+			return false
+		}
+	case domain.TurnResolveQueue:
+		if err := registry.advanceTurnLocked(entry, rt, tx); err != nil {
+			return false
+		}
+	case domain.TurnWaitMoveSelection, domain.TurnWaitRouteSelection:
+		decision, err := rt.cpu.Decide(rt.game, rt.machine.Snapshot(), rt.currentTeam())
+		if err != nil || registry.applyCPUDecisionLocked(entry, rt, tx, decision) != nil {
+			return false
+		}
+	default:
+		return false
+	}
+	return entry.runtime == rt && rt.machine != nil
+}
+
+func (registry *RoomRegistry) scheduleCPUActionLocked(entry *registeredRoom, rt *matchRuntime) {
+	if rt.cpuActionTimer != nil || !rt.cpuControlled || registry.cpuActionDelay <= 0 {
+		return
+	}
+	rt.cpuActionGeneration++
+	generation := rt.cpuActionGeneration
+	rt.cpuActionTimer = registry.matchClock.AfterFunc(registry.cpuActionDelay, func() {
+		registry.mutex.Lock()
+		defer registry.mutex.Unlock()
+		if entry.runtime != rt || entry.poisoned || rt.cpuActionGeneration != generation || !rt.cpuControlled {
+			return
+		}
+		rt.cpuActionTimer = nil
+		tx := registry.newEventTx(rt.roomID)
+		registry.runCpuTurnLocked(entry, rt, tx)
+		if err := tx.flush(); err != nil {
+			// The normal storage failure path will fence the room; avoid a
+			// second transition from this delayed callback.
+			return
+		}
+	})
 }
 
 func (registry *RoomRegistry) applyCPUDecisionLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx, decision cpu.Decision) error {

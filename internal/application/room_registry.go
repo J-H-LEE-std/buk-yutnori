@@ -114,6 +114,7 @@ type RoomRegistry struct {
 	eventSubscribers map[*RoomEventSubscription]auth.UserID
 	eventBufferSize  int
 	presenceEnabled  bool
+	cpuActionDelay   time.Duration
 	connections      map[auth.UserID]uint64
 }
 
@@ -151,6 +152,17 @@ func NewRoomRegistry(clock func() time.Time) (*RoomRegistry, error) {
 		eventSubscribers: make(map[*RoomEventSubscription]auth.UserID),
 		connections:      make(map[auth.UserID]uint64),
 	}, nil
+}
+
+// SetCPUActionDelay configures the optional presentation-friendly delay between
+// authoritative CPU actions. A zero value preserves synchronous test behavior.
+func (registry *RoomRegistry) SetCPUActionDelay(delay time.Duration) {
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	if delay < 0 {
+		delay = 0
+	}
+	registry.cpuActionDelay = delay
 }
 
 func newRandomIDGenerator(source io.Reader) func() (string, error) {

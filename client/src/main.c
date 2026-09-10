@@ -1,6 +1,7 @@
 #include "buk_client/board_layout.h"
 #include "buk_client/asset_runtime.h"
 #include "buk_client/bridge.h"
+#include "buk_client/presentation_state.h"
 #include "buk_client/state.h"
 
 #include "raylib.h"
@@ -29,6 +30,81 @@ static Texture2D board_texture;
 static Texture2D piece_texture_a;
 static Texture2D piece_texture_b;
 static Texture2D result_textures[BUK_CLIENT_RESULT_COUNT];
+static bool latest_result_set;
+static BukClientResult latest_result;
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientSetLatestResult(const char *result)
+{
+    BukClientResult parsed;
+    if (result == NULL || !BukClientParseResult(result, &parsed)) return 0;
+    latest_result = parsed;
+    latest_result_set = true;
+    return 1;
+}
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientClearLatestResult(void)
+{
+    latest_result_set = false;
+    return 1;
+}
+
+/* Shared renderer coordinates for accessible DOM hit targets, not move rules. */
+static BukClientPoint PieceLogicalPoint(int index)
+{
+    static const float dx[] = {0, -15, 15, 0, 0, -15, 15, -15, 15};
+    static const float dy[] = {0, 0, 0, -15, 15, -15, -15, 15, 15};
+    const BukClientPresentationSnapshot *snapshot = BukClientConfirmedPresentation();
+    BukClientGameLayout layout;
+    BukClientPoint point = {-1, -1};
+    size_t preceding = 0U;
+    if (snapshot == NULL || index < 0 || (size_t)index >= snapshot->piece_count) return point;
+    const BukClientPresentationPiece piece = snapshot->pieces[index];
+    if (piece.state != BUK_CLIENT_PIECE_ON_BOARD && piece.state != BUK_CLIENT_PIECE_HOME_CHECKPOINT) return point;
+    if (!BukClientCalculateGameLayout(1280, 720, &layout) ||
+        !BukClientBoardMapNode(layout.board, piece.node, &point)) return (BukClientPoint){-1, -1};
+    for (int i = 0; i < index; i++) {
+        const BukClientPresentationPiece previous = snapshot->pieces[i];
+        if (previous.node == piece.node && previous.team == piece.team && previous.state == piece.state) preceding++;
+    }
+    const float ring = 1.0F + (float)(preceding / 9U);
+    point.x += dx[preceding % 9U] * ring;
+    point.y += dy[preceding % 9U] * ring;
+    return point;
+}
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+float BukClientPieceLogicalX(int index) { return PieceLogicalPoint(index).x; }
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+float BukClientPieceLogicalY(int index) { return PieceLogicalPoint(index).y; }
+
+static BukClientPoint SpaceLogicalPoint(const char *space)
+{
+    BukClientBoardNodeId node;
+    BukClientGameLayout layout;
+    BukClientPoint point = {-1, -1};
+    if (!BukClientBoardFindNode(space, &node) || !BukClientCalculateGameLayout(1280,720,&layout) ||
+        !BukClientBoardMapNode(layout.board,node,&point)) return (BukClientPoint){-1,-1};
+    return point;
+}
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+float BukClientSpaceLogicalX(const char *space) { return SpaceLogicalPoint(space).x; }
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+float BukClientSpaceLogicalY(const char *space) { return SpaceLogicalPoint(space).y; }
 
 static Texture2D LoadAssetTexture(size_t index)
 {
@@ -88,15 +164,9 @@ static void DrawCanonicalBoard(const BukClientGameLayout *layout)
 
     rendered_board_node_count = 0;
     rendered_board_edge_count = 0;
-    if (board_texture.id != 0U) {
-        DrawTexturePro(board_texture,
-                       (Rectangle){ 0.0F, 0.0F, (float)board_texture.width,
-                                   (float)board_texture.height },
-                       RaylibRectangle(layout->board), (Vector2){ 0.0F, 0.0F }, 0.0F,
-                       WHITE);
-    } else {
-        DrawRectangleRounded(RaylibRectangle(layout->board), 0.04F, 12, board_background);
-    }
+    /* The temporary illustration contains a different decorative board. Draw
+     * only the canonical graph so decorative nodes cannot look playable. */
+    DrawRectangleRounded(RaylibRectangle(layout->board), 0.04F, 12, board_background);
     edges = BukClientBoardEdges(&edge_count);
     for (edge_index = 0U; edge_index < edge_count; edge_index++) {
         BukClientPoint from;
@@ -236,13 +306,39 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
         point.y += offset_y[offset_index] * ring * layout->scale;
         fill = piece.team == BUK_CLIENT_TEAM_A ? team_a : team_b;
         Texture2D texture = piece.team == BUK_CLIENT_TEAM_A ? piece_texture_a : piece_texture_b;
+        /* Temporary art must still communicate team ownership even when the
+         * replacement textures happen to share the same source image. */
+        if (piece.team == BUK_CLIENT_TEAM_A) {
+            DrawCircleLines((int)point.x, (int)point.y,
+                            (radius + 5.0F * layout->scale), fill);
+        } else {
+            DrawPoly((Vector2){ point.x, point.y }, 4,
+                     radius + 5.0F * layout->scale, 45.0F, fill);
+        }
         if (texture.id != 0U) {
             float diameter = radius * 2.0F;
+            DrawCircleV((Vector2){point.x, point.y}, radius + 3.0F * layout->scale, fill);
             DrawTexturePro(texture,
                            (Rectangle){ 0.0F, 0.0F, (float)texture.width,
                                        (float)texture.height },
                            (Rectangle){ point.x - radius, point.y - radius, diameter, diameter },
-                           (Vector2){ 0.0F, 0.0F }, 0.0F, WHITE);
+                           (Vector2){ 0.0F, 0.0F }, 0.0F,
+                           piece.team == BUK_CLIENT_TEAM_A
+                               ? (Color){ 255, 150, 150, 255 }
+                               : (Color){ 110, 170, 255, 255 });
+            DrawText(piece.team == BUK_CLIENT_TEAM_A ? "A" : "B",
+                     (int)(point.x - (4.0F * layout->scale)),
+                     (int)(point.y - (6.0F * layout->scale)), label_size, label);
+            /* The temporary A/B source files are intentionally identical.
+             * Keep an unmistakable team badge outside the sprite so the
+             * distinction survives until final art replaces the assets. */
+            DrawCircleV((Vector2){ point.x + (radius * 0.78F),
+                                   point.y + (radius * 0.78F) },
+                        6.0F * layout->scale, fill);
+            DrawText(piece.team == BUK_CLIENT_TEAM_A ? "A" : "B",
+                     (int)(point.x + (radius * 0.78F) - (3.0F * layout->scale)),
+                     (int)(point.y + (radius * 0.78F) - (5.0F * layout->scale)),
+                     (int)(8.0F * layout->scale), outline);
         } else {
             DrawCircleV((Vector2){ point.x, point.y }, radius + (2.0F * layout->scale), outline);
             DrawCircleV((Vector2){ point.x, point.y }, radius, fill);
@@ -325,6 +421,25 @@ static void DrawGameHud(const BukClientGameLayout *layout)
                             (double)snapshot->remaining_ms / 1000.0),
                  (int)(status.x + (24.0F * layout->scale)),
                  (int)(status.y + (116.0F * layout->scale)), body_size, muted);
+    }
+    if (latest_result_set) {
+        const BukClientRect latest = LogicalRectangle(layout, 1118.0F, 174.0F, 70.0F, 86.0F);
+        Texture2D texture = result_textures[latest_result];
+        DrawText("RESULT", (int)(latest.x + (1.0F * layout->scale)),
+                 (int)(latest.y - (18.0F * layout->scale)),
+                 (int)(12.0F * layout->scale), muted);
+        if (texture.id != 0U) {
+            DrawTexturePro(texture,
+                           (Rectangle){ 0.0F, 0.0F, (float)texture.width,
+                                       (float)texture.height },
+                           RaylibRectangle(latest), (Vector2){ 0.0F, 0.0F }, 0.0F, WHITE);
+        } else {
+            DrawRectangleRounded(RaylibRectangle(latest), 0.14F, 6,
+                                 (Color){ 255, 250, 240, 255 });
+            DrawText(BukClientResultName(latest_result),
+                     (int)(latest.x + (8.0F * layout->scale)),
+                     (int)(latest.y + (32.0F * layout->scale)), body_size, ink);
+        }
     }
 
     DrawRectangleRounded(RaylibRectangle(queue), 0.06F, 8,

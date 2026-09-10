@@ -156,13 +156,15 @@ type matchRuntime struct {
 	turnIndex int
 	tokenSeq  uint64
 
-	timerGeneration  uint64
-	timerKind        string
-	timerDeadline    time.Time
-	activeTimer      matchTimer
-	cpuControlled    bool
-	cpuControlReason string
-	pendingMovePiece domain.PieceID
+	timerGeneration     uint64
+	timerKind           string
+	timerDeadline       time.Time
+	activeTimer         matchTimer
+	cpuControlled       bool
+	cpuControlReason    string
+	cpuActionTimer      matchTimer
+	cpuActionGeneration uint64
+	pendingMovePiece    domain.PieceID
 
 	pauseUsed          bool
 	paused             bool
@@ -509,6 +511,11 @@ func (registry *RoomRegistry) resumeMatchLocked(tx *eventTx, rt *matchRuntime, r
 	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewGameResumedEvent(rt.roomID, rt.matchID, sequence, protocol.GameResumedPayload{Reason: reason})
 	})
+	if !rt.storagePaused && rt.cpuControlled {
+		if entry, ok := registry.rooms[rt.roomID]; ok {
+			registry.runCpuTurnLocked(entry, rt, tx)
+		}
+	}
 	return nil
 }
 
@@ -795,7 +802,7 @@ func (registry *RoomRegistry) fireStorageRetry(roomID domain.RoomID, expectedAtt
 	if rt.allPlayersDisconnected {
 		return
 	}
-	if rt.cpuPlayers[rt.currentPlayer()] || !registry.playerConnectedLocked(rt.currentPlayer()) {
+	if rt.cpuControlled || rt.cpuPlayers[rt.currentPlayer()] || !registry.playerConnectedLocked(rt.currentPlayer()) {
 		tx := registry.newEventTx(rt.roomID)
 		rt.cpuControlled = true
 		reason := cpuControlReasonLobbyPlayer
