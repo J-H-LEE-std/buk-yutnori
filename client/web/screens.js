@@ -297,7 +297,10 @@ globalThis.BukScreens = (() => {
     renderRecentResults();
     bukIndicator.replaceChildren();
     if (value.buk?.enabled && typeof value.buk.destination_space_id === 'string') {
-      bukIndicator.textContent = `북 위치: ${value.buk.destination_space_id}`;
+      bukIndicator.append(
+        document.createTextNode(`북 위치: ${value.buk.destination_space_id}`),
+        resultImage('buk'),
+      );
       renderBukMarker(value);
     } else if (value.buk?.enabled) {
       bukIndicator.textContent = '북 위치: 서버가 정하는 중';
