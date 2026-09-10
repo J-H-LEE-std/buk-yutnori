@@ -94,6 +94,53 @@ globalThis.BukScreens = (() => {
     const img = make('img'); img.src = `assets/yut/result_${result}.png`; img.alt = resultName(result);
     img.addEventListener('error', () => { img.hidden = true; }); return img;
   }
+  function renderRecentResults() {
+    if (recentResults.length === 0) {
+      latest.replaceChildren(document.createTextNode('아직 던진 결과가 없습니다.'));
+      return;
+    }
+    latest.replaceChildren();
+    for (const recent of recentResults) {
+      const item = make('span', null, recent.label); item.className = 'latest-result-entry';
+      item.prepend(resultImage(recent.result)); latest.append(item);
+    }
+  }
+  function appendHistory(text) {
+    history.append(make('li', null, text));
+    while (history.children.length > 20) history.firstElementChild.remove();
+    history.scrollTop = history.scrollHeight;
+  }
+  function appendResult(result, playerId) {
+    const participant = typeof playerId === 'string'
+      ? snapshot?.participants.find((item) => item.user_id === playerId) : null;
+    const prefix = playerId === authenticatedUserId ? '내 결과'
+      : participant?.cpu_control?.active ? 'CPU 결과'
+      : typeof playerId === 'string' ? `${nickname(playerId)} 결과` : '서버 결과';
+    const label = `${prefix}: ${resultName(result)}`;
+    recentResults.push({result, label});
+    while (recentResults.length > 4) recentResults.shift();
+    renderRecentResults();
+    appendHistory(label);
+    return label;
+  }
+  function renderBukMarker(value) {
+    boardAnnotations.replaceChildren();
+    if (!value?.buk?.enabled || typeof value.buk.destination_space_id !== 'string' || !wasmRuntimeReady) return;
+    const x = Module.ccall('BukClientSpaceLogicalX','number',['string'],[value.buk.destination_space_id]);
+    const y = Module.ccall('BukClientSpaceLogicalY','number',['string'],[value.buk.destination_space_id]);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) return;
+    const marker = document.createElementNS(boardAnnotations.namespaceURI,'image');
+    marker.setAttribute('x', x - 28); marker.setAttribute('y', y - 28);
+    marker.setAttribute('width', '56'); marker.setAttribute('height', '56');
+    marker.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    marker.setAttribute('href', 'assets/yut/result_buk.png');
+    marker.setAttributeNS('http://www.w3.org/1999/xlink', 'href', 'assets/yut/result_buk.png');
+    marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', '북 위치');
+    boardAnnotations.append(marker);
+    const text = document.createElementNS(boardAnnotations.namespaceURI,'text');
+    text.setAttribute('x',x + 28); text.setAttribute('y',y - 20); text.setAttribute('fill','#bd5516');
+    text.textContent = '북'; boardAnnotations.append(text);
+  }
   function resetMatch() {
     snapshot = null; selectedPiece = null; matchKey = null; resultSequence = 0;
     latest.replaceChildren(document.createTextNode('아직 던진 결과가 없습니다.'));
@@ -109,7 +156,7 @@ globalThis.BukScreens = (() => {
     if (main.dataset.screen !== next) {
       profileModal.hidden = true; publicProfileModal.hidden = true; pauseModal.hidden = true;
       gameProfileMenu.open = false;
-      if (next !== 'game') resetMatch();
+    if (next !== 'game') resetMatch();
     }
     main.dataset.screen = next;
     for (const [name, view] of Object.entries(views)) view.hidden = name !== next;
@@ -118,6 +165,7 @@ globalThis.BukScreens = (() => {
     else if (next !== 'login') views[next].append(chat);
     main.dataset.diagnostics = String(new URLSearchParams(location.search).has('diagnostics'));
     diagnostics.hidden = main.dataset.diagnostics !== 'true';
+    if (next === 'game') renderBukMarker(snapshot);
   }
   function room(detail) {
     try { sessionStorage.setItem(`buk-room:${authenticatedUserId}`,detail.summary.room_id); } catch { /* storage may be disabled */ }
@@ -243,40 +291,14 @@ globalThis.BukScreens = (() => {
           || seenResultTokenIds.has(token.token_id)) continue;
       seenResultTokenIds.add(token.token_id);
       const playerId = token.generated_by_player_id;
-      recentResults.push({
-        result: token.result,
-        label: typeof playerId === 'string'
-          ? `${playerId === authenticatedUserId ? '내 결과' : `${nickname(playerId)}의 결과`}: ${resultName(token.result)}`
-          : `서버 결과: ${resultName(token.result)}`,
-      });
+      appendResult(token.result, typeof playerId === 'string' ? playerId : null);
     }
     while (recentResults.length > 4) recentResults.shift();
-    if (recentResults.length > 0) {
-      latest.replaceChildren();
-      for (const recent of recentResults) {
-        const item = make('span', null, recent.label); item.className = 'latest-result-entry';
-        item.prepend(resultImage(recent.result)); latest.append(item);
-      }
-    }
+    renderRecentResults();
     bukIndicator.replaceChildren();
     if (value.buk?.enabled && typeof value.buk.destination_space_id === 'string') {
       bukIndicator.textContent = `북 위치: ${value.buk.destination_space_id}`;
-      if (wasmRuntimeReady) {
-        const x = Module.ccall('BukClientSpaceLogicalX','number',['string'],[value.buk.destination_space_id]);
-        const y = Module.ccall('BukClientSpaceLogicalY','number',['string'],[value.buk.destination_space_id]);
-        if (Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0) {
-          const marker = document.createElementNS(boardAnnotations.namespaceURI,'image');
-          marker.setAttribute('x', x - 28); marker.setAttribute('y', y - 28);
-          marker.setAttribute('width', '56'); marker.setAttribute('height', '56');
-          marker.setAttribute('href', 'assets/yut/result_buk.png');
-          marker.setAttributeNS('http://www.w3.org/1999/xlink', 'href', 'assets/yut/result_buk.png');
-          marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', '북 위치');
-          boardAnnotations.append(marker);
-          const text = document.createElementNS(boardAnnotations.namespaceURI,'text');
-          text.setAttribute('x',x + 28); text.setAttribute('y',y - 20); text.setAttribute('fill','#bd5516');
-          text.textContent = '북'; boardAnnotations.append(text);
-        }
-      }
+      renderBukMarker(value);
     } else if (value.buk?.enabled) {
       bukIndicator.textContent = '북 위치: 서버가 정하는 중';
     }
@@ -312,14 +334,8 @@ globalThis.BukScreens = (() => {
       const label = `${playerId === authenticatedUserId ? '내 결과' : `${nickname(playerId)}의 결과`}: ${resultName(token.result)}`;
       recentResults.push({result: token.result, label});
       while (recentResults.length > 4) recentResults.shift();
-      latest.replaceChildren();
-      for (const recent of recentResults) {
-        const item = make('span', null, recent.label); item.className = 'latest-result-entry';
-        item.prepend(resultImage(recent.result)); latest.append(item);
-      }
-      history.append(make('li', null, label));
-      while (history.children.length > 20) history.firstElementChild.remove();
-      history.scrollTop = history.scrollHeight;
+      renderRecentResults();
+      appendHistory(label);
       eventPhase.textContent = `${label} · 결과 표시`;
       eventPhase.dataset.phase = 'result';
       return;
@@ -330,6 +346,9 @@ globalThis.BukScreens = (() => {
     } else if (message.type === 'PIECES_CAPTURED') {
       eventPhase.textContent = '잡기 처리 완료';
       eventPhase.dataset.phase = 'capture';
+      const count = Array.isArray(message.payload?.captured_piece_ids)
+        ? message.payload.captured_piece_ids.length : 0;
+      appendHistory(count > 0 ? `말 잡기 (${count}개)` : '말 잡기');
     } else if (message.type === 'RESULT_QUEUE_UPDATED') {
       eventPhase.textContent = '결과 큐 갱신';
       eventPhase.dataset.phase = 'queue';

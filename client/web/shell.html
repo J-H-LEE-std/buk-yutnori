@@ -2461,6 +2461,7 @@
       printErr: (...args) => console.error(...args),
       onRuntimeInitialized: () => {
         wasmRuntimeReady = true;
+        globalThis.BukScreens?.sync();
         if (stateReconnectScope !== null) requestStateSynchronization(false);
         if (routeIntentTimer === null) {
           routeIntentTimer = setInterval(drainRouteSelectionIntent, 50);
