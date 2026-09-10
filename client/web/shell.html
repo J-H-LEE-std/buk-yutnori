@@ -766,6 +766,16 @@
       const self = detail.members.find((member) => member.user_id === authenticatedUserId);
       activeRoomRole = self?.role ?? null;
       setRoomLobbyControls(roomListAuthenticated && activeRoomId === detail.summary.room_id, self);
+      // The HTTP detail response is authoritative as well as GAME_STARTING.
+      // If the WebSocket event raced with room entry/reconnect, recover the
+      // confirmation scope from active_start so the player can still confirm.
+      if (detail.summary.room_id === activeRoomId && detail.active_start) {
+        activeStartScope = { roomId: detail.summary.room_id, matchId: detail.active_start.match_id };
+        roomConfirmStart.disabled = self?.role !== "player";
+      } else if (!detail.active_match) {
+        activeStartScope = null;
+        roomConfirmStart.disabled = self?.role !== "player";
+      }
     const canEditCPUs = roomListAuthenticated && activeRoomId === detail.summary.room_id
       && self?.is_host === true && !detail.active_start && !detail.active_match;
     roomAddCPUA.disabled = !canEditCPUs;

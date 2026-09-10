@@ -462,6 +462,26 @@ try {
     throw new Error(`start confirmation UI flow was not bounded: ${JSON.stringify(startConfirmation)}`);
   }
 
+  const startConfirmationRecovery = await evaluate(`(() => {
+    authenticatedUserId = "player-1";
+    activeRoomId = "room-recover-start";
+    activeRoomRole = null;
+    activeStartScope = null;
+    renderRoomDetail({
+      summary: { room_id: "room-recover-start", title: "확인 복구", has_password: false,
+        player_count: 2, max_players: 4 },
+      members: [{ user_id: "player-1", nickname: "나", role: "player", ready: true }],
+      active_start: { match_id: "recover-match", confirmation_deadline_at: "2026-09-10T00:00:00Z" },
+    });
+    const button = document.getElementById("room-confirm-start");
+    return { scope: activeStartScope, enabled: !button.disabled };
+  })()`);
+  if (startConfirmationRecovery.scope?.roomId !== "room-recover-start"
+      || startConfirmationRecovery.scope?.matchId !== "recover-match"
+      || !startConfirmationRecovery.enabled) {
+    throw new Error(`active start detail did not recover confirmation scope: ${JSON.stringify(startConfirmationRecovery)}`);
+  }
+
   const lateSpectatorEntry = await evaluate(`(() => {
     const sent = [];
     const socket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
