@@ -1,4 +1,4 @@
-// Authoritative start confirmation lifecycle over the room registry.
+// Authoritative room-to-match start lifecycle over the room registry.
 
 package application
 
@@ -13,9 +13,9 @@ import (
 	"buk-yutnori/internal/protocol"
 )
 
-// RequestStart opens the canonical 10-second start confirmation window for
-// the room owner. Eligibility follows the pure Lobby rules; the deadline is a
-// monotonic server clock instant (ADR-0003).
+// RequestStart keeps the legacy confirmation lifecycle for direct callers.
+// The websocket START_GAME command uses StartImmediately so clients no longer
+// need a second confirmation command.
 func (registry *RoomRegistry) RequestStart(user auth.UserID, roomID domain.RoomID) error {
 	if err := user.Validate(); err != nil {
 		return err
@@ -40,7 +40,6 @@ func (registry *RoomRegistry) RequestStart(user auth.UserID, roomID domain.RoomI
 	if entry.confirmation != nil {
 		return ErrStartAlreadyRequested
 	}
-
 	rawMatchID, err := registry.randomID()
 	if err != nil {
 		return err
@@ -51,7 +50,6 @@ func (registry *RoomRegistry) RequestStart(user auth.UserID, roomID domain.RoomI
 	if err != nil {
 		return err
 	}
-
 	entry.confirmation = confirmation
 	entry.roomStatus = protocol.RoomStatusStarting
 	entry.expiryTimer = time.AfterFunc(room.StartConfirmationWindow, func() {
@@ -65,6 +63,56 @@ func (registry *RoomRegistry) RequestStart(user auth.UserID, roomID domain.RoomI
 	tx.emit(func(sequence uint64) (any, error) {
 		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
 	})
+	return tx.flush()
+}
+
+// StartImmediately starts a ready room in one authoritative transition. It
+// is the public command path; no client-visible confirmation window exists.
+func (registry *RoomRegistry) StartImmediately(user auth.UserID, roomID domain.RoomID) error {
+	if err := user.Validate(); err != nil {
+		return err
+	}
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	entry, exists := registry.rooms[roomID]
+	if !exists {
+		return ErrRoomNotFound
+	}
+	if entry.poisoned {
+		return ErrEventStoreUnavailable
+	}
+	if entry.host != user {
+		return ErrNotRoomHost
+	}
+	if entry.started {
+		return ErrRoomAlreadyStarted
+	}
+	if entry.confirmation != nil {
+		return ErrStartAlreadyRequested
+	}
+	if err := entry.lobby.ValidateStart(); err != nil {
+		return err
+	}
+	rawMatchID, err := registry.randomID()
+	if err != nil {
+		return err
+	}
+	matchID := domain.MatchID(rawMatchID)
+	runtime, err := registry.newMatchRuntime(entry, roomID, matchID)
+	if err != nil {
+		return err
+	}
+	entry.started = true
+	entry.roomStatus = protocol.RoomStatusInMatch
+	tx := registry.newEventTx(roomID)
+	tx.emit(func(sequence uint64) (any, error) {
+		return protocol.NewRoomUpdatedEvent(roomID, sequence, entry.roomStatus)
+	})
+	if err := registry.startMatchBroadcastsLocked(tx, entry, runtime); err != nil {
+		entry.started = false
+		entry.roomStatus = protocol.RoomStatusLobby
+		return err
+	}
 	return tx.flush()
 }
 

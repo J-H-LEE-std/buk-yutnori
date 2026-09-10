@@ -63,15 +63,19 @@ globalThis.BukScreens = (() => {
   const paths = document.createElementNS('http://www.w3.org/2000/svg','svg');
   paths.id = 'move-paths'; paths.setAttribute('viewBox','0 0 720 720');
   paths.setAttribute('aria-label','서버가 계산한 이동 경로'); stage.insertBefore(paths,targets);
+  const boardAnnotations = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  boardAnnotations.id = 'board-annotations'; boardAnnotations.setAttribute('viewBox','0 0 720 720');
+  boardAnnotations.setAttribute('aria-label','북 위치'); stage.insertBefore(boardAnnotations, paths);
   const turn = make('div', 'turn-description');
   const clock = make('div', 'turn-clock');
   const participants = make('ul', 'game-participants');
   const latest = make('div', 'latest-result', '아직 던진 결과가 없습니다.');
+  const bukIndicator = make('div', 'buk-indicator'); bukIndicator.setAttribute('role', 'status');
   latest.setAttribute('role', 'status');
   const queue = make('ol', 'result-queue'); queue.setAttribute('aria-label', '남은 윷 결과');
   const history = make('ol', 'throw-history'); history.setAttribute('aria-label', '최근 던지기');
   const waiting = make('div', 'waiting-pieces'); waiting.className = 'waiting-pieces';
-  gameSession.prepend(turn, clock, participants, latest, queue, history);
+  gameSession.prepend(turn, clock, participants, bukIndicator, latest, queue, history);
   boardColumn.append(waiting, moveCandidates, finishedPieces);
   const leave = make('button', 'game-leave', '방 나가기'); leave.type = 'button';
   leave.addEventListener('click', () => sendRoomLobbyCommand('LEAVE_ROOM'));
@@ -91,8 +95,9 @@ globalThis.BukScreens = (() => {
   function resetMatch() {
     snapshot = null; selectedPiece = null; matchKey = null; resultSequence = 0;
     latest.replaceChildren(document.createTextNode('아직 던진 결과가 없습니다.'));
+    bukIndicator.replaceChildren();
     recentResults.length = 0;
-    history.replaceChildren(); queue.replaceChildren(); targets.replaceChildren(); waiting.replaceChildren(); paths.replaceChildren();
+    history.replaceChildren(); queue.replaceChildren(); targets.replaceChildren(); waiting.replaceChildren(); paths.replaceChildren(); boardAnnotations.replaceChildren();
     if (timer !== null) clearInterval(timer); timer = null;
   }
   function sync() {
@@ -197,7 +202,7 @@ globalThis.BukScreens = (() => {
       button.disabled = !selectable || !candidates.some(c => c.piece_id === piece.piece_id);
       button.addEventListener('click', () => choose(piece.piece_id));
       if (piece.state === 'waiting') {
-        button.className = 'waiting-piece';
+        button.className = `waiting-piece team-${piece.team_id.toLowerCase()}`;
         const img = make('img'); img.src = `assets/piece/${piece.team_id.toLowerCase()}_waiting.png`; img.alt = '';
         button.append(img, document.createTextNode(`${piece.team_id}팀 ${piece.piece_id}`)); waiting.append(button);
       } else if (wasmRuntimeReady) {
@@ -225,6 +230,25 @@ globalThis.BukScreens = (() => {
     const key = `${value.room_id}/${value.match_id}`;
     if (matchKey !== key) { if (matchKey !== null) resetMatch(); matchKey = key; }
     snapshot = value; selectedPiece = null;
+    bukIndicator.replaceChildren();
+    if (value.buk?.enabled && typeof value.buk.destination_space_id === 'string') {
+      bukIndicator.textContent = `북 위치: ${value.buk.destination_space_id}`;
+      if (wasmRuntimeReady) {
+        const x = Module.ccall('BukClientSpaceLogicalX','number',['string'],[value.buk.destination_space_id]);
+        const y = Module.ccall('BukClientSpaceLogicalY','number',['string'],[value.buk.destination_space_id]);
+        if (Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0) {
+          const ring = document.createElementNS(boardAnnotations.namespaceURI,'circle');
+          ring.setAttribute('cx',x); ring.setAttribute('cy',y); ring.setAttribute('r','25');
+          ring.setAttribute('fill','none'); ring.setAttribute('stroke','#bd5516'); ring.setAttribute('stroke-width','7');
+          boardAnnotations.append(ring);
+          const text = document.createElementNS(boardAnnotations.namespaceURI,'text');
+          text.setAttribute('x',x + 28); text.setAttribute('y',y - 20); text.setAttribute('fill','#bd5516');
+          text.textContent = '북'; boardAnnotations.append(text);
+        }
+      }
+    } else if (value.buk?.enabled) {
+      bukIndicator.textContent = '북 위치: 서버가 정하는 중';
+    }
     const current = value.participants.find(p => p.user_id === value.current_turn.player_id);
     const phase = {throw:'윷을 던지세요', select_move:'이동할 말을 선택하세요', select_route:'이동 경로를 선택하세요', none:'진행 중'}[value.current_turn.required_input];
     turn.textContent = `${current?.nickname ?? '경기'}${current?.team_id ? ` · ${current.team_id}팀` : ''} — ${value.pause.paused ? '일시정지' : current?.cpu_control.active ? 'CPU 진행 중' : phase}`;

@@ -75,8 +75,6 @@ try {
   await wait('document.querySelector("#room-ready").textContent === "준비 취소"');
   await screenshot('03-room');
   await click('#room-start');
-  await wait('!document.querySelector("#room-confirm-start").disabled');
-  await click('#room-confirm-start');
   await wait('document.querySelector("main").dataset.screen === "game" && !document.querySelector("#throw-yut").disabled',40000);
   assert.equal(await evaluate('document.querySelector("#screen-room").getClientRects().length'),0);
   await screenshot('04-game');

@@ -83,27 +83,18 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   (`ROOM_PLAYER_REQUIRED`)와 준비 완료 플레이어의 팀 변경
   (`READY_TEAM_CHANGE_BLOCKED`)은 재시도 불가능한 결정적 거부로 보존한다.
 - `START_GAME`은 방장(`ROOM_HOST_REQUIRED`)만 요청할 수 있고 시작 조건 미충족은
-  `START_CONDITIONS_NOT_MET`으로 거부된다. 요청이 받아들여지면 서버 기준 10초의
-  시작 확인 창이 열리고(ADR-0003) 창 진행 중에는 팀·준비 변경과 입장이
-  `START_CONFIRMATION_IN_PROGRESS`로 차단된다. `CONFIRM_GAME_START`는 창 안의
-  로스터 플레이어 응답만 기록하고 전원 확인 시 경기가 started 상태로 확정되며,
-  같은 전이 안에서 레지스트리가 실제 경기 런타임(도메인 RNG, 턴 머신, 보드 이동)
-  을 조립하고 `GAME_STARTED`와 첫 `TURN_STARTED`를 방송한다(#82). 마감 만료는
-  미응답자 제외와 잔여 전원 준비 해제를 하나의 방 상태 전이로 적용하며 늦은
-  응답은 취소된 시작을 되살리지 않는다.
-- 시작 확인 요청과 마감 시각을 알리는 `GAME_STARTING` 이벤트 방송 계약은
-  ADR-0015로 확정되었다. RequestStart 수락 시 기존 스키마 그대로(match_id,
-  confirmation_deadline_at)를 방 sequence로 방송하며 confirmation_deadline_at은
-  표시용 벽시계 문자열이고 마감 판정은 서버 단조 시계다(ADR-0003). GAME_STARTING은
-  활성 창의 유일한 match_id 경로이므로 허브가 창 종료까지 보관하고, 창 진행 중
-  구독하는 클라이언트에게 최신 ROOM_UPDATED와 함께 재전달한다.
+  `START_CONDITIONS_NOT_MET`으로 거부된다. 요청이 받아들여지면 서버가 즉시 실제
+  경기 런타임(도메인 RNG, 턴 머신, 보드 이동)을 조립하고 `ROOM_UPDATED(in_match)`,
+  `GAME_STARTED`, 첫 `TURN_STARTED`를 순서대로 방송한다. 클라이언트의 별도 시작
+  확인 단계나 대기 타이머는 없다. 과거 `GAME_STARTING`/`CONFIRM_GAME_START` 계약은
+  이전 저장 이벤트 호환을 위해 스키마에만 남아 있으며 신규 클라이언트는 생성하지
+  않는다.
 - 대기실 상태 변경 알림도 ADR-0015로 확정되었다. 멤버십·팀·준비 변화와 상태 전이마다
   ROOM_UPDATED(revision=해당 이벤트의 방 sequence, status 생명주기 매핑)를 방송하고,
   클라이언트는 신호를 받으면 HTTP 방 상세 조회로 상세를 당겨온다(pull-on-notify). member
   항목의 `nickname`은 서버가 profile에서 해석하며 profile 부재·읽기 실패 시 `user_id`를
   쓴다.
-  창 진행 중 상세 조회 응답에는 활성 시작 확인 정보(match_id,
-  confirmation_deadline_at)가 포함된다. `in_match` 중에는 같은 member-only 상세
+  `in_match` 중에는 같은 member-only 상세
   응답이 활성 런타임의 `active_match.match_id`를 제공한다. 이는 이미 방 멤버인
   관전자와 `in_match` 중 새로 입장한 관전자가 live match view에 진입할 때
   `RECONNECT`에 사용할 수 있는 유일한 서버 권위 scope이며,
@@ -131,7 +122,7 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
   끊기면 자동 재개하며, 모든 인간 플레이어의 마지막 연결이 끊기면 행동 진행을 멈추고
   30초 복귀 watchdog을 시작한다(ADR-0020). 던지기·선택 제한 시간이 만료되면 서버가 해당 턴에
   한해 CPU로 대체하고 `CPU_CONTROL_STARTED(reason=timeout)`를 방송한다(docs/03).
-  경기 이벤트는 ROOM_UPDATED·GAME_STARTING과 같은 방 sequence 공간과 허브로
+  경기 이벤트는 ROOM_UPDATED와 같은 방 sequence 공간과 허브로
   live 방송되며, 저장·replay는 ADR-0014 구현 이후 과제다.
 - `RECONNECT`는 고정 프로토타입 scope 없이 모든 방에 대해 처리된다. 멤버가 시작된
   방의 활성 `match_id`로 요청하면 현재 방 sequence 경계의 실제 game_snapshot을
@@ -172,7 +163,7 @@ v1 WebSocket command envelope은 모든 명령에 `room_id` 멤버십을 요구�
 `docs/adr/0016_canonical_match_runtime.md`를 따른다. 브라우저 셸은 로그인 시
 재접속 scope를 임의로 만들지 않는다. ADR-0013의 고정
 `prototype-room`/`prototype-match` scope는 #82에서 은퇴했고, 재접속 machinery는
-정식 방 라비 화면이 started 방의 실제 `match_id`(GAME_STARTING 방송)로
+정식 방 라비 화면이 started 방의 실제 `match_id`(ROOM_UPDATED/상세 응답)로
 scope를 설정할 때 동일한 bundle staging 계약으로 동작한다. 비어 있지 않은 replay
 event source(ADR-0014)도 후속 구현이다.
 
@@ -222,12 +213,10 @@ snapshot의 `move_request`가 `null`이다.
 - `RESUME_GAME`
 - `SEND_CHAT`
 - `RECONNECT`
-- `CONFIRM_GAME_START`
 
 ### 최소 서버 이벤트
 
 - `ROOM_UPDATED`
-- `GAME_STARTING`
 - `GAME_STARTED`
 - `TURN_STARTED`
 - `YUT_RESULT`

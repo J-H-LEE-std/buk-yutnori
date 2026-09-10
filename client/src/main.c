@@ -282,6 +282,15 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
         point.y += offset_y[offset_index] * ring * layout->scale;
         fill = piece.team == BUK_CLIENT_TEAM_A ? team_a : team_b;
         Texture2D texture = piece.team == BUK_CLIENT_TEAM_A ? piece_texture_a : piece_texture_b;
+        /* Temporary art must still communicate team ownership even when the
+         * replacement textures happen to share the same source image. */
+        if (piece.team == BUK_CLIENT_TEAM_A) {
+            DrawCircleLines((int)point.x, (int)point.y,
+                            (radius + 5.0F * layout->scale), fill);
+        } else {
+            DrawPoly((Vector2){ point.x, point.y }, 4,
+                     radius + 5.0F * layout->scale, 45.0F, fill);
+        }
         if (texture.id != 0U) {
             float diameter = radius * 2.0F;
             DrawCircleV((Vector2){point.x, point.y}, radius + 3.0F * layout->scale, fill);
@@ -290,6 +299,9 @@ static void DrawAuthoritativePieces(const BukClientGameLayout *layout)
                                        (float)texture.height },
                            (Rectangle){ point.x - radius, point.y - radius, diameter, diameter },
                            (Vector2){ 0.0F, 0.0F }, 0.0F, WHITE);
+            DrawText(piece.team == BUK_CLIENT_TEAM_A ? "A" : "B",
+                     (int)(point.x - (4.0F * layout->scale)),
+                     (int)(point.y - (6.0F * layout->scale)), label_size, label);
         } else {
             DrawCircleV((Vector2){ point.x, point.y }, radius + (2.0F * layout->scale), outline);
             DrawCircleV((Vector2){ point.x, point.y }, radius, fill);

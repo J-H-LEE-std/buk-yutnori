@@ -8,15 +8,16 @@
   보존하기로 정했다. profile 조회 시 이를 결합하며, normal match의 종료 이벤트와
   전적 갱신을 같은 transaction으로 확정한다.
 
-최소 WebSocket 명령·이벤트와 재접속 스냅샷 스키마는 초안이 마련되었다. 시작 확인, 멱등 처리, 방 생명주기 단위 sequence, 일시 정지 및 저장 장애 정책은 확정되었다. 실제 네트워크 제품 구현 전에 아래 나머지 프로토콜 세부 정책을 결정해야 한다.
+최소 WebSocket 명령·이벤트와 재접속 스냅샷 스키마는 초안이 마련되었다. 즉시 시작,
+멱등 처리, 방 생명주기 단위 sequence, 일시 정지 및 저장 장애 정책은 확정되었다.
+실제 네트워크 제품 구현 전에 아래 나머지 프로토콜 세부 정책을 결정해야 한다.
 
 ## 프로토콜 세부 정책 미결정
 
 - `ERROR` 이벤트의 표준 오류 코드 목록
 - WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
-- 대기실·시작 확인 구독자 알림 계약은 ADR-0015로 확정되었다. GAME_STARTING 방송으로
-  시작 확인 도달성이 회복되고, ROOM_UPDATED 신호 + HTTP 방 상세 조회(pull-on-notify)
-  조합이 준비 화면 동기화를 담당한다.
+- 대기실 구독자 알림 계약은 ADR-0015의 ROOM_UPDATED 부분으로 확정되었다. 즉시 시작
+  전이도 ROOM_UPDATED 신호 + HTTP 방 상세 조회(pull-on-notify) 조합으로 동기화한다.
 - 레지스트리 방 이벤트의 저장과 RECONNECT replay는 여전히 미결이다. ADR-0015 방송은
   live 전달 only며 누락 구간 복구는 ADR-0009/0013/0014 연계 후속 과제다.
 - Milestone 4 클라이언트의 비어 있지 않은 replay tail은 #102에서 지원 이벤트를
@@ -41,7 +42,7 @@
 ## 방·운영 흐름 미결정
 
 - 운영자 강제 종료 시 전적과 무효 사유
-- 경기 런타임 연결은 #82로 해소되었다. 시작 확인 전원 동의 시 레지스트리가 실제
+- 경기 런타임 연결은 #82로 해소되었다. 방장 시작 요청 즉시 레지스트리가 실제
   경기 런타임을 조립하고(ADR-0016), THROW_YUT·SELECT_* 명령과 던지기·이동 제한
   시간 CPU 대체, GAME_ENDED 뒤 post_match 대기실 복귀와 started 해제가 동작한다.
   조립 실패 시 보상 전이로 방이 고착하지 않고, 팀 교대 순서와 post_match 유지

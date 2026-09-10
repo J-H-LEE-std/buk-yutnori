@@ -392,7 +392,6 @@ try {
     authenticatedUserId = "spectator-1";
     activeRoomId = "room-live";
     activeRoomRole = "spectator";
-    activeStartScope = { roomId: "room-live", matchId: "match-live" };
     realtimeSocket = socket;
     handleRealtimeMessage(socket, { data: JSON.stringify({
       version: 2, direction: "server_event", type: "GAME_STARTED", sequence: 7,
@@ -416,8 +415,6 @@ try {
       reconnect: sent[0],
       title: document.getElementById("game-session-title").textContent,
       status: document.getElementById("game-session-status").textContent,
-      confirmBlocked: document.getElementById("room-confirm-start").disabled,
-      commandBlocked: sendStartConfirmation() === false,
       invalidEventIgnored,
     };
     realtimeSocket = null;
@@ -428,58 +425,8 @@ try {
       || spectatorEntry.reconnect?.type !== "RECONNECT" || spectatorEntry.reconnect?.room_id !== "room-live"
       || spectatorEntry.reconnect?.match_id !== "match-live" || spectatorEntry.title !== "관전 중"
       || !spectatorEntry.status.includes("조작은 할 수 없습니다")
-      || !spectatorEntry.confirmBlocked || !spectatorEntry.commandBlocked || !spectatorEntry.invalidEventIgnored) {
+      || !spectatorEntry.invalidEventIgnored) {
     throw new Error(`spectator live-match entry was not authoritative/locked: ${JSON.stringify(spectatorEntry)}`);
-  }
-
-  const startConfirmation = await evaluate(`(() => {
-    const sent = [];
-    const socket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
-    authenticatedUserId = "player-1";
-    activeRoomId = "room-starting";
-    activeRoomRole = "player";
-    activeStartScope = { roomId: "room-starting", matchId: "match-starting" };
-    realtimeSocket = socket;
-    const button = document.getElementById("room-confirm-start");
-    button.disabled = false;
-    button.click();
-    handleRealtimeMessage(socket, { data: JSON.stringify({
-      version: 1, direction: "server_event", type: "ROOM_UPDATED", sequence: 8,
-      room_id: "room-starting", payload: { status: "lobby" },
-    }) });
-    const result = {
-      command: sent[0],
-      scopeCleared: activeStartScope === null,
-      buttonDisabled: button.disabled,
-    };
-    realtimeSocket = null;
-    return result;
-  })()`);
-  if (startConfirmation.command?.type !== "CONFIRM_GAME_START"
-      || startConfirmation.command?.room_id !== "room-starting"
-      || startConfirmation.command?.match_id !== "match-starting"
-      || !startConfirmation.scopeCleared || !startConfirmation.buttonDisabled) {
-    throw new Error(`start confirmation UI flow was not bounded: ${JSON.stringify(startConfirmation)}`);
-  }
-
-  const startConfirmationRecovery = await evaluate(`(() => {
-    authenticatedUserId = "player-1";
-    activeRoomId = "room-recover-start";
-    activeRoomRole = null;
-    activeStartScope = null;
-    renderRoomDetail({
-      summary: { room_id: "room-recover-start", title: "확인 복구", has_password: false,
-        player_count: 2, max_players: 4 },
-      members: [{ user_id: "player-1", nickname: "나", role: "player", ready: true }],
-      active_start: { match_id: "recover-match", confirmation_deadline_at: "2026-09-10T00:00:00Z" },
-    });
-    const button = document.getElementById("room-confirm-start");
-    return { scope: activeStartScope, enabled: !button.disabled };
-  })()`);
-  if (startConfirmationRecovery.scope?.roomId !== "room-recover-start"
-      || startConfirmationRecovery.scope?.matchId !== "recover-match"
-      || !startConfirmationRecovery.enabled) {
-    throw new Error(`active start detail did not recover confirmation scope: ${JSON.stringify(startConfirmationRecovery)}`);
   }
 
   const lateSpectatorEntry = await evaluate(`(() => {
@@ -488,7 +435,6 @@ try {
     authenticatedUserId = "late-spectator";
     activeRoomId = "room-already-live";
     activeRoomRole = null;
-    activeStartScope = null;
     clearStateReconnectScope();
     realtimeSocket = socket;
     renderRoomDetail({
@@ -570,7 +516,6 @@ try {
     roomListAuthenticated = true;
     activeRoomId = null;
     activeRoomRole = null;
-    activeStartScope = null;
     clearStateReconnectScope();
     realtimeSocket = { readyState: WebSocket.OPEN, send: (text) => sent.push(JSON.parse(text)) };
     const joined = await enterRoom("room-late-entry", "spectator");
