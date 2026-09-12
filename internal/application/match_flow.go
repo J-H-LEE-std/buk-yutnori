@@ -326,8 +326,8 @@ func (registry *RoomRegistry) afterQueueResolvedLocked(entry *registeredRoom, rt
 }
 
 // resolveBukHeadLocked applies the automatic canonical Buk resolution: the
-// server computes candidates and applies weighted selection without any user
-// piece choice (docs/03 북 처리).
+// server computes candidates and applies every minimum-distance candidate
+// without any user piece choice (docs/03 북 처리).
 func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx, tokenID domain.ResultTokenID) (resolutionStep, error) {
 	outcome, err := rt.game.ResolveBuk(rt.currentTeam())
 	if err != nil {
@@ -352,7 +352,9 @@ func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *ma
 		})
 	})
 	if outcome.Moved {
-		stageMoveOutcomeEvents(tx, rt, outcome.Move)
+		for _, move := range outcome.Moves {
+			stageMoveOutcomeEvents(tx, rt, move)
+		}
 	}
 	if err := rt.machine.CompleteBuk(tokenID, outcome.TurnOutcome()); err != nil {
 		return stepStopped, err

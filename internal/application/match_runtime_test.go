@@ -109,6 +109,7 @@ type matchEventFields struct {
 
 	MovementKind       string                   `json:"movement_kind,omitempty"`
 	PieceIDs           []domain.PieceID         `json:"piece_ids,omitempty"`
+	MovedPieceIDs      []domain.PieceID         `json:"moved_piece_ids,omitempty"`
 	CapturedPieceIDs   []domain.PieceID         `json:"captured_piece_ids,omitempty"`
 	Candidates         []protocol.MoveCandidate `json:"candidates,omitempty"`
 	SpaceID            domain.SpaceID           `json:"space_id,omitempty"`

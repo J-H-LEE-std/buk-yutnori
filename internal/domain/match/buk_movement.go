@@ -129,15 +129,44 @@ func (game *Game) ResolveBuk(teamID domain.TeamID) (BukOutcome, error) {
 	}
 
 	groups := game.bukPositionGroupsLocked(teamID)
+	waitingFallback := false
 	if len(groups) == 0 {
-		return BukOutcome{
-			NoCandidate:        true,
-			DestinationSpaceID: game.bukDestinationSpaceID,
-		}, nil
+		// A team with no unfinished piece on the board still consumes Buk by
+		// sending one waiting piece to the announced destination. Finished
+		// pieces are never eligible; a match with only finished pieces has
+		// already ended before this point.
+		waiting := make([]int, 0, game.settings.PieceCount)
+		for index, piece := range game.pieces {
+			if piece.TeamID == teamID && piece.State == domain.PieceWaiting {
+				waiting = append(waiting, index)
+			}
+		}
+		if len(waiting) == 0 {
+			return BukOutcome{
+				NoCandidate:        true,
+				DestinationSpaceID: game.bukDestinationSpaceID,
+			}, nil
+		}
+		ticket, err := randomTicket(game.randomSource, uint64(len(waiting)))
+		if err != nil {
+			return BukOutcome{}, err
+		}
+		groups = []bukPositionGroup{{
+			position: board.Position{State: board.PieceWaiting},
+			indices:  []int{waiting[ticket]},
+		}}
+		waitingFallback = true
 	}
 
 	minimumDistance := math.MaxInt
+	if waitingFallback {
+		minimumDistance = 0
+	}
 	for index := range groups {
+		if waitingFallback {
+			groups[index].distance = 0
+			continue
+		}
 		distance, err := game.bukPlanner.RemainingForwardDistance(
 			groups[index].position,
 			boardShortcutPolicy(game.settings.ShortcutPolicy),
@@ -165,33 +194,33 @@ func (game *Game) ResolveBuk(teamID domain.TeamID) (BukOutcome, error) {
 			closest = append(closest, group)
 		}
 	}
-	selected, err := game.selectBukGroupLocked(closest)
-	if err != nil {
-		return BukOutcome{}, err
-	}
-	selectedPieceIDs := game.pieceIDsLocked(selected.indices)
 	outcome := BukOutcome{
 		DestinationSpaceID: game.bukDestinationSpaceID,
-		SelectedPieceIDs:   selectedPieceIDs,
 	}
-	if selected.position.Space == game.bukDestinationSpaceID {
-		return outcome, nil
+	for _, selected := range closest {
+		selectedPieceIDs := game.pieceIDsLocked(selected.indices)
+		outcome.SelectedPieceIDs = append(outcome.SelectedPieceIDs, selectedPieceIDs...)
+		if selected.position.State == board.PieceOnBoard && selected.position.Space == game.bukDestinationSpaceID {
+			continue
+		}
+		move := game.applyMoveResolutionLocked(
+			teamID,
+			selectedPieceIDs[0],
+			domain.YutBuk,
+			moveResolutionPlan{
+				MovementKind:        domain.MovementBuk,
+				DestinationState:    domain.PieceOnBoard,
+				DestinationSpaceID:  game.bukDestinationSpaceID,
+				ActualPreviousSpace: selected.position.Space,
+				MovingIndices:       selected.indices,
+			},
+		)
+		outcome.Moves = append(outcome.Moves, move)
 	}
-
-	move := game.applyMoveResolutionLocked(
-		teamID,
-		selectedPieceIDs[0],
-		domain.YutBuk,
-		moveResolutionPlan{
-			MovementKind:        domain.MovementBuk,
-			DestinationState:    domain.PieceOnBoard,
-			DestinationSpaceID:  game.bukDestinationSpaceID,
-			ActualPreviousSpace: selected.position.Space,
-			MovingIndices:       selected.indices,
-		},
-	)
-	outcome.Moved = true
-	outcome.Move = move
+	if len(outcome.Moves) > 0 {
+		outcome.Moved = true
+		outcome.Move = outcome.Moves[0]
+	}
 	return outcome, nil
 }
 
@@ -214,38 +243,4 @@ func (game *Game) bukPositionGroupsLocked(teamID domain.TeamID) []bukPositionGro
 		})
 	}
 	return groups
-}
-
-func (game *Game) selectBukGroupLocked(
-	groups []bukPositionGroup,
-) (bukPositionGroup, error) {
-	if len(groups) == 1 {
-		return groups[0], nil
-	}
-	var totalWeight uint64
-	for _, group := range groups {
-		weight := uint64(len(group.indices))
-		if math.MaxUint64-totalWeight < weight {
-			return bukPositionGroup{}, fmt.Errorf(
-				"%w: position group weight overflow",
-				ErrInvalidBukPlanner,
-			)
-		}
-		totalWeight += weight
-	}
-	ticket, err := randomTicket(game.randomSource, totalWeight)
-	if err != nil {
-		return bukPositionGroup{}, err
-	}
-	for _, group := range groups {
-		weight := uint64(len(group.indices))
-		if ticket < weight {
-			return group, nil
-		}
-		ticket -= weight
-	}
-	return bukPositionGroup{}, fmt.Errorf(
-		"%w: no group for weighted ticket",
-		ErrRandomSourceOutOfRange,
-	)
 }

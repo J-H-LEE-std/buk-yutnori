@@ -55,15 +55,24 @@ type BukOutcome struct {
 	Moved              bool
 	DestinationSpaceID domain.SpaceID
 	SelectedPieceIDs   []domain.PieceID
-	Move               MoveOutcome
+	// Moves contains one committed resolution for every selected position
+	// group. Multiple minimum-distance groups are all moved by one Buk.
+	Moves []MoveOutcome
+	Move  MoveOutcome
 }
 
 // TurnOutcome returns the decisions needed by the turn state machine.
 func (outcome BukOutcome) TurnOutcome() turn.BukOutcome {
+	captureExtraThrow := outcome.Move.CaptureExtraThrow
+	matchEnded := outcome.Move.MatchEnded
+	for _, move := range outcome.Moves {
+		captureExtraThrow = captureExtraThrow || move.CaptureExtraThrow
+		matchEnded = matchEnded || move.MatchEnded
+	}
 	return turn.BukOutcome{
 		NoCandidate:       outcome.NoCandidate,
-		CaptureExtraThrow: outcome.Move.CaptureExtraThrow,
-		MatchEnded:        outcome.Move.MatchEnded,
+		CaptureExtraThrow: captureExtraThrow,
+		MatchEnded:        matchEnded,
 	}
 }
 

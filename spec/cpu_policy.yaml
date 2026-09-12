@@ -23,6 +23,6 @@ finish_distance:
 tiebreak:
   ordinary_equal_candidates: server_random
   buk_equal_distance:
-    unit: position_group
-    weight: current_piece_count
+    unit: all_minimum_distance_position_groups
+    weight: none
   test_mode: deterministic_seed

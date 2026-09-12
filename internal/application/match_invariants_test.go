@@ -39,8 +39,8 @@ func findEvent(events []matchEventEnvelope, kind string) *matchEventEnvelope {
 	return nil
 }
 
-// Buk at the queue head is resolved automatically by the server: no piece
-// selection is offered and the turn ends when no candidate exists.
+// Buk at the queue head is resolved automatically by the server. With no
+// piece already on the board, the server supplies a random waiting piece.
 func TestBukHeadResolvesAutomaticallyWithoutPieceSelection(t *testing.T) {
 	t.Parallel()
 
@@ -63,15 +63,14 @@ func TestBukHeadResolvesAutomaticallyWithoutPieceSelection(t *testing.T) {
 		t.Fatalf("YUT_RESULT = %+v", throws)
 	}
 	resolved := fixture.recorder.ofTypes("BUK_RESOLVED")
-	if len(resolved) != 1 || !resolved[0].Payload.NoCandidate || len(resolved[0].Payload.PieceIDs) != 0 {
-		t.Fatalf("BUK_RESOLVED = %+v, want automatic no-candidate resolution", resolved)
+	if len(resolved) != 1 || resolved[0].Payload.NoCandidate || len(resolved[0].Payload.MovedPieceIDs) != 1 {
+		t.Fatalf("BUK_RESOLVED = %+v, want automatic waiting-piece fallback", resolved)
 	}
 	if findEvent(events, "MOVE_REQUIRED") != nil {
 		t.Fatal("Buk head must never ask for a user decision")
 	}
-	turns := fixture.recorder.ofTypes("TURN_STARTED")
-	if len(turns) < 2 || turns[len(turns)-1].Payload.PlayerID == firstPlayer {
-		t.Fatalf("TURN_STARTED after Buk = %+v, want handover to the other player", turns)
+	if findEvent(events, "PIECE_MOVED") == nil {
+		t.Fatal("waiting-piece fallback must emit PIECE_MOVED")
 	}
 }
 
