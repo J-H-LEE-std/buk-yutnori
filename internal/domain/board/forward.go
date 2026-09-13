@@ -91,11 +91,30 @@ func (g *Graph) ForwardPlans(
 		}
 		return []ForwardPlan{plan}, nil
 	default:
-		plan, err := g.buildForwardPlan(origin, spaces, domain.RouteNormal, "", policy == ForcedShortcuts, false)
+		plan, err := g.buildForwardPlan(
+			origin,
+			spaces,
+			domain.RouteNormal,
+			"",
+			policy == ForcedShortcuts,
+			isBackMoShortcutSpace(origin),
+		)
 		if err != nil {
 			return nil, err
 		}
 		return []ForwardPlan{plan}, nil
+	}
+}
+
+// isBackMoShortcutSpace keeps a piece that is already inside the Back-Mo
+// shortcut on the Bang → Bangsugi branch when its next move crosses Bang.
+// The rule applies to the entry and both intermediate shortcut spaces.
+func isBackMoShortcutSpace(space SpaceID) bool {
+	switch space {
+	case "back_mo", "back_mo_do", "back_mo_gae":
+		return true
+	default:
+		return false
 	}
 }
 

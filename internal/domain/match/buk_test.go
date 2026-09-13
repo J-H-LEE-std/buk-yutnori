@@ -313,16 +313,29 @@ func TestResolveBukRandomlyMovesWaitingPieceWhenBoardHasNoCandidate(t *testing.T
 
 func TestResolveBukHandlesNoCandidateAndDestinationNoOp(t *testing.T) {
 	t.Run("no unfinished piece", func(t *testing.T) {
-		game := newCanonicalGameWithSource(t, bukSettings(2), &sequenceSource{values: []uint64{0}})
+		game := newCanonicalGameWithSource(t, bukSettings(2), &sequenceSource{})
+		// This is an intentionally defensive state: a valid match ends as soon
+		// as the last piece finishes, so production flow normally cannot reach
+		// ResolveBuk with every piece finished and no winner. Keep the branch
+		// covered without triggering the victory transition.
+		game.mutex.Lock()
+		for index := range game.pieces {
+			if game.pieces[index].TeamID == domain.TeamA {
+				game.pieces[index].State = domain.PieceFinished
+				game.pieces[index].CurrentSpaceID = ""
+				game.pieces[index].ActualPreviousSpace = ""
+			}
+		}
+		game.mutex.Unlock()
 		outcome, err := game.ResolveBuk(domain.TeamA)
 		if err != nil {
 			t.Fatalf("ResolveBuk() error = %v", err)
 		}
-		if outcome.NoCandidate || !outcome.Moved || len(outcome.SelectedPieceIDs) != 1 {
-			t.Fatalf("Buk outcome = %#v, want waiting-piece fallback", outcome)
+		if !outcome.NoCandidate || outcome.Moved || len(outcome.SelectedPieceIDs) != 0 {
+			t.Fatalf("Buk outcome = %#v, want no-candidate discard", outcome)
 		}
-		if got := outcome.TurnOutcome(); got.NoCandidate {
-			t.Fatalf("TurnOutcome() = %#v, want fallback movement", got)
+		if got := outcome.TurnOutcome(); !got.NoCandidate {
+			t.Fatalf("TurnOutcome() = %#v, want no-candidate discard", got)
 		}
 	})
 

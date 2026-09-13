@@ -167,6 +167,45 @@ func TestForwardPlansSelectableBackMoShortcutKeepsBangToBangsugiDirection(t *tes
 	)
 }
 
+func TestForwardPlansContinueBackMoShortcutFromIntermediateSpaces(t *testing.T) {
+	graph := loadCanonicalGraph(t)
+	tests := []struct {
+		name        string
+		position    Position
+		spaces      int
+		wantSpace   SpaceID
+		wantPrev    SpaceID
+		wantVisited []SpaceID
+	}{
+		{
+			name:        "from back mo do",
+			position:    Position{State: PieceOnBoard, Space: "back_mo_do"},
+			spaces:      3,
+			wantSpace:   "bangsugi",
+			wantPrev:    "bang",
+			wantVisited: []SpaceID{"back_mo_gae", "bang", "bangsugi"},
+		},
+		{
+			name:        "from back mo gae",
+			position:    Position{State: PieceOnBoard, Space: "back_mo_gae"},
+			spaces:      2,
+			wantSpace:   "bangsugi",
+			wantPrev:    "bang",
+			wantVisited: []SpaceID{"bang", "bangsugi"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plans, err := graph.ForwardPlans(test.position, test.spaces, SelectableShortcuts)
+			if err != nil {
+				t.Fatalf("ForwardPlans() error = %v", err)
+			}
+			assertForwardPlan(t, requireSinglePlan(t, plans), domain.RouteNormal,
+				Position{State: PieceOnBoard, Space: test.wantSpace}, test.wantPrev, test.wantVisited)
+		})
+	}
+}
+
 func TestForwardPlansUseNormalRouteAtIntermediateChoices(t *testing.T) {
 	graph := loadCanonicalGraph(t)
 	tests := []struct {
