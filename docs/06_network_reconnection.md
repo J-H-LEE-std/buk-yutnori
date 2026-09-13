@@ -237,6 +237,10 @@ snapshot의 `move_request`가 `null`이다.
 - `CHAT_MESSAGE`
 - `ERROR`
 
+`BUK_RESOLVED`는 기존 호환 필드인 단일 `source_space_id`와 함께 다중 동률 이동을
+표현하는 `source_space_ids` 배열을 제공할 수 있다. 배열은 중복 없는 서버 확정 출발지
+목록이며, 개별 이동의 정확한 출발지는 각 `PIECE_MOVED.from_space_id`가 정본이다.
+
 ## 서버 권위형
 
 서버만 다음을 변경한다.

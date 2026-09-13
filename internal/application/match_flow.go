@@ -334,9 +334,23 @@ func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *ma
 		return stepStopped, err
 	}
 	var sourceSpaceID *domain.SpaceID
+	var sourceSpaceIDs []domain.SpaceID
 	if outcome.Moved && outcome.Move.FromSpaceID != "" {
 		value := outcome.Move.FromSpaceID
 		sourceSpaceID = &value
+	}
+	if outcome.Moved {
+		seen := make(map[domain.SpaceID]struct{}, len(outcome.Moves))
+		for _, move := range outcome.Moves {
+			if move.FromSpaceID == "" {
+				continue
+			}
+			if _, ok := seen[move.FromSpaceID]; ok {
+				continue
+			}
+			seen[move.FromSpaceID] = struct{}{}
+			sourceSpaceIDs = append(sourceSpaceIDs, move.FromSpaceID)
+		}
 	}
 	movedPieceIDs := outcome.SelectedPieceIDs
 	if movedPieceIDs == nil {
@@ -348,6 +362,7 @@ func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *ma
 			DestinationSpaceID: outcome.DestinationSpaceID,
 			MovedPieceIDs:      movedPieceIDs,
 			SourceSpaceID:      sourceSpaceID,
+			SourceSpaceIDs:     sourceSpaceIDs,
 			NoCandidate:        outcome.NoCandidate,
 		})
 	})

@@ -555,6 +555,7 @@ type BukResolvedPayload struct {
 	DestinationSpaceID domain.SpaceID       `json:"destination_space_id"`
 	MovedPieceIDs      []domain.PieceID     `json:"moved_piece_ids"`
 	SourceSpaceID      *domain.SpaceID      `json:"source_space_id"`
+	SourceSpaceIDs     []domain.SpaceID     `json:"source_space_ids,omitempty"`
 	NoCandidate        bool                 `json:"no_candidate"`
 }
 
@@ -593,8 +594,19 @@ func NewBukResolvedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence 
 	if err := validateOptionalSpace(payload.SourceSpaceID, "source_space_id"); err != nil {
 		return BukResolvedEvent{}, err
 	}
+	seenSources := make(map[domain.SpaceID]struct{}, len(payload.SourceSpaceIDs))
+	for index, spaceID := range payload.SourceSpaceIDs {
+		if err := spaceID.Validate(); err != nil {
+			return BukResolvedEvent{}, fmt.Errorf("%w: source_space_ids[%d]: %v", ErrInvalidServerEvent, index, err)
+		}
+		if _, duplicate := seenSources[spaceID]; duplicate {
+			return BukResolvedEvent{}, fmt.Errorf("%w: duplicate source_space_ids[%d]", ErrInvalidServerEvent, index)
+		}
+		seenSources[spaceID] = struct{}{}
+	}
 	moved := make([]domain.PieceID, 0, len(payload.MovedPieceIDs))
 	moved = append(moved, payload.MovedPieceIDs...)
+	sources := append([]domain.SpaceID(nil), payload.SourceSpaceIDs...)
 	return BukResolvedEvent{
 		Version: Version1, Direction: DirectionServerEvent, Type: EventBukResolved,
 		Sequence: sequence, RoomID: roomID, MatchID: matchID,
@@ -603,6 +615,7 @@ func NewBukResolvedEvent(roomID domain.RoomID, matchID domain.MatchID, sequence 
 			DestinationSpaceID: payload.DestinationSpaceID,
 			MovedPieceIDs:      moved,
 			SourceSpaceID:      cloneOptionalSpace(payload.SourceSpaceID),
+			SourceSpaceIDs:     sources,
 			NoCandidate:        payload.NoCandidate,
 		},
 	}, nil

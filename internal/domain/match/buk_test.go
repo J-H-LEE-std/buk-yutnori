@@ -327,6 +327,7 @@ func TestResolveBukHandlesNoCandidateAndDestinationNoOp(t *testing.T) {
 			}
 		}
 		game.mutex.Unlock()
+		before := game.Snapshot()
 		outcome, err := game.ResolveBuk(domain.TeamA)
 		if err != nil {
 			t.Fatalf("ResolveBuk() error = %v", err)
@@ -336,6 +337,9 @@ func TestResolveBukHandlesNoCandidateAndDestinationNoOp(t *testing.T) {
 		}
 		if got := outcome.TurnOutcome(); !got.NoCandidate {
 			t.Fatalf("TurnOutcome() = %#v, want no-candidate discard", got)
+		}
+		if after := game.Snapshot(); !reflect.DeepEqual(after, before) {
+			t.Fatalf("NoCandidate changed game state:\nbefore=%#v\nafter=%#v", before, after)
 		}
 	})
 
