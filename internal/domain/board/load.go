@@ -208,8 +208,10 @@ type routeDocument struct {
 }
 
 type shortcutPolicyDocument struct {
-	Selectable string              `yaml:"selectable"`
-	Forced     map[SpaceID]SpaceID `yaml:"forced"`
+	Selectable                   string              `yaml:"selectable"`
+	SelectableIntermediateChoice string              `yaml:"selectable_intermediate_choice"`
+	Forced                       map[SpaceID]SpaceID `yaml:"forced"`
+	ForcedIntermediateChoice     string              `yaml:"forced_intermediate_choice"`
 }
 
 type reversePolicyDocument struct {

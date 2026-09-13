@@ -326,17 +326,31 @@ func (registry *RoomRegistry) afterQueueResolvedLocked(entry *registeredRoom, rt
 }
 
 // resolveBukHeadLocked applies the automatic canonical Buk resolution: the
-// server computes candidates and applies weighted selection without any user
-// piece choice (docs/03 북 처리).
+// server computes candidates and applies every minimum-distance candidate
+// without any user piece choice (docs/03 북 처리).
 func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *matchRuntime, tx *eventTx, tokenID domain.ResultTokenID) (resolutionStep, error) {
 	outcome, err := rt.game.ResolveBuk(rt.currentTeam())
 	if err != nil {
 		return stepStopped, err
 	}
 	var sourceSpaceID *domain.SpaceID
+	var sourceSpaceIDs []domain.SpaceID
 	if outcome.Moved && outcome.Move.FromSpaceID != "" {
 		value := outcome.Move.FromSpaceID
 		sourceSpaceID = &value
+	}
+	if outcome.Moved {
+		seen := make(map[domain.SpaceID]struct{}, len(outcome.Moves))
+		for _, move := range outcome.Moves {
+			if move.FromSpaceID == "" {
+				continue
+			}
+			if _, ok := seen[move.FromSpaceID]; ok {
+				continue
+			}
+			seen[move.FromSpaceID] = struct{}{}
+			sourceSpaceIDs = append(sourceSpaceIDs, move.FromSpaceID)
+		}
 	}
 	movedPieceIDs := outcome.SelectedPieceIDs
 	if movedPieceIDs == nil {
@@ -348,11 +362,14 @@ func (registry *RoomRegistry) resolveBukHeadLocked(entry *registeredRoom, rt *ma
 			DestinationSpaceID: outcome.DestinationSpaceID,
 			MovedPieceIDs:      movedPieceIDs,
 			SourceSpaceID:      sourceSpaceID,
+			SourceSpaceIDs:     sourceSpaceIDs,
 			NoCandidate:        outcome.NoCandidate,
 		})
 	})
 	if outcome.Moved {
-		stageMoveOutcomeEvents(tx, rt, outcome.Move)
+		for _, move := range outcome.Moves {
+			stageMoveOutcomeEvents(tx, rt, move)
+		}
 	}
 	if err := rt.machine.CompleteBuk(tokenID, outcome.TurnOutcome()); err != nil {
 		return stepStopped, err

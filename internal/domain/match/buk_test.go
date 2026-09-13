@@ -2,7 +2,6 @@ package match
 
 import (
 	"errors"
-	"fmt"
 	"math/rand/v2"
 	"reflect"
 	"testing"
@@ -229,7 +228,7 @@ func TestResolveBukMovesClosestPositionGroupToFixedDestination(t *testing.T) {
 
 func TestResolveBukIncludesHomeCheckpointAndExcludesFinishedPieces(t *testing.T) {
 	t.Run("home checkpoint has distance one", func(t *testing.T) {
-		game := newCanonicalGameWithSource(t, bukSettings(2), &sequenceSource{})
+		game := newCanonicalGameWithSource(t, bukSettings(2), &sequenceSource{values: []uint64{0}})
 		applyMove(t, game, domain.TeamA, "A-1", domain.YutDo, "")
 		applyBackdo(t, game, domain.TeamA, "A-1")
 		moveToNalYutForTeam(t, game, domain.TeamA, "A-2")
@@ -248,7 +247,7 @@ func TestResolveBukIncludesHomeCheckpointAndExcludesFinishedPieces(t *testing.T)
 	})
 
 	t.Run("finished piece is excluded", func(t *testing.T) {
-		game := newCanonicalGameWithSource(t, bukSettings(2), &sequenceSource{})
+		game := newCanonicalGameWithSource(t, bukSettings(2), &sequenceSource{values: []uint64{0}})
 		moveToNalYutForTeam(t, game, domain.TeamA, "A-1")
 		applyMove(t, game, domain.TeamA, "A-1", domain.YutGae, "")
 		applyMove(t, game, domain.TeamA, "A-2", domain.YutDo, "")
@@ -266,61 +265,81 @@ func TestResolveBukIncludesHomeCheckpointAndExcludesFinishedPieces(t *testing.T)
 	})
 }
 
-func TestResolveBukWeightsEqualDistanceGroupsByCurrentPieceCount(t *testing.T) {
-	tests := []struct {
-		ticket uint64
-		want   []domain.PieceID
-	}{
-		{ticket: 0, want: []domain.PieceID{"A-1", "A-2"}},
-		{ticket: 1, want: []domain.PieceID{"A-1", "A-2"}},
-		{ticket: 2, want: []domain.PieceID{"A-3"}},
+func TestResolveBukMovesEveryMinimumDistanceCandidate(t *testing.T) {
+	settings := bukSettings(3)
+	settings.StackingEnabled = false
+	source := &sequenceSource{}
+	game := newCanonicalGameWithSource(t, settings, source)
+	moveToMoDo(t, game, "A-1")
+	moveToMoDo(t, game, "A-2")
+	moveToJjiMo(t, game, domain.TeamA, "A-3")
+
+	outcome, err := game.ResolveBuk(domain.TeamA)
+	if err != nil {
+		t.Fatalf("ResolveBuk() error = %v", err)
 	}
+	want := []domain.PieceID{"A-1", "A-2", "A-3"}
+	if !reflect.DeepEqual(outcome.SelectedPieceIDs, want) || len(outcome.Moves) != 2 {
+		t.Fatalf("Buk candidates = %v, moves = %d, want all %v in two groups", outcome.SelectedPieceIDs, len(outcome.Moves), want)
+	}
+	if len(source.limits) != 0 {
+		t.Fatalf("equal-distance candidates must not use tie-breaking randomness: %v", source.limits)
+	}
+	for _, id := range want {
+		if got := requirePiece(t, game.Snapshot(), id).CurrentSpaceID; got != "jji_do" {
+			t.Fatalf("selected piece %q destination = %q, want jji_do", id, got)
+		}
+	}
+}
 
-	for _, test := range tests {
-		t.Run(fmt.Sprintf("ticket_%d", test.ticket), func(t *testing.T) {
-			settings := bukSettings(3)
-			settings.StackingEnabled = false
-			source := &sequenceSource{values: []uint64{test.ticket}}
-			game := newCanonicalGameWithSource(t, settings, source)
-			moveToMoDo(t, game, "A-1")
-			moveToMoDo(t, game, "A-2")
-			moveToJjiMo(t, game, domain.TeamA, "A-3")
-
-			outcome, err := game.ResolveBuk(domain.TeamA)
-			if err != nil {
-				t.Fatalf("ResolveBuk() error = %v", err)
-			}
-			if !reflect.DeepEqual(outcome.SelectedPieceIDs, test.want) {
-				t.Fatalf("SelectedPieceIDs = %v, want %v", outcome.SelectedPieceIDs, test.want)
-			}
-			if !reflect.DeepEqual(source.limits, []uint64{3}) {
-				t.Fatalf("random limits = %v, want [3]", source.limits)
-			}
-			for _, id := range test.want {
-				if got := requirePiece(t, game.Snapshot(), id).CurrentSpaceID; got != "jji_do" {
-					t.Fatalf("selected piece %q destination = %q, want jji_do", id, got)
-				}
-			}
-		})
+func TestResolveBukRandomlyMovesWaitingPieceWhenBoardHasNoCandidate(t *testing.T) {
+	settings := bukSettings(3)
+	source := &sequenceSource{values: []uint64{1}}
+	game := newCanonicalGameWithSource(t, settings, source)
+	outcome, err := game.ResolveBuk(domain.TeamA)
+	if err != nil {
+		t.Fatalf("ResolveBuk() error = %v", err)
+	}
+	if outcome.NoCandidate || !outcome.Moved || !reflect.DeepEqual(outcome.SelectedPieceIDs, []domain.PieceID{"A-2"}) {
+		t.Fatalf("fallback Buk outcome = %#v", outcome)
+	}
+	if !reflect.DeepEqual(source.limits, []uint64{3}) {
+		t.Fatalf("fallback random limits = %v, want [3]", source.limits)
+	}
+	if piece := requirePiece(t, game.Snapshot(), "A-2"); piece.State != domain.PieceOnBoard || piece.CurrentSpaceID != "jji_do" {
+		t.Fatalf("fallback piece = %#v", piece)
 	}
 }
 
 func TestResolveBukHandlesNoCandidateAndDestinationNoOp(t *testing.T) {
-	t.Run("no candidate", func(t *testing.T) {
+	t.Run("no unfinished piece", func(t *testing.T) {
 		game := newCanonicalGameWithSource(t, bukSettings(2), &sequenceSource{})
+		// This is an intentionally defensive state: a valid match ends as soon
+		// as the last piece finishes, so production flow normally cannot reach
+		// ResolveBuk with every piece finished and no winner. Keep the branch
+		// covered without triggering the victory transition.
+		game.mutex.Lock()
+		for index := range game.pieces {
+			if game.pieces[index].TeamID == domain.TeamA {
+				game.pieces[index].State = domain.PieceFinished
+				game.pieces[index].CurrentSpaceID = ""
+				game.pieces[index].ActualPreviousSpace = ""
+			}
+		}
+		game.mutex.Unlock()
 		before := game.Snapshot()
 		outcome, err := game.ResolveBuk(domain.TeamA)
 		if err != nil {
 			t.Fatalf("ResolveBuk() error = %v", err)
 		}
 		if !outcome.NoCandidate || outcome.Moved || len(outcome.SelectedPieceIDs) != 0 {
-			t.Fatalf("Buk outcome = %#v, want no candidate", outcome)
+			t.Fatalf("Buk outcome = %#v, want no-candidate discard", outcome)
 		}
-		if got := outcome.TurnOutcome(); got != (turn.BukOutcome{NoCandidate: true}) {
-			t.Fatalf("TurnOutcome() = %#v, want no candidate", got)
+		if got := outcome.TurnOutcome(); !got.NoCandidate {
+			t.Fatalf("TurnOutcome() = %#v, want no-candidate discard", got)
 		}
 		if after := game.Snapshot(); !reflect.DeepEqual(after, before) {
-			t.Fatal("no-candidate Buk changed game state")
+			t.Fatalf("NoCandidate changed game state:\nbefore=%#v\nafter=%#v", before, after)
 		}
 	})
 
@@ -419,13 +438,10 @@ func TestResolveBukRejectsDisabledModeInvalidRandomAndDistanceFailureAtomically(
 		}
 	})
 
-	t.Run("weighted ticket out of range", func(t *testing.T) {
+	t.Run("waiting-piece ticket out of range", func(t *testing.T) {
 		settings := bukSettings(3)
 		settings.StackingEnabled = false
 		game := newCanonicalGameWithSource(t, settings, &sequenceSource{values: []uint64{3}})
-		moveToMoDo(t, game, "A-1")
-		moveToMoDo(t, game, "A-2")
-		moveToJjiMo(t, game, domain.TeamA, "A-3")
 		before := game.Snapshot()
 		if _, err := game.ResolveBuk(domain.TeamA); !errors.Is(err, ErrRandomSourceOutOfRange) {
 			t.Fatalf("ResolveBuk() error = %v, want ErrRandomSourceOutOfRange", err)

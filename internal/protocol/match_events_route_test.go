@@ -40,3 +40,30 @@ func TestMoveRequiredRejectsContradictoryRouteOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestBukResolvedCarriesAllDistinctSourceSpaces(t *testing.T) {
+	t.Parallel()
+	event, err := NewBukResolvedEvent("room-1", "match-1", 1, BukResolvedPayload{
+		TokenID:            "token-buk",
+		DestinationSpaceID: "jji_do",
+		MovedPieceIDs:      []domain.PieceID{"A-1", "A-2"},
+		SourceSpaceID:      ptrSpace("mo_do"),
+		SourceSpaceIDs:     []domain.SpaceID{"mo_do", "jji_mo"},
+	})
+	if err != nil {
+		t.Fatalf("NewBukResolvedEvent() error = %v", err)
+	}
+	if !reflect.DeepEqual(event.Payload.SourceSpaceIDs, []domain.SpaceID{"mo_do", "jji_mo"}) {
+		t.Fatalf("SourceSpaceIDs = %v", event.Payload.SourceSpaceIDs)
+	}
+	if _, err := NewBukResolvedEvent("room-1", "match-1", 2, BukResolvedPayload{
+		TokenID:            "token-buk",
+		DestinationSpaceID: "jji_do",
+		MovedPieceIDs:      []domain.PieceID{"A-1"},
+		SourceSpaceIDs:     []domain.SpaceID{"mo_do", "mo_do"},
+	}); err == nil {
+		t.Fatal("duplicate SourceSpaceIDs accepted")
+	}
+}
+
+func ptrSpace(space domain.SpaceID) *domain.SpaceID { return &space }

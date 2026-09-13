@@ -113,10 +113,12 @@ route_choices:
 
 shortcut_policy:
   selectable: player_chooses_at_next_forward_move
+  selectable_intermediate_choice: back_mo_shortcut_keeps_bangsugi_at_bang
   forced:
     mo: mo_do
     back_mo: back_mo_do
     bang: bangsugi
+  forced_intermediate_choice: forced_edge_at_every_route_choice
 
 reverse_policy:
   primary: actual_previous_space

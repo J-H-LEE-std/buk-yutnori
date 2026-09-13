@@ -50,8 +50,8 @@ func TestCanonicalCPUPolicySpecMatchesDomain(t *testing.T) {
 		document.Tiebreak.TestMode != "deterministic_seed" {
 		t.Fatalf("tiebreak contract = %#v", document.Tiebreak)
 	}
-	if document.Tiebreak.BukEqualDistance.Unit != "position_group" ||
-		document.Tiebreak.BukEqualDistance.Weight != "current_piece_count" {
+	if document.Tiebreak.BukEqualDistance.Unit != "all_minimum_distance_position_groups" ||
+		document.Tiebreak.BukEqualDistance.Weight != "none" {
 		t.Fatalf("Buk tiebreak contract = %#v", document.Tiebreak.BukEqualDistance)
 	}
 }

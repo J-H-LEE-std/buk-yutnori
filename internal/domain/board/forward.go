@@ -42,9 +42,9 @@ var _ ForwardPlanner = (*Graph)(nil)
 // ForwardPlans returns every legal forward plan from position for spaces.
 //
 // A route policy applies only when the movement starts on a route-choice
-// space. Route choices encountered after movement begins use their canonical
-// normal edge, because a shortcut is available only to a piece that stopped
-// exactly on the choice space before this movement.
+// space. A selected Back-Mo shortcut keeps the Bang-to-Bangsugi direction if
+// the same movement passes through Bang; forced policy applies its forced edge
+// at every route-choice node encountered.
 func (g *Graph) ForwardPlans(
 	position Position,
 	spaces int,
@@ -71,11 +71,11 @@ func (g *Graph) ForwardPlans(
 	choice, startsAtChoice := g.routeChoices[origin]
 	switch {
 	case startsAtChoice && policy == SelectableShortcuts:
-		normal, err := g.buildForwardPlan(origin, spaces, domain.RouteNormal, choice.normal)
+		normal, err := g.buildForwardPlan(origin, spaces, domain.RouteNormal, choice.normal, false, false)
 		if err != nil {
 			return nil, err
 		}
-		shortcut, err := g.buildForwardPlan(origin, spaces, domain.RouteShortcut, choice.shortcut)
+		shortcut, err := g.buildForwardPlan(origin, spaces, domain.RouteShortcut, choice.shortcut, false, origin == "back_mo")
 		if err != nil {
 			return nil, err
 		}
@@ -85,17 +85,36 @@ func (g *Graph) ForwardPlans(
 		if !ok {
 			return nil, fmt.Errorf("%w: forced route from %q", ErrNoForwardSpace, origin)
 		}
-		plan, err := g.buildForwardPlan(origin, spaces, domain.RouteShortcut, destination)
+		plan, err := g.buildForwardPlan(origin, spaces, domain.RouteShortcut, destination, true, false)
 		if err != nil {
 			return nil, err
 		}
 		return []ForwardPlan{plan}, nil
 	default:
-		plan, err := g.buildForwardPlan(origin, spaces, domain.RouteNormal, "")
+		plan, err := g.buildForwardPlan(
+			origin,
+			spaces,
+			domain.RouteNormal,
+			"",
+			policy == ForcedShortcuts,
+			isBackMoShortcutSpace(origin),
+		)
 		if err != nil {
 			return nil, err
 		}
 		return []ForwardPlan{plan}, nil
+	}
+}
+
+// isBackMoShortcutSpace keeps a piece that is already inside the Back-Mo
+// shortcut on the Bang → Bangsugi branch when its next move crosses Bang.
+// The rule applies to the entry and both intermediate shortcut spaces.
+func isBackMoShortcutSpace(space SpaceID) bool {
+	switch space {
+	case "back_mo", "back_mo_do", "back_mo_gae":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -159,6 +178,8 @@ func (g *Graph) buildForwardPlan(
 	spaces int,
 	route domain.Route,
 	firstDestination SpaceID,
+	forceShortcuts bool,
+	continueBackMoShortcut bool,
 ) (ForwardPlan, error) {
 	current := origin
 	var actualPrevious SpaceID
@@ -179,9 +200,23 @@ func (g *Graph) buildForwardPlan(
 			next = firstDestination
 		} else {
 			var err error
-			next, err = g.normalForwardSpace(current)
-			if err != nil {
-				return ForwardPlan{}, err
+			if forceShortcuts || (continueBackMoShortcut && current == "bang") {
+				// Forced policy applies at every route-choice node encountered
+				// during the movement, not only at the starting node. This keeps
+				// a Back-Mo shortcut on the Bang → Bangsugi direction.
+				if forced, ok := g.forcedEdges[current]; ok {
+					next = forced
+				} else {
+					next, err = g.normalForwardSpace(current)
+					if err != nil {
+						return ForwardPlan{}, err
+					}
+				}
+			} else {
+				next, err = g.normalForwardSpace(current)
+				if err != nil {
+					return ForwardPlan{}, err
+				}
 			}
 		}
 		actualPrevious = current
