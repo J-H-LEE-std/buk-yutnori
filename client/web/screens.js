@@ -13,6 +13,14 @@ globalThis.BukScreens = (() => {
     return node;
   };
   const brand = make('div', null, '북 · 윷놀이'); brand.className = 'brand'; auth.prepend(brand);
+  const welcome = make('div'); welcome.className = 'welcome';
+  const seal = make('span', null, '北'); seal.className = 'brand-seal'; seal.setAttribute('aria-hidden', 'true');
+  const eyebrow = make('p', null, '함께 둘러앉는, 우리 놀이'); eyebrow.className = 'eyebrow';
+  const headline = make('h1', null, '한 번의 던짐,\n새로운 한 판.');
+  const intro = make('p', null, '익숙한 윷놀이에 북 한 수를 더하다.\n친구와 함께, 또는 CPU와 가볍게 시작하세요.'); intro.className = 'welcome-copy';
+  const sticks = make('div'); sticks.className = 'welcome-sticks'; sticks.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 4; i++) { const stick = make('span', null, i === 3 ? '×' : ''); sticks.append(stick); }
+  welcome.append(seal, eyebrow, headline, intro, sticks); auth.insertBefore(welcome, brand.nextSibling);
   const shell = make('div'); shell.className = 'screen-shell';
   const content = make('div');
   main.prepend(shell); shell.append(auth, content);

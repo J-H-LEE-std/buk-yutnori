@@ -135,6 +135,8 @@ def validate_assets(root: Path, manifest: Path | None = None,
                 errors.append(f"{rule.path}: unsupported asset kind {rule.kind!r}")
         except (OSError, struct.error) as exc:
             errors.append(f"{rule.path}: cannot inspect asset ({exc})")
+    # Font attribution travels with the redistributed fonts, not as a runtime texture.
+    expected.update({"font/ofl.txt", "font/readme.md"})
     for path in root.rglob("*") if root.exists() else ():
         if path.is_file() and path.relative_to(root).as_posix() not in expected:
             errors.append(f"{path.relative_to(root)}: not declared in manifest")
