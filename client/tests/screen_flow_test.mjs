@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const shell = readFileSync(new URL('../web/shell.html', import.meta.url), 'utf8');
 
 const context = vm.createContext({});
 vm.runInContext(readFileSync(new URL('../web/screen-model.js', import.meta.url), 'utf8'), context);
@@ -17,7 +16,4 @@ assert.equal(model.resultName('invented'), '알 수 없는 결과');
 assert.equal(model.remaining({remaining_ms: 9000, deadline_at: null}, 500), 9000);
 assert.equal(model.remaining({remaining_ms: 9000, deadline_at: '1970-01-01T00:00:02Z'}, 500), 1500);
 assert.equal(model.remaining({remaining_ms: 9000, deadline_at: '1970-01-01T00:00:02Z'}, 2500), 0);
-assert.match(shell, /profileModal\.hidden = required/);
-assert.match(shell, /profileModal\.hidden = false;\s*profileCancel\.hidden = false;[\s\S]*profileCancel\.dataset\.retry = String\(mandatoryCheck\)/);
-assert.match(shell, /if \(mandatoryCheck\) profileCancel\.focus\(\)/);
 console.log('SCREEN_MODEL_OK');

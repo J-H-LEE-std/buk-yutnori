@@ -871,6 +871,8 @@ try {
       requests: requests.length,
       formEnabled: !document.getElementById("profile-nickname").disabled,
       cancelHidden: retryButton.hidden,
+      requestUrl: requests[1]?.url,
+      requestMethod: requests[1]?.method,
     };
     globalThis.fetch = originalFetch;
     nicknameRequired = false;
@@ -882,8 +884,34 @@ try {
   if (!profileRetryFlow.failed.visible || profileRetryFlow.failed.label !== "다시 시도"
       || profileRetryFlow.failed.retry !== "true" || !profileRetryFlow.failed.focused
       || profileRetryFlow.missing.requests !== 2 || !profileRetryFlow.missing.formEnabled
-      || !profileRetryFlow.missing.cancelHidden) {
+      || !profileRetryFlow.missing.cancelHidden
+      || profileRetryFlow.missing.requestUrl !== "/api/v1/profile/me"
+      || profileRetryFlow.missing.requestMethod !== "GET") {
     throw new Error(`profile retry flow was not recoverable: ${JSON.stringify(profileRetryFlow)}`);
+  }
+
+  const profileNetworkRetry = await evaluate(`(async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      throw new Error("network offline");
+    };
+    authenticatedUserId = "usr_EREREREREREREREREREREQ";
+    roomListAuthenticated = true;
+    await openOwnProfile(null, true);
+    const retry = document.getElementById("profile-cancel");
+    const result = { calls, visible: !profileModal.hidden, label: retry.textContent, focused: document.activeElement === retry };
+    globalThis.fetch = originalFetch;
+    nicknameRequired = false;
+    profileModal.hidden = true;
+    authenticatedUserId = null;
+    roomListAuthenticated = false;
+    return result;
+  })()`, true);
+  if (profileNetworkRetry.calls !== 1 || !profileNetworkRetry.visible
+      || profileNetworkRetry.label !== "다시 시도" || !profileNetworkRetry.focused) {
+    throw new Error(`profile network retry flow was not recoverable: ${JSON.stringify(profileNetworkRetry)}`);
   }
 
   const publicProfileFlow = await evaluate(`(async () => {

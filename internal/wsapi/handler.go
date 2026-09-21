@@ -64,7 +64,7 @@ type handler struct {
 
 // NewHandler constructs the authenticated WebSocket endpoint.
 func NewHandler(authenticator Authenticator, session Session, config Config) (http.Handler, error) {
-	if authenticator == nil || session == nil || config.SessionCookieName == "" || config.MaxMessageBytes <= 0 {
+	if authenticator == nil || session == nil || config.SessionCookieName == "" || config.MaxMessageBytes <= 0 || config.ProfileStore == nil {
 		return nil, ErrInvalidConfiguration
 	}
 	return &handler{authenticator: authenticator, session: session, config: config}, nil
