@@ -1486,8 +1486,10 @@ try {
     clearStateReconnectScope();
     Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
     wasmRuntimeReady = true;
-    authenticatedUserId = null;
-    showAuthenticated("usr_EREREREREREREREREREREQ");
+    authenticatedUserId = "usr_EREREREREREREREREREREQ";
+    roomListAuthenticated = true;
+    realtimeReconnectEnabled = true;
+    connectRealtime();
     const capture = instances[0];
     capture.open();
     const commandsAfterLogin = capture.messages.length;
