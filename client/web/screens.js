@@ -53,9 +53,22 @@ globalThis.BukScreens = (() => {
     for(const value of values) {const option = make('option',null,settingLabels[String(value)] ?? String(value)); option.value=String(value); select.append(option);}
     select.value=String(initial); field.append(select); settingsPanel.append(field); settingsFields.set(key,{select,initial});
   }
+  const bukModeSelect = settingsFields.get('buk_mode_enabled').select;
+  const randomBukSelect = settingsFields.get('random_buk_destination').select;
+  const syncBukSettingAvailability = () => {
+    const enabled = bukModeSelect.value === 'true';
+    randomBukSelect.disabled = !enabled;
+    randomBukSelect.closest('label')?.toggleAttribute('aria-disabled', !enabled);
+    if (!enabled) randomBukSelect.value = 'false';
+  };
+  bukModeSelect.addEventListener('change', syncBukSettingAvailability);
+  syncBukSettingAvailability();
   roomCreateForm.append(settingsPanel);
   function settings() {
-    return Object.fromEntries([...settingsFields].map(([key,{select,initial}]) => [key,typeof initial === 'number' ? Number(select.value) : typeof initial === 'boolean' ? select.value === 'true' : select.value]));
+    return Object.fromEntries([...settingsFields].map(([key,{select,initial}]) => [key,
+      key === 'random_buk_destination' && bukModeSelect.value !== 'true' ? false
+        : typeof initial === 'number' ? Number(select.value)
+        : typeof initial === 'boolean' ? select.value === 'true' : select.value]));
   }
   views.room.append(roomDetail);
   const roster = make('aside', 'room-roster');
@@ -139,23 +152,12 @@ globalThis.BukScreens = (() => {
   }
   function renderBukMarker(value) {
     boardAnnotations.replaceChildren();
-    if (!value?.buk?.enabled || typeof value.buk.destination_space_id !== 'string' || !wasmRuntimeReady) return;
-    const x = Module.ccall('BukClientSpaceLogicalX','number',['string'],[value.buk.destination_space_id]);
-    const y = Module.ccall('BukClientSpaceLogicalY','number',['string'],[value.buk.destination_space_id]);
-    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) return;
-    const marker = document.createElementNS(boardAnnotations.namespaceURI,'g');
-    marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', '북 위치');
-    const circle = document.createElementNS(boardAnnotations.namespaceURI,'circle');
-    circle.setAttribute('cx',x); circle.setAttribute('cy',y); circle.setAttribute('r','28');
-    circle.setAttribute('fill','#bd5516'); circle.setAttribute('stroke','#fff8e8'); circle.setAttribute('stroke-width','4');
-    marker.append(circle);
-    const glyph = document.createElementNS(boardAnnotations.namespaceURI,'text');
-    glyph.setAttribute('x',x); glyph.setAttribute('y',y + 10); glyph.setAttribute('text-anchor','middle');
-    glyph.setAttribute('fill','#fff8e8'); glyph.setAttribute('font-size','28'); glyph.setAttribute('font-weight','700');
-    glyph.textContent = '北'; marker.append(glyph); boardAnnotations.append(marker);
-    const text = document.createElementNS(boardAnnotations.namespaceURI,'text');
-    text.setAttribute('x',x + 28); text.setAttribute('y',y - 20); text.setAttribute('fill','#bd5516');
-    text.textContent = '북'; boardAnnotations.append(text);
+    if (!wasmRuntimeReady) return;
+    if (!value?.buk?.enabled || typeof value.buk.destination_space_id !== 'string') {
+      Module.ccall('BukClientSetBukMarker','number',['string'],['']);
+      return;
+    }
+    Module.ccall('BukClientSetBukMarker','number',['string'],[value.buk.destination_space_id]);
   }
   function resetMatch() {
     snapshot = null; selectedPiece = null; matchKey = null; resultSequence = 0;
