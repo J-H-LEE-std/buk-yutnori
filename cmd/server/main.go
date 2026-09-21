@@ -97,7 +97,7 @@ func run() error {
 	if err := roomsRegistry.AttachProfileStore(profileStore); err != nil {
 		return err
 	}
-	roomsHandler, err := httpapi.NewRoomsHandler(authService, roomsRegistry)
+	roomsHandler, err := httpapi.NewRoomsHandlerWithProfiles(authService, roomsRegistry, profileStore)
 	if err != nil {
 		return err
 	}
@@ -122,10 +122,15 @@ func run() error {
 	if err := realtimeSession.SetPresence(realtimeRuntime.Lobbies()); err != nil {
 		return err
 	}
+	if err := realtimeSession.SetProfileStore(profileStore); err != nil {
+		return err
+	}
+	websocketConfig := wsapi.DefaultConfig(httpapi.SessionCookieName)
+	websocketConfig.ProfileStore = profileStore
 	websocketHandler, err := wsapi.NewHandler(
 		authService,
 		realtimeSession,
-		wsapi.DefaultConfig(httpapi.SessionCookieName),
+		websocketConfig,
 	)
 	if err != nil {
 		return err

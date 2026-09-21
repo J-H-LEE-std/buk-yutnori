@@ -14,6 +14,7 @@ import (
 
 	"buk-yutnori/internal/application"
 	"buk-yutnori/internal/auth"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 
 	"github.com/coder/websocket"
@@ -103,6 +104,64 @@ func TestHandlerRejectsHandshakeBeforeSession(t *testing.T) {
 			default:
 			}
 		})
+	}
+}
+
+func TestHandlerRejectsMissingProfileBeforeUpgrade(t *testing.T) {
+	config := DefaultConfig(testCookieName)
+	config.ProfileStore = profileLookupStore{err: profile.ErrNotFound}
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, SessionFunc(func(context.Context, auth.User, *Connection) error {
+		t.Fatal("session called for profile-less handshake")
+		return nil
+	}), config)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	connection, response, err := dial(t, server.URL, server.URL, testRawToken)
+	if connection != nil {
+		connection.CloseNow()
+	}
+	if err == nil || response == nil || response.StatusCode != http.StatusForbidden {
+		t.Fatalf("profile-less handshake = connection:%v response:%v err:%v, want 403", connection, response, err)
+	}
+}
+
+func TestHandlerMapsProfileStoreFailureBeforeUpgrade(t *testing.T) {
+	config := DefaultConfig(testCookieName)
+	config.ProfileStore = profileLookupStore{err: errors.New("profile store unavailable")}
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, SessionFunc(func(context.Context, auth.User, *Connection) error {
+		t.Fatal("session called for profile store failure")
+		return nil
+	}), config)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	connection, response, err := dial(t, server.URL, server.URL, testRawToken)
+	if connection != nil {
+		connection.CloseNow()
+	}
+	if err == nil || response == nil || response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("profile store failure handshake = response:%v err:%v, want 500", response, err)
+	}
+}
+
+func TestHandlerUpgradesWithCompletedProfile(t *testing.T) {
+	called := make(chan struct{}, 1)
+	config := DefaultConfig(testCookieName)
+	config.ProfileStore = profileLookupStore{}
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, SessionFunc(func(_ context.Context, _ auth.User, connection *Connection) error {
+		called <- struct{}{}
+		return connection.CloseNormal("test_complete")
+	}), config)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	connection, response, err := dial(t, server.URL, server.URL, testRawToken)
+	if err != nil || response == nil || connection == nil {
+		t.Fatalf("completed profile handshake = response:%v err:%v", response, err)
+	}
+	defer connection.CloseNow()
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("session was not called for completed profile")
 	}
 }
 
@@ -342,6 +401,7 @@ func TestNewHandlerRejectsInvalidDependencies(t *testing.T) {
 	validAuth := &recordingAuthenticator{user: auth.User{ID: testUserID}}
 	validSession := SessionFunc(func(context.Context, auth.User, *Connection) error { return nil })
 	validConfig := DefaultConfig(testCookieName)
+	validConfig.ProfileStore = profileLookupStore{}
 
 	if _, err := NewHandler(nil, validSession, validConfig); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("NewHandler(nil auth) error = %v", err)
@@ -352,10 +412,16 @@ func TestNewHandlerRejectsInvalidDependencies(t *testing.T) {
 	if _, err := NewHandler(validAuth, validSession, Config{}); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("NewHandler(empty config) error = %v", err)
 	}
+	if _, err := NewHandler(validAuth, validSession, DefaultConfig(testCookieName)); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("NewHandler(missing profile store) error = %v", err)
+	}
 }
 
 func mustHandler(t *testing.T, authenticator Authenticator, session Session, config Config) http.Handler {
 	t.Helper()
+	if config.ProfileStore == nil {
+		config.ProfileStore = profileLookupStore{}
+	}
 	handler, err := NewHandler(authenticator, session, config)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)

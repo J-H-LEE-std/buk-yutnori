@@ -13,6 +13,7 @@ import (
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/profile"
 )
 
 const maxRoomsBodyBytes = 16 * 1024
@@ -32,6 +33,7 @@ type roomsService interface {
 type roomsHandler struct {
 	authenticate roomAuthenticator
 	rooms        roomsService
+	profiles     profile.Store
 }
 
 type createRoomRequest struct {
@@ -65,10 +67,21 @@ type gameLogResponse struct {
 // requires a valid session cookie; mutations additionally require the same-origin
 // request guard.
 func NewRoomsHandler(authenticate roomAuthenticator, rooms roomsService) (http.Handler, error) {
+	return newRoomsHandler(authenticate, rooms, nil)
+}
+
+// NewRoomsHandlerWithProfiles applies the same mandatory-profile boundary as
+// the browser onboarding flow. A session may authenticate successfully, but
+// it cannot enter the lobby until its durable nickname profile exists.
+func NewRoomsHandlerWithProfiles(authenticate roomAuthenticator, rooms roomsService, profiles profile.Store) (http.Handler, error) {
+	return newRoomsHandler(authenticate, rooms, profiles)
+}
+
+func newRoomsHandler(authenticate roomAuthenticator, rooms roomsService, profiles profile.Store) (http.Handler, error) {
 	if authenticate == nil || rooms == nil {
 		return nil, auth.ErrInvalidConfiguration
 	}
-	handler := &roomsHandler{authenticate: authenticate, rooms: rooms}
+	handler := &roomsHandler{authenticate: authenticate, rooms: rooms, profiles: profiles}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/rooms", handler.list)
 	mux.HandleFunc("POST /api/v1/rooms", handler.create)
@@ -80,7 +93,8 @@ func NewRoomsHandler(authenticate roomAuthenticator, rooms roomsService) (http.H
 
 func (h *roomsHandler) list(response http.ResponseWriter, request *http.Request) {
 	setPrivateJSONHeaders(response)
-	if _, ok := h.requireUser(response, request); !ok {
+	user, ok := h.requireUser(response, request)
+	if !ok || !h.requireProfile(response, request, user) {
 		return
 	}
 	writeJSON(response, http.StatusOK, roomListResponse{Rooms: h.rooms.List()})
@@ -94,6 +108,9 @@ func (h *roomsHandler) create(response http.ResponseWriter, request *http.Reques
 	}
 	if !hasRequestGuard(request) {
 		writeError(response, http.StatusForbidden, "request_not_allowed")
+		return
+	}
+	if !h.requireProfile(response, request, user) {
 		return
 	}
 
@@ -133,6 +150,9 @@ func (h *roomsHandler) join(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusForbidden, "request_not_allowed")
 		return
 	}
+	if !h.requireProfile(response, request, user) {
+		return
+	}
 
 	var input joinRoomRequest
 	if !decodeStrictJSON(response, request, &input) {
@@ -160,7 +180,7 @@ func (h *roomsHandler) join(response http.ResponseWriter, request *http.Request)
 func (h *roomsHandler) detail(response http.ResponseWriter, request *http.Request) {
 	setPrivateJSONHeaders(response)
 	user, ok := h.requireUser(response, request)
-	if !ok {
+	if !ok || !h.requireProfile(response, request, user) {
 		return
 	}
 	detail, err := h.rooms.Detail(user.ID, domain.RoomID(request.PathValue("room_id")))
@@ -174,7 +194,7 @@ func (h *roomsHandler) detail(response http.ResponseWriter, request *http.Reques
 func (h *roomsHandler) gameLogs(response http.ResponseWriter, request *http.Request) {
 	setPrivateJSONHeaders(response)
 	user, ok := h.requireUser(response, request)
-	if !ok {
+	if !ok || !h.requireProfile(response, request, user) {
 		return
 	}
 	logs, err := h.rooms.GameLogs(request.Context(), user.ID, domain.RoomID(request.PathValue("room_id")))
@@ -190,6 +210,20 @@ func (h *roomsHandler) gameLogs(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	writeJSON(response, http.StatusOK, gameLogResponse{GameLogs: logs})
+}
+
+func (h *roomsHandler) requireProfile(response http.ResponseWriter, request *http.Request, user auth.User) bool {
+	if h.profiles == nil {
+		return true
+	}
+	if _, err := h.profiles.Lookup(request.Context(), user.ID); err == nil {
+		return true
+	} else if errors.Is(err, profile.ErrNotFound) {
+		writeError(response, http.StatusForbidden, "profile_required")
+	} else {
+		writeError(response, http.StatusInternalServerError, "internal_error")
+	}
+	return false
 }
 
 func (h *roomsHandler) requireUser(response http.ResponseWriter, request *http.Request) (auth.User, bool) {

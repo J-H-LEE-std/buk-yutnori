@@ -151,9 +151,9 @@ static bool IsMajorNode(BukClientBoardNodeId node_id)
 
 static void DrawCanonicalBoard(const BukClientGameLayout *layout)
 {
-    const Color board_background = { 236, 218, 176, 255 };
-    const Color board_ink = { 67, 50, 38, 255 };
-    const Color node_fill = { 255, 249, 231, 255 };
+    const Color board_background = { 246, 240, 224, 255 };
+    const Color board_ink = { 115, 128, 107, 255 };
+    const Color node_fill = { 255, 253, 245, 255 };
     const Color start_fill = { 200, 84, 65, 255 };
     const BukClientBoardEdge *edges;
     const BukClientBoardNode *nodes;
@@ -177,7 +177,7 @@ static void DrawCanonicalBoard(const BukClientGameLayout *layout)
             continue;
         }
         DrawLineEx((Vector2){ from.x, from.y }, (Vector2){ to.x, to.y },
-                   4.0F * layout->scale, board_ink);
+                   2.5F * layout->scale, board_ink);
         rendered_board_edge_count++;
     }
 
@@ -192,7 +192,9 @@ static void DrawCanonicalBoard(const BukClientGameLayout *layout)
         fill = nodes[node_index].id == BUK_CLIENT_BOARD_NODE_CHAMMEOGI
                    ? start_fill
                    : node_fill;
-        DrawCircleV((Vector2){ point.x, point.y }, radius + (2.0F * layout->scale),
+        DrawCircleV((Vector2){ point.x, point.y + 2.0F * layout->scale }, radius + (3.0F * layout->scale),
+                    (Color){ 211, 203, 183, 255 });
+        DrawCircleV((Vector2){ point.x, point.y }, radius + (1.5F * layout->scale),
                     board_ink);
         DrawCircleV((Vector2){ point.x, point.y }, radius, fill);
         rendered_board_node_count++;
@@ -562,7 +564,7 @@ static void UpdateDrawFrame(void)
     BukClientGameLayout layout;
 
     BeginDrawing();
-    ClearBackground((Color){ 36, 29, 25, 255 });
+    ClearBackground((Color){ 246, 240, 224, 255 });
     if (BukClientCalculateGameLayout((float)GetScreenWidth(), (float)GetScreenHeight(),
                                      &layout)) {
         UpdateRouteSelectionInput(&layout);

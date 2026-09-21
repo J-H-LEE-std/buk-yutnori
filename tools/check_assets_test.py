@@ -37,6 +37,20 @@ class AssetCheckerTest(unittest.TestCase):
             (root / "font.ttf").write_bytes(b"\x00\x01\x00\x00fixture")
             self.assertEqual(validate_assets(root, self.manifest(root)), 2)
 
+    def test_allows_font_attribution_but_not_arbitrary_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_png(root / "board_main.png")
+            (root / "font.ttf").write_bytes(b"\x00\x01\x00\x00fixture")
+            (root / "font").mkdir()
+            (root / "font/ofl.txt").write_text("License notice", encoding="utf-8")
+            (root / "font/readme.md").write_text("Source attribution", encoding="utf-8")
+            manifest = self.manifest(root)
+            self.assertEqual(validate_assets(root, manifest), 2)
+            (root / "font/extra.txt").write_text("unexpected", encoding="utf-8")
+            with self.assertRaisesRegex(AssetValidationError, "not declared"):
+                validate_assets(root, manifest)
+
     def test_rejects_missing_asset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

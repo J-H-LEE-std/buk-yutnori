@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
+
 const context = vm.createContext({});
 vm.runInContext(readFileSync(new URL('../web/screen-model.js', import.meta.url), 'utf8'), context);
 const model = context.BukScreenModel;

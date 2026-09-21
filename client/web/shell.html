@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>북윷놀이 WASM 프로토타입</title>
+  <title>북윷놀이 · 한 판의 즐거움</title>
   <style>
     :root {
       color-scheme: light;
@@ -473,6 +473,7 @@
     let pauseCountdownTimer = null;
     let profileRequestGeneration = 0;
     let profileReturnFocus = null;
+    let nicknameRequired = false;
 
     function setRoomEntryEnabled(enabled) {
       for (const element of [roomTitle, roomPassword, roomTeam, roomCreate]) element.disabled = !enabled;
@@ -602,6 +603,24 @@
       if (target?.isConnected && !target.hidden && !target.disabled) target.focus();
     }
 
+    function focusAfterProfileSetup() {
+      const target = document.getElementById("room-title") || document.getElementById("my-profile");
+      if (target && !target.hidden && !target.disabled) {
+        target.focus();
+        return;
+      }
+      restoreProfileFocus();
+    }
+
+    function activateAuthenticatedExperience() {
+      setRoomEntryEnabled(true);
+      refreshRoomList();
+      refreshRouteInteraction();
+      realtimeReconnectEnabled = true;
+      realtimeReconnectAttempt = 0;
+      connectRealtime();
+    }
+
     function trapModalFocus(event, modal) {
       if (event.key !== "Tab" || modal.hidden) return;
       const focusable = [...modal.querySelectorAll("button:not([disabled]), input:not([disabled])")]
@@ -619,25 +638,48 @@
     }
 
     function closeOwnProfile() {
+      if (nicknameRequired) {
+        if (profileCancel.dataset.retry === "true") {
+          profileCancel.dataset.retry = "false";
+          void openOwnProfile(null, true);
+          return;
+        }
+        profileStatus.textContent = "게임을 시작하려면 닉네임을 먼저 설정해 주세요.";
+        profileNickname.focus();
+        return;
+      }
       profileRequestGeneration += 1;
       profileModal.hidden = true;
       setProfileFormEnabled(false);
+      profileCancel.hidden = false;
+      profileCancel.disabled = false;
+      profileCancel.dataset.retry = "false";
+      profileCancel.textContent = "닫기";
       restoreProfileFocus();
     }
 
-    async function openOwnProfile(trigger = null) {
+    async function openOwnProfile(trigger = null, required = false) {
       if (!authenticatedUserId || !roomListAuthenticated) return false;
+      const mandatoryCheck = required;
+      nicknameRequired = required;
       rememberProfileTrigger(trigger);
       const userId = authenticatedUserId;
       const generation = ++profileRequestGeneration;
       publicProfileModal.hidden = true;
-      profileModal.hidden = false;
+      // A required profile check stays visually closed until the server has
+      // confirmed that the profile is missing. This avoids a modal flash for
+      // returning users with an existing profile.
+      profileModal.hidden = required;
       profileNickname.value = "";
       profilePublic.checked = false;
       profileRecord.textContent = "불러오는 중…";
       profileStatus.textContent = "프로필을 불러오는 중…";
       setProfileFormEnabled(false);
-      profileCancel.focus();
+      profileCancel.hidden = nicknameRequired;
+      profileCancel.disabled = nicknameRequired;
+      profileCancel.dataset.retry = "false";
+      profileCancel.textContent = nicknameRequired ? "다시 시도" : "닫기";
+      if (!nicknameRequired) profileCancel.focus();
       try {
         const response = await fetch("/api/v1/profile/me", { credentials: "same-origin", cache: "no-store" });
         if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
@@ -645,6 +687,10 @@
           const code = await readProfileError(response);
           if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
           if (response.status === 404 && code === "profile_not_found") {
+            nicknameRequired = true;
+            profileModal.hidden = false;
+            profileCancel.hidden = true;
+            profileCancel.disabled = true;
             profileRecord.textContent = "프로필 저장 후 확인";
             profileStatus.textContent = "프로필을 처음 설정해 주세요.";
             setProfileFormEnabled(true);
@@ -653,6 +699,12 @@
           }
           profileRecord.textContent = "확인할 수 없음";
           profileStatus.textContent = profileErrorMessage(code);
+          profileModal.hidden = false;
+          profileCancel.hidden = false;
+          profileCancel.disabled = false;
+          profileCancel.dataset.retry = String(mandatoryCheck);
+          profileCancel.textContent = mandatoryCheck ? "다시 시도" : "닫기";
+          if (mandatoryCheck) profileCancel.focus();
           return false;
         }
         const payload = await response.json();
@@ -662,14 +714,35 @@
         profilePublic.checked = payload.is_public;
         profileRecord.textContent = `${payload.wins}승 ${payload.losses}패`;
         profileStatus.textContent = "프로필을 불러왔습니다.";
+        authStatus.textContent = `${payload.nickname} · ${payload.wins}승 ${payload.losses}패`;
         setProfileFormEnabled(true);
         profileNickname.focus();
+        if (nicknameRequired) {
+          nicknameRequired = false;
+          profileModal.hidden = true;
+          profileCancel.hidden = false;
+          profileCancel.disabled = false;
+          profileCancel.dataset.retry = "false";
+          profileCancel.textContent = "닫기";
+          focusAfterProfileSetup();
+        }
+        if (mandatoryCheck) {
+          activateAuthenticatedExperience();
+          void globalThis.BukScreens?.authenticated(true);
+          focusAfterProfileSetup();
+        }
         return true;
       } catch (error) {
         console.error(error);
         if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
         profileRecord.textContent = "확인할 수 없음";
         profileStatus.textContent = profileErrorMessage("internal_error");
+        profileModal.hidden = false;
+        profileCancel.hidden = false;
+        profileCancel.disabled = false;
+        profileCancel.dataset.retry = String(mandatoryCheck);
+        profileCancel.textContent = mandatoryCheck ? "다시 시도" : "닫기";
+        if (mandatoryCheck) profileCancel.focus();
         return false;
       }
     }
@@ -677,6 +750,7 @@
     async function saveOwnProfile() {
       if (!authenticatedUserId || profileModal.hidden || profileSave.disabled) return false;
       const userId = authenticatedUserId;
+      const wasRequired = nicknameRequired;
       const generation = ++profileRequestGeneration;
       setProfileFormEnabled(false);
       profileStatus.textContent = "프로필을 저장하는 중…";
@@ -701,7 +775,19 @@
         profilePublic.checked = payload.is_public;
         profileRecord.textContent = `${payload.wins}승 ${payload.losses}패`;
         profileStatus.textContent = "프로필을 저장했습니다.";
+        authStatus.textContent = `${payload.nickname} · ${payload.wins}승 ${payload.losses}패`;
         setProfileFormEnabled(true);
+        nicknameRequired = false;
+        profileCancel.hidden = false;
+        profileCancel.disabled = false;
+        profileCancel.dataset.retry = "false";
+        profileCancel.textContent = "닫기";
+        if (wasRequired) {
+          profileModal.hidden = true;
+          activateAuthenticatedExperience();
+          void globalThis.BukScreens?.authenticated(true);
+          focusAfterProfileSetup();
+        }
         return true;
       } catch (error) {
         console.error(error);
@@ -1147,13 +1233,9 @@
       logout.hidden = false;
       authenticatedUserId = userId;
       roomListAuthenticated = true;
-      setRoomEntryEnabled(true);
-      refreshRoomList();
-      refreshRouteInteraction();
-      realtimeReconnectEnabled = true;
-      realtimeReconnectAttempt = 0;
-      connectRealtime();
+      setRoomEntryEnabled(false);
       void globalThis.BukScreens?.authenticated();
+      void openOwnProfile(null, true);
     }
 
     function connectRealtime() {
@@ -2367,7 +2449,12 @@
         disconnectRealtime();
         authenticatedUserId = null;
         profileRequestGeneration += 1;
+        nicknameRequired = false;
         profileModal.hidden = true;
+        profileCancel.hidden = false;
+        profileCancel.disabled = false;
+        profileCancel.dataset.retry = "false";
+        profileCancel.textContent = "닫기";
         publicProfileModal.hidden = true;
         clearStateReconnectScope();
         clearRoomList();

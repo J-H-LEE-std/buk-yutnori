@@ -69,7 +69,7 @@ func TestBrowserHarness(t *testing.T) {
 	if err = registry.AttachProfileStore(store); err != nil {
 		t.Fatal(err)
 	}
-	rooms, err := httpapi.NewRoomsHandler(service, registry)
+	rooms, err := httpapi.NewRoomsHandlerWithProfiles(service, registry, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,9 @@ func TestBrowserHarness(t *testing.T) {
 	if err = session.SetPresence(runtime.Lobbies()); err != nil {
 		t.Fatal(err)
 	}
-	websocket, err := wsapi.NewHandler(service, session, wsapi.DefaultConfig(httpapi.SessionCookieName))
+	websocketConfig := wsapi.DefaultConfig(httpapi.SessionCookieName)
+	websocketConfig.ProfileStore = store
+	websocket, err := wsapi.NewHandler(service, session, websocketConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

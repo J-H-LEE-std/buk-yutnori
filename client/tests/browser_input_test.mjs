@@ -844,6 +844,76 @@ try {
     throw new Error(`own profile UI did not preserve the HTTP contract: ${JSON.stringify(ownProfileFlow)}`);
   }
 
+  const profileRetryFlow = await evaluate(`(async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    const responses = [
+      { ok: false, status: 500, json: async () => ({ error: "internal_error" }) },
+      { ok: false, status: 404, json: async () => ({ error: "profile_not_found" }) },
+    ];
+    globalThis.fetch = async (url, options = {}) => {
+      requests.push({ url: String(url), method: options.method ?? "GET" });
+      return responses.shift();
+    };
+    authenticatedUserId = "usr_EREREREREREREREREREREQ";
+    roomListAuthenticated = true;
+    await openOwnProfile(null, true);
+    const retryButton = document.getElementById("profile-cancel");
+    const failed = {
+      visible: !document.getElementById("profile-modal").hidden,
+      label: retryButton.textContent,
+      retry: retryButton.dataset.retry,
+      focused: document.activeElement === retryButton,
+    };
+    retryButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const missing = {
+      requests: requests.length,
+      formEnabled: !document.getElementById("profile-nickname").disabled,
+      cancelHidden: retryButton.hidden,
+      requestUrl: requests[1]?.url,
+      requestMethod: requests[1]?.method,
+    };
+    globalThis.fetch = originalFetch;
+    nicknameRequired = false;
+    profileModal.hidden = true;
+    authenticatedUserId = null;
+    roomListAuthenticated = false;
+    return { failed, missing };
+  })()`, true);
+  if (!profileRetryFlow.failed.visible || profileRetryFlow.failed.label !== "다시 시도"
+      || profileRetryFlow.failed.retry !== "true" || !profileRetryFlow.failed.focused
+      || profileRetryFlow.missing.requests !== 2 || !profileRetryFlow.missing.formEnabled
+      || !profileRetryFlow.missing.cancelHidden
+      || profileRetryFlow.missing.requestUrl !== "/api/v1/profile/me"
+      || profileRetryFlow.missing.requestMethod !== "GET") {
+    throw new Error(`profile retry flow was not recoverable: ${JSON.stringify(profileRetryFlow)}`);
+  }
+
+  const profileNetworkRetry = await evaluate(`(async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      throw new Error("network offline");
+    };
+    authenticatedUserId = "usr_EREREREREREREREREREREQ";
+    roomListAuthenticated = true;
+    await openOwnProfile(null, true);
+    const retry = document.getElementById("profile-cancel");
+    const result = { calls, visible: !profileModal.hidden, label: retry.textContent, focused: document.activeElement === retry };
+    globalThis.fetch = originalFetch;
+    nicknameRequired = false;
+    profileModal.hidden = true;
+    authenticatedUserId = null;
+    roomListAuthenticated = false;
+    return result;
+  })()`, true);
+  if (profileNetworkRetry.calls !== 1 || !profileNetworkRetry.visible
+      || profileNetworkRetry.label !== "다시 시도" || !profileNetworkRetry.focused) {
+    throw new Error(`profile network retry flow was not recoverable: ${JSON.stringify(profileNetworkRetry)}`);
+  }
+
   const publicProfileFlow = await evaluate(`(async () => {
     const originalFetch = globalThis.fetch;
     const requested = [];
@@ -1486,8 +1556,10 @@ try {
     clearStateReconnectScope();
     Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
     wasmRuntimeReady = true;
-    authenticatedUserId = null;
-    showAuthenticated("usr_EREREREREREREREREREREQ");
+    authenticatedUserId = "usr_EREREREREREREREREREREQ";
+    roomListAuthenticated = true;
+    realtimeReconnectEnabled = true;
+    connectRealtime();
     const capture = instances[0];
     capture.open();
     const commandsAfterLogin = capture.messages.length;
