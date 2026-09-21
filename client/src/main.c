@@ -30,6 +30,8 @@ static Texture2D board_texture;
 static Texture2D piece_texture_a;
 static Texture2D piece_texture_b;
 static Texture2D result_textures[BUK_CLIENT_RESULT_COUNT];
+static Font buk_font;
+static bool buk_font_loaded;
 static bool latest_result_set;
 static BukClientResult latest_result;
 
@@ -138,6 +140,27 @@ static BukClientRect LogicalRectangle(const BukClientGameLayout *layout, float x
         width * layout->scale,
         height * layout->scale,
     };
+}
+
+static void DrawBukGlyph(Rectangle rectangle)
+{
+    const Vector2 center = {
+        rectangle.x + (rectangle.width / 2.0F),
+        rectangle.y + (rectangle.height / 2.0F),
+    };
+    const float radius = (rectangle.width < rectangle.height ? rectangle.width : rectangle.height) * 0.42F;
+    const Color fill = { 189, 85, 22, 255 };
+    const Color ink = { 255, 248, 232, 255 };
+
+    DrawCircleV(center, radius, fill);
+    DrawCircleLines((int)center.x, (int)center.y, radius, ink);
+    if (buk_font_loaded) {
+        const float font_size = rectangle.height * 0.52F;
+        const Vector2 measured = MeasureTextEx(buk_font, "北", font_size, 0.0F);
+        DrawTextEx(buk_font, "北",
+                   (Vector2){ center.x - (measured.x / 2.0F), center.y - (measured.y / 2.0F) },
+                   font_size, 0.0F, ink);
+    }
 }
 
 static bool IsMajorNode(BukClientBoardNodeId node_id)
@@ -430,7 +453,9 @@ static void DrawGameHud(const BukClientGameLayout *layout)
         DrawText("RESULT", (int)(latest.x + (1.0F * layout->scale)),
                  (int)(latest.y - (18.0F * layout->scale)),
                  (int)(12.0F * layout->scale), muted);
-        if (texture.id != 0U) {
+        if (latest_result == BUK_CLIENT_RESULT_BUK) {
+            DrawBukGlyph(RaylibRectangle(latest));
+        } else if (texture.id != 0U) {
             DrawTexturePro(texture,
                            (Rectangle){ 0.0F, 0.0F, (float)texture.width,
                                        (float)texture.height },
@@ -461,7 +486,9 @@ static void DrawGameHud(const BukClientGameLayout *layout)
                 layout, 776.0F + ((float)result_index * 66.0F), 386.0F, 56.0F, 52.0F);
 
             Texture2D result_texture = result_textures[snapshot->results[result_index]];
-            if (result_texture.id != 0U) {
+            if (snapshot->results[result_index] == BUK_CLIENT_RESULT_BUK) {
+                DrawBukGlyph(RaylibRectangle(token));
+            } else if (result_texture.id != 0U) {
                 DrawTexturePro(result_texture,
                                (Rectangle){ 0.0F, 0.0F, (float)result_texture.width,
                                            (float)result_texture.height },
@@ -679,6 +706,8 @@ int main(void)
     board_texture = LoadAssetTexture(BUK_CLIENT_ASSET_BOARD_MAIN);
     piece_texture_a = LoadAssetTexture(BUK_CLIENT_ASSET_PIECE_A_ON_BOARD);
     piece_texture_b = LoadAssetTexture(BUK_CLIENT_ASSET_PIECE_B_ON_BOARD);
+    buk_font = LoadFont("assets/font/notosans_kr_regular.ttf");
+    buk_font_loaded = buk_font.texture.id != 0U;
     for (size_t result_index = 0U; result_index < BUK_CLIENT_RESULT_COUNT; result_index++) {
         result_textures[result_index] = LoadAssetTexture(
             BUK_CLIENT_ASSET_YUT_RESULT_DO + result_index);
@@ -694,6 +723,7 @@ int main(void)
     if (board_texture.id != 0U) UnloadTexture(board_texture);
     if (piece_texture_a.id != 0U) UnloadTexture(piece_texture_a);
     if (piece_texture_b.id != 0U) UnloadTexture(piece_texture_b);
+    if (buk_font_loaded) UnloadFont(buk_font);
     for (size_t result_index = 0U; result_index < BUK_CLIENT_RESULT_COUNT; result_index++) {
         if (result_textures[result_index].id != 0U) UnloadTexture(result_textures[result_index]);
     }
