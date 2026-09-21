@@ -60,6 +60,8 @@ try {
   await wait('document.querySelector("main").dataset.screen === "lobby"');
   await wait('!document.querySelector("#profile-modal").hidden && !document.querySelector("#profile-save").disabled');
   assert(await evaluate('document.querySelector("#profile-cancel").hidden'), 'new users must not cancel nickname setup');
+  assert(await evaluate('!realtimeSocket || realtimeSocket.readyState !== WebSocket.OPEN'), 'new users must not open game WebSocket before nickname');
+  assert(await evaluate('document.querySelector("#room-list-status").textContent.includes("로그인 후")'), 'room list must remain gated before nickname');
   await fill('#profile-nickname','브라우저검증');
   await click('#profile-save');
   await wait('document.querySelector("#profile-modal").hidden');
