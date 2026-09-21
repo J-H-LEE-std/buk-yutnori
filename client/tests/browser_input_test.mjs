@@ -848,8 +848,8 @@ try {
     const originalFetch = globalThis.fetch;
     const requests = [];
     const responses = [
-      { ok: false, status: 500, json: async () => ({ code: "internal_error" }) },
-      { ok: false, status: 404, json: async () => ({ code: "profile_not_found" }) },
+      { ok: false, status: 500, json: async () => ({ error: "internal_error" }) },
+      { ok: false, status: 404, json: async () => ({ error: "profile_not_found" }) },
     ];
     globalThis.fetch = async (url, options = {}) => {
       requests.push({ url: String(url), method: options.method ?? "GET" });
