@@ -99,6 +99,12 @@ globalThis.BukScreens = (() => {
   const resultName = BukScreenModel.resultName;
   const nickname = id => snapshot?.participants.find(p => p.user_id === id)?.nickname ?? id;
   function resultImage(result) {
+    if (result === 'buk') {
+      const glyph = make('span', null, '北');
+      glyph.className = 'result-buk-glyph';
+      glyph.setAttribute('role', 'img'); glyph.setAttribute('aria-label', '북');
+      return glyph;
+    }
     const img = make('img'); img.src = `assets/yut/result_${result}.png`; img.alt = resultName(result);
     img.addEventListener('error', () => { img.hidden = true; }); return img;
   }
@@ -137,14 +143,16 @@ globalThis.BukScreens = (() => {
     const x = Module.ccall('BukClientSpaceLogicalX','number',['string'],[value.buk.destination_space_id]);
     const y = Module.ccall('BukClientSpaceLogicalY','number',['string'],[value.buk.destination_space_id]);
     if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) return;
-    const marker = document.createElementNS(boardAnnotations.namespaceURI,'image');
-    marker.setAttribute('x', x - 28); marker.setAttribute('y', y - 28);
-    marker.setAttribute('width', '56'); marker.setAttribute('height', '56');
-    marker.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    marker.setAttribute('href', 'assets/yut/result_buk.png');
-    marker.setAttributeNS('http://www.w3.org/1999/xlink', 'href', 'assets/yut/result_buk.png');
+    const marker = document.createElementNS(boardAnnotations.namespaceURI,'g');
     marker.setAttribute('role', 'img'); marker.setAttribute('aria-label', '북 위치');
-    boardAnnotations.append(marker);
+    const circle = document.createElementNS(boardAnnotations.namespaceURI,'circle');
+    circle.setAttribute('cx',x); circle.setAttribute('cy',y); circle.setAttribute('r','28');
+    circle.setAttribute('fill','#bd5516'); circle.setAttribute('stroke','#fff8e8'); circle.setAttribute('stroke-width','4');
+    marker.append(circle);
+    const glyph = document.createElementNS(boardAnnotations.namespaceURI,'text');
+    glyph.setAttribute('x',x); glyph.setAttribute('y',y + 10); glyph.setAttribute('text-anchor','middle');
+    glyph.setAttribute('fill','#fff8e8'); glyph.setAttribute('font-size','28'); glyph.setAttribute('font-weight','700');
+    glyph.textContent = '北'; marker.append(glyph); boardAnnotations.append(marker);
     const text = document.createElementNS(boardAnnotations.namespaceURI,'text');
     text.setAttribute('x',x + 28); text.setAttribute('y',y - 20); text.setAttribute('fill','#bd5516');
     text.textContent = '북'; boardAnnotations.append(text);

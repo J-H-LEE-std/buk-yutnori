@@ -164,6 +164,9 @@ main[data-screen="game"] .game-stage { max-width:min(100%,760px); border:10px so
 #turn-description { color:var(--accent); font-size:21px; letter-spacing:-.04em; }
 #turn-clock { font-size:32px; font-weight:700; color:var(--red); line-height:1.1; }
 #event-phase,#buk-indicator { color:#805b24; }
+/* The board marker itself is an SVG; this class styles the matching result glyph. */
+/* Keep the 북 result and board marker visually consistent: 北 is the glyph. */
+.result-buk-glyph { display:inline-grid; place-items:center; width:2.2rem; height:2.2rem; border-radius:50%; background:#bd5516; color:#fff8e8; font-weight:700; line-height:1; }
 #game-participants { margin:0; }
 #game-participants li { border:1px solid #e2e6d8; background:#f6f7ef; padding:12px; }
 #game-participants .current-player { background:#e7efdf; border:1px solid #6c8b58; border-left:4px solid var(--accent); }
