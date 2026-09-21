@@ -29,12 +29,12 @@ queue:
   base_order: fifo
   free_mode:
     rule: >
-      The player may select any ordinary movement token in the prefix before
-      the first buk token. A buk token is an ordering barrier.
+      If any buk token exists, the first buk token is resolved immediately;
+      otherwise the player may select any ordinary movement token.
   unusable_ordinary_token: discard_only_that_token
   buk_no_candidate: discard_buk_and_end_turn
   buk_resolution:
-    barrier: resolve_before_tokens_after_buk
+    priority: resolve_immediately_before_all_other_tokens
     minimum_distance_ties: move_all_position_groups
     no_board_candidate: random_unfinished_waiting_piece
     no_unfinished_piece: discard_buk_and_end_turn

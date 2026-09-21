@@ -620,29 +620,24 @@ func availableTokenIDs(tokens []turn.ResultToken) []domain.ResultTokenID {
 	return ids
 }
 
-// availableTokensFor mirrors ResultQueue.Available for snapshots: FIFO
-// exposes the head; free order exposes every ordinary token before the Buk
-// barrier (docs/03 결과 큐).
+// availableTokensFor mirrors ResultQueue.Available for snapshots. Buk is
+// exposed immediately as the sole next token; ordinary FIFO/free rules apply
+// only when no Buk token remains.
 func availableTokensFor(order room.MovementOrder, tokens []turn.ResultToken) []turn.ResultToken {
 	if len(tokens) == 0 {
 		return nil
 	}
-	limit := len(tokens)
-	switch order {
-	case room.MovementFIFO:
-		limit = 1
-	default:
-		for index, token := range tokens {
-			if token.Result == domain.YutBuk {
-				limit = index
-				break
-			}
+	for index, token := range tokens {
+		if token.Result == domain.YutBuk {
+			return tokens[index : index+1]
 		}
 	}
-	if limit == 0 {
-		limit = 1
+	switch order {
+	case room.MovementFIFO:
+		return tokens[:1]
+	default:
+		return tokens
 	}
-	return tokens[:limit]
 }
 
 func resultOfToken(tokens []turn.ResultToken, tokenID domain.ResultTokenID) (domain.YutResult, bool) {
