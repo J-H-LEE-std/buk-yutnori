@@ -704,6 +704,7 @@
           profileCancel.disabled = false;
           profileCancel.dataset.retry = String(mandatoryCheck);
           profileCancel.textContent = mandatoryCheck ? "다시 시도" : "닫기";
+          if (mandatoryCheck) profileCancel.focus();
           return false;
         }
         const payload = await response.json();
@@ -741,6 +742,7 @@
         profileCancel.disabled = false;
         profileCancel.dataset.retry = String(mandatoryCheck);
         profileCancel.textContent = mandatoryCheck ? "다시 시도" : "닫기";
+        if (mandatoryCheck) profileCancel.focus();
         return false;
       }
     }

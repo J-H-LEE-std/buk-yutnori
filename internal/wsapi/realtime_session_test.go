@@ -11,6 +11,7 @@ import (
 
 	"buk-yutnori/internal/application"
 	"buk-yutnori/internal/auth"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 
 	"github.com/coder/websocket"
@@ -158,6 +159,28 @@ func TestNewRealtimeSessionRejectsMissingDependencies(t *testing.T) {
 	}
 	if session, err := NewRealtimeSession(processor, nil); err == nil || session != nil {
 		t.Fatalf("NewRealtimeSession(nil source) = %v, %v", session, err)
+	}
+}
+
+func TestRealtimeSessionRejectsMissingProfileBeforeSubscriptions(t *testing.T) {
+	room, err := application.NewLobbyChatRoom(application.NewRoomEventSequences(), time.Now, nil)
+	if err != nil {
+		t.Fatalf("NewLobbyChatRoom() error = %v", err)
+	}
+	processor, err := application.NewProcessor(room)
+	if err != nil {
+		t.Fatalf("NewProcessor() error = %v", err)
+	}
+	session, err := NewRealtimeSession(processor, room)
+	if err != nil {
+		t.Fatalf("NewRealtimeSession() error = %v", err)
+	}
+	if err := session.SetProfileStore(profileLookupStore{err: profile.ErrNotFound}); err != nil {
+		t.Fatalf("SetProfileStore() error = %v", err)
+	}
+	err = session.serve(context.Background(), auth.User{ID: testUserID}, &blockingRealtimeConnection{})
+	if !errors.Is(err, profile.ErrNotFound) {
+		t.Fatalf("serve() error = %v, want profile.ErrNotFound", err)
 	}
 }
 
@@ -479,6 +502,19 @@ func assertNoWebSocketFrame(t *testing.T, connection *websocket.Conn) {
 
 type staticChatEventSource struct {
 	subscription application.ChatSubscription
+}
+
+type profileLookupStore struct {
+	err error
+}
+
+func (store profileLookupStore) Save(context.Context, profile.Profile) error { return nil }
+
+func (store profileLookupStore) Lookup(context.Context, auth.UserID) (profile.Profile, error) {
+	if store.err != nil {
+		return profile.Profile{}, store.err
+	}
+	return profile.Profile{UserID: testUserID, Nickname: "가나다"}, nil
 }
 
 type failingRoomEventSource struct{ err error }

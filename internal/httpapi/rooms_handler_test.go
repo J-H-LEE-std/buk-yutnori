@@ -150,9 +150,28 @@ func TestRoomsRoutesRequireCompletedProfileWhenConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRoomsHandlerWithProfiles() error = %v", err)
 	}
+	tests := []struct {
+		name, method, target string
+		body                 any
+	}{
+		{"list", http.MethodGet, "/api/v1/rooms", nil},
+		{"create", http.MethodPost, "/api/v1/rooms", map[string]any{"title": "방"}},
+		{"join", http.MethodPost, "/api/v1/rooms/r1/join", map[string]any{"role": "player"}},
+		{"detail", http.MethodGet, "/api/v1/rooms/r1", nil},
+		{"logs", http.MethodGet, "/api/v1/rooms/r1/game-logs", nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := roomsRequest(t, handler, test.method, test.target, test.body)
+			if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"profile_required"`) {
+				t.Fatalf("missing profile response = %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
+	profiles.lookupErr = errors.New("profile store unavailable")
 	response := roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms", nil)
-	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"profile_required"`) {
-		t.Fatalf("missing profile response = %d %s", response.Code, response.Body.String())
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), `"internal_error"`) {
+		t.Fatalf("profile store failure response = %d %s", response.Code, response.Body.String())
 	}
 	profiles.lookupErr = nil
 	profiles.lookup = profile.Profile{UserID: user.ID, Nickname: "가나다"}
