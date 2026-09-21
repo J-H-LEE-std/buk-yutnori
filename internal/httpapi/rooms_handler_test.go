@@ -8,12 +8,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"buk-yutnori/internal/application"
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/domain"
 	"buk-yutnori/internal/domain/room"
+	"buk-yutnori/internal/profile"
 )
 
 type stubRoomAuthenticator struct {
@@ -137,6 +139,26 @@ func TestRoomsRoutesRequireSession(t *testing.T) {
 				t.Fatalf("status = %d, want 401", response.Code)
 			}
 		})
+	}
+}
+
+func TestRoomsRoutesRequireCompletedProfileWhenConfigured(t *testing.T) {
+	user := auth.User{ID: "usr_AAAAAAAAAAAAAAAAAAAAAA"}
+	rooms := &stubRoomsService{}
+	profiles := &stubProfileStore{lookupErr: profile.ErrNotFound}
+	handler, err := NewRoomsHandlerWithProfiles(&stubRoomAuthenticator{user: user}, rooms, profiles)
+	if err != nil {
+		t.Fatalf("NewRoomsHandlerWithProfiles() error = %v", err)
+	}
+	response := roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms", nil)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"profile_required"`) {
+		t.Fatalf("missing profile response = %d %s", response.Code, response.Body.String())
+	}
+	profiles.lookupErr = nil
+	profiles.lookup = profile.Profile{UserID: user.ID, Nickname: "가나다"}
+	response = roomsRequest(t, handler, http.MethodGet, "/api/v1/rooms", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("completed profile response = %d %s", response.Code, response.Body.String())
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"buk-yutnori/internal/application"
 	"buk-yutnori/internal/auth"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 )
 
@@ -29,6 +30,7 @@ type RealtimeSession struct {
 	events    application.ChatEventSource
 	lobbies   RoomEventSource
 	presence  Presence
+	profiles  profile.Store
 }
 
 // SetPresence attaches the authoritative authenticated connection tracker.
@@ -47,6 +49,16 @@ func (session *RealtimeSession) SetLobbyEvents(source RoomEventSource) error {
 		return fmt.Errorf("%w: lobby event source is required", ErrInvalidConfiguration)
 	}
 	session.lobbies = source
+	return nil
+}
+
+// SetProfileStore enforces first-login profile completion before a realtime
+// connection can subscribe to lobby/chat/game events.
+func (session *RealtimeSession) SetProfileStore(store profile.Store) error {
+	if isNilSessionDependency(store) {
+		return fmt.Errorf("%w: profile store is required", ErrInvalidConfiguration)
+	}
+	session.profiles = store
 	return nil
 }
 
@@ -78,6 +90,14 @@ func (session *RealtimeSession) Serve(ctx context.Context, user auth.User, conne
 func (session *RealtimeSession) serve(ctx context.Context, user auth.User, connection realtimeConnection) (serveErr error) {
 	if session == nil || session.processor == nil || session.events == nil || isNilSessionDependency(connection) {
 		return ErrInvalidConfiguration
+	}
+	if session.profiles != nil {
+		if _, err := session.profiles.Lookup(ctx, user.ID); err != nil {
+			if errors.Is(err, profile.ErrNotFound) {
+				return fmt.Errorf("profile required: %w", profile.ErrNotFound)
+			}
+			return fmt.Errorf("lookup profile: %w", err)
+		}
 	}
 	if session.presence != nil {
 		if err := session.presence.ConnectionOpened(user.ID); err != nil {

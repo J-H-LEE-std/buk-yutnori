@@ -186,17 +186,10 @@ globalThis.BukScreens = (() => {
     }
     sync();
   }
-  async function authenticated() {
+  async function authenticated(profileReady = false) {
     sync();
+    if (!profileReady) return;
     const userId = authenticatedUserId;
-    try {
-      const response = await fetch('/api/v1/profile/me',{credentials:'same-origin',cache:'no-store'});
-      if (authenticatedUserId !== userId) return;
-      if (response.ok) {
-        const profile = await response.json();
-        if (validatePrivateProfile(profile) && profile.user_id === userId) authStatus.textContent = `${profile.nickname} · ${profile.wins}승 ${profile.losses}패`;
-      }
-    } catch { /* keep authentication status; profile dialog offers retry */ }
     let remembered;
     try { remembered = sessionStorage.getItem(`buk-room:${userId}`); } catch { return; }
     if (!remembered || authenticatedUserId !== userId || activeRoomId) return;

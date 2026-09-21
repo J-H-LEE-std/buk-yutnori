@@ -603,6 +603,15 @@
       if (target?.isConnected && !target.hidden && !target.disabled) target.focus();
     }
 
+    function focusAfterProfileSetup() {
+      const target = document.getElementById("room-title") || document.getElementById("my-profile");
+      if (target && !target.hidden && !target.disabled) {
+        target.focus();
+        return;
+      }
+      restoreProfileFocus();
+    }
+
     function activateAuthenticatedExperience() {
       setRoomEntryEnabled(true);
       refreshRoomList();
@@ -657,7 +666,10 @@
       const userId = authenticatedUserId;
       const generation = ++profileRequestGeneration;
       publicProfileModal.hidden = true;
-      profileModal.hidden = false;
+      // A required profile check stays visually closed until the server has
+      // confirmed that the profile is missing. This avoids a modal flash for
+      // returning users with an existing profile.
+      profileModal.hidden = required;
       profileNickname.value = "";
       profilePublic.checked = false;
       profileRecord.textContent = "불러오는 중…";
@@ -676,6 +688,7 @@
           if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
           if (response.status === 404 && code === "profile_not_found") {
             nicknameRequired = true;
+            profileModal.hidden = false;
             profileCancel.hidden = true;
             profileCancel.disabled = true;
             profileRecord.textContent = "프로필 저장 후 확인";
@@ -688,8 +701,8 @@
           profileStatus.textContent = profileErrorMessage(code);
           profileCancel.hidden = false;
           profileCancel.disabled = false;
-          profileCancel.dataset.retry = "true";
-          profileCancel.textContent = "다시 시도";
+          profileCancel.dataset.retry = String(mandatoryCheck);
+          profileCancel.textContent = mandatoryCheck ? "다시 시도" : "닫기";
           return false;
         }
         const payload = await response.json();
@@ -709,9 +722,13 @@
           profileCancel.disabled = false;
           profileCancel.dataset.retry = "false";
           profileCancel.textContent = "닫기";
-          restoreProfileFocus();
+          focusAfterProfileSetup();
         }
-        if (mandatoryCheck) activateAuthenticatedExperience();
+        if (mandatoryCheck) {
+          activateAuthenticatedExperience();
+          void globalThis.BukScreens?.authenticated(true);
+          focusAfterProfileSetup();
+        }
         return true;
       } catch (error) {
         console.error(error);
@@ -720,8 +737,8 @@
         profileStatus.textContent = profileErrorMessage("internal_error");
         profileCancel.hidden = false;
         profileCancel.disabled = false;
-        profileCancel.dataset.retry = "true";
-        profileCancel.textContent = "다시 시도";
+        profileCancel.dataset.retry = String(mandatoryCheck);
+        profileCancel.textContent = mandatoryCheck ? "다시 시도" : "닫기";
         return false;
       }
     }
@@ -763,9 +780,10 @@
         profileCancel.textContent = "닫기";
         if (wasRequired) {
           profileModal.hidden = true;
-          restoreProfileFocus();
+          activateAuthenticatedExperience();
+          void globalThis.BukScreens?.authenticated(true);
+          focusAfterProfileSetup();
         }
-        if (wasRequired) activateAuthenticatedExperience();
         return true;
       } catch (error) {
         console.error(error);
