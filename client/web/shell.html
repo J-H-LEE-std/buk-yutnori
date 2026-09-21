@@ -630,6 +630,11 @@
 
     function closeOwnProfile() {
       if (nicknameRequired) {
+        if (profileCancel.dataset.retry === "true") {
+          profileCancel.dataset.retry = "false";
+          void openOwnProfile(null, true);
+          return;
+        }
         profileStatus.textContent = "게임을 시작하려면 닉네임을 먼저 설정해 주세요.";
         profileNickname.focus();
         return;
@@ -639,6 +644,8 @@
       setProfileFormEnabled(false);
       profileCancel.hidden = false;
       profileCancel.disabled = false;
+      profileCancel.dataset.retry = "false";
+      profileCancel.textContent = "닫기";
       restoreProfileFocus();
     }
 
@@ -657,6 +664,8 @@
       setProfileFormEnabled(false);
       profileCancel.hidden = nicknameRequired;
       profileCancel.disabled = nicknameRequired;
+      profileCancel.dataset.retry = "false";
+      profileCancel.textContent = nicknameRequired ? "다시 시도" : "닫기";
       if (!nicknameRequired) profileCancel.focus();
       try {
         const response = await fetch("/api/v1/profile/me", { credentials: "same-origin", cache: "no-store" });
@@ -676,6 +685,10 @@
           }
           profileRecord.textContent = "확인할 수 없음";
           profileStatus.textContent = profileErrorMessage(code);
+          profileCancel.hidden = false;
+          profileCancel.disabled = false;
+          profileCancel.dataset.retry = "true";
+          profileCancel.textContent = "다시 시도";
           return false;
         }
         const payload = await response.json();
@@ -693,6 +706,8 @@
           profileModal.hidden = true;
           profileCancel.hidden = false;
           profileCancel.disabled = false;
+          profileCancel.dataset.retry = "false";
+          profileCancel.textContent = "닫기";
           restoreProfileFocus();
         }
         activateAuthenticatedExperience();
@@ -702,6 +717,10 @@
         if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
         profileRecord.textContent = "확인할 수 없음";
         profileStatus.textContent = profileErrorMessage("internal_error");
+        profileCancel.hidden = false;
+        profileCancel.disabled = false;
+        profileCancel.dataset.retry = "true";
+        profileCancel.textContent = "다시 시도";
         return false;
       }
     }
@@ -739,6 +758,8 @@
         nicknameRequired = false;
         profileCancel.hidden = false;
         profileCancel.disabled = false;
+        profileCancel.dataset.retry = "false";
+        profileCancel.textContent = "닫기";
         if (wasRequired) {
           profileModal.hidden = true;
           restoreProfileFocus();
@@ -2409,6 +2430,8 @@
         profileModal.hidden = true;
         profileCancel.hidden = false;
         profileCancel.disabled = false;
+        profileCancel.dataset.retry = "false";
+        profileCancel.textContent = "닫기";
         publicProfileModal.hidden = true;
         clearStateReconnectScope();
         clearRoomList();
