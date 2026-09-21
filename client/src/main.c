@@ -32,7 +32,7 @@ static Texture2D piece_texture_b;
 static Texture2D result_textures[BUK_CLIENT_RESULT_COUNT];
 static Font buk_font;
 static bool buk_font_loaded;
-static const int buk_codepoint = 0x5317;
+static int buk_codepoint = 0x5317;
 static bool buk_marker_set;
 static BukClientBoardNodeId buk_marker_node;
 static bool latest_result_set;

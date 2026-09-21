@@ -223,6 +223,18 @@ func TestBukBeforeYutIsExposedImmediately(t *testing.T) {
 	assertAvailableIDs(t, queue, room.MovementFree, []domain.ResultTokenID{}...)
 }
 
+func TestBukHasPriorityInFIFOOrder(t *testing.T) {
+	queue := mustQueue(t,
+		resultToken("token-do", domain.YutDo, domain.ResultOriginInitialThrow),
+		resultToken("token-buk", domain.YutBuk, domain.ResultOriginYutExtra),
+	)
+	assertAvailableIDs(t, queue, room.MovementFIFO, "token-buk")
+	if _, err := queue.Consume("token-buk", room.MovementFIFO); err != nil {
+		t.Fatalf("Consume(Buk) error = %v", err)
+	}
+	assertAvailableIDs(t, queue, room.MovementFIFO, "token-do")
+}
+
 func TestQueueFailuresLeaveStateUnchanged(t *testing.T) {
 	queue := mustQueue(t, resultToken("token-1", domain.YutDo, domain.ResultOriginInitialThrow))
 	before := queue.Snapshot()

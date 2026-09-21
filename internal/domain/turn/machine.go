@@ -333,7 +333,7 @@ func (machine *Machine) DiscardUnusableResult(id domain.ResultTokenID) error {
 	return nil
 }
 
-// CompleteBuk consumes the selected head Buk after external automatic resolution.
+// CompleteBuk consumes the selected Buk after external automatic resolution.
 func (machine *Machine) CompleteBuk(id domain.ResultTokenID, outcome BukOutcome) error {
 	if err := outcome.Validate(); err != nil {
 		return err

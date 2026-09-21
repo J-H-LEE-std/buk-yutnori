@@ -236,6 +236,20 @@ func TestBukPriorityResumesResidualQueue(t *testing.T) {
 	assertTokenIDs(t, machine.Snapshot().ResultQueue, "token-yut")
 }
 
+func TestBukResolutionBlocksAnotherThrowUntilBukIsConsumed(t *testing.T) {
+	machine := mustMachine(t, room.MovementFree, true)
+	startMachine(t, machine)
+	recordThrow(t, machine, resultToken("token-buk", domain.YutBuk, domain.ResultOriginInitialThrow))
+	assertMachineState(t, machine, domain.TurnResolveQueue, domain.InputNone, "", "")
+	if _, err := machine.BeginThrow(); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("BeginThrow while Buk is pending = %v, want ErrInvalidTransition", err)
+	}
+	if err := machine.ResolveQueue(); err != nil {
+		t.Fatalf("ResolveQueue() error = %v", err)
+	}
+	assertMachineState(t, machine, domain.TurnResolveBuk, domain.InputNone, "", "token-buk")
+}
+
 func TestMachineDiscardsOnlySelectedUnusableResult(t *testing.T) {
 	machine := machineWithTwoOrdinaryTokens(t, room.MovementFIFO)
 	if err := machine.ResolveQueue(); err != nil {

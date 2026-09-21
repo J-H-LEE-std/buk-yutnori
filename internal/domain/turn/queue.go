@@ -82,7 +82,7 @@ func (queue *ResultQueue) Snapshot() []ResultToken {
 }
 
 // Available returns the tokens eligible for the next resolution step.
-// Buk is an immediate priority barrier: the first Buk token is exposed alone
+// Buk is an immediate priority token: the first Buk token is exposed alone
 // regardless of the ordinary tokens that precede it. Once all Buk tokens are
 // consumed, FIFO/free ordinary-token rules resume.
 func (queue *ResultQueue) Available(order room.MovementOrder) ([]ResultToken, error) {
