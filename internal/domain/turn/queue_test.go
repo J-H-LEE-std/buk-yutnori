@@ -145,6 +145,16 @@ func TestResultQueueRejectsDuplicateAndReusedIDs(t *testing.T) {
 	}
 }
 
+func TestResultQueueRejectsStackedBuk(t *testing.T) {
+	queue := mustQueue(t, resultToken("token-buk-1", domain.YutBuk, domain.ResultOriginInitialThrow))
+	if err := queue.Append(resultToken("token-buk-2", domain.YutBuk, domain.ResultOriginYutExtra)); !errors.Is(err, ErrStackedBuk) {
+		t.Fatalf("Append(second Buk) error = %v, want ErrStackedBuk", err)
+	}
+	if got := queue.Len(); got != 1 {
+		t.Fatalf("Len() after rejected Buk = %d, want 1", got)
+	}
+}
+
 func TestFIFOOnlyExposesAndConsumesHead(t *testing.T) {
 	queue := mustQueue(t,
 		resultToken("token-1", domain.YutDo, domain.ResultOriginInitialThrow),

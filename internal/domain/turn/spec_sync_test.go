@@ -79,7 +79,7 @@ func TestCanonicalQueueSpecMatchesDomain(t *testing.T) {
 		t.Fatalf("base order = %q, want %q", document.Queue.BaseOrder, room.MovementFIFO)
 	}
 	freeRule := strings.ToLower(document.Queue.FreeMode.Rule)
-	if !strings.Contains(freeRule, "any buk token") || !strings.Contains(freeRule, "immediately") {
+	if !strings.Contains(freeRule, "buk token") || !strings.Contains(freeRule, "generated") || !strings.Contains(freeRule, "immediately") {
 		t.Fatalf("unexpected free-mode rule: %q", document.Queue.FreeMode.Rule)
 	}
 	if document.Queue.UnusableOrdinaryToken != "discard_only_that_token" {

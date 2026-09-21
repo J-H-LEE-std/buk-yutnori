@@ -29,8 +29,8 @@ queue:
   base_order: fifo
   free_mode:
     rule: >
-      If any buk token exists, the first buk token is resolved immediately;
-      otherwise the player may select any ordinary movement token.
+      A buk token is resolved immediately when generated; after it is consumed,
+      the player may select any ordinary movement token.
   buk_priority:
     applies_to: [fifo, free]
     invariant: buk_is_resolved_immediately_when_generated

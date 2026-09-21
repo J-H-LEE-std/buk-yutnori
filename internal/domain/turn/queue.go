@@ -24,6 +24,9 @@ var (
 
 	// ErrInvalidMovementOrder identifies a non-canonical queue ordering mode.
 	ErrInvalidMovementOrder = errors.New("invalid movement order")
+
+	// ErrStackedBuk identifies an attempt to enqueue a second unresolved Buk.
+	ErrStackedBuk = errors.New("unresolved Buk already exists")
 )
 
 // ResultQueue stores unresolved result tokens in generation order.
@@ -62,6 +65,13 @@ func (queue *ResultQueue) Append(token ResultToken) error {
 	if _, exists := queue.seenIDs[token.ID]; exists {
 		return fmt.Errorf("%w: %q", ErrDuplicateResultTokenID, token.ID)
 	}
+	if token.Result == domain.YutBuk {
+		for _, queued := range queue.tokens {
+			if queued.Result == domain.YutBuk {
+				return ErrStackedBuk
+			}
+		}
+	}
 	queue.tokens = append(queue.tokens, token)
 	queue.seenIDs[token.ID] = struct{}{}
 	return nil
@@ -82,8 +92,8 @@ func (queue *ResultQueue) Snapshot() []ResultToken {
 }
 
 // Available returns the tokens eligible for the next resolution step.
-// Buk is an immediate priority token: the first Buk token is exposed alone
-// regardless of the ordinary tokens that precede it. Once all Buk tokens are
+// Buk is an immediate priority token: the unresolved Buk token is exposed
+// alone regardless of the ordinary tokens that precede it. Once it is
 // consumed, FIFO/free ordinary-token rules resume.
 func (queue *ResultQueue) Available(order room.MovementOrder) ([]ResultToken, error) {
 	if err := validateMovementOrder(order); err != nil {

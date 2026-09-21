@@ -620,9 +620,9 @@ func availableTokenIDs(tokens []turn.ResultToken) []domain.ResultTokenID {
 	return ids
 }
 
-// availableTokensFor mirrors ResultQueue.Available for snapshots. Buk is
-// exposed immediately as the sole next token; ordinary FIFO/free rules apply
-// only when no Buk token remains.
+// availableTokensFor mirrors ResultQueue.Available for snapshots. The
+// unresolved Buk token is exposed immediately as the sole next token;
+// ordinary FIFO/free rules apply after it is consumed.
 func availableTokensFor(order room.MovementOrder, tokens []turn.ResultToken) []turn.ResultToken {
 	if len(tokens) == 0 {
 		return nil
