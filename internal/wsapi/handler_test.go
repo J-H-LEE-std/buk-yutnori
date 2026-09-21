@@ -412,6 +412,9 @@ func TestNewHandlerRejectsInvalidDependencies(t *testing.T) {
 	if _, err := NewHandler(validAuth, validSession, Config{}); !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("NewHandler(empty config) error = %v", err)
 	}
+	if _, err := NewHandler(validAuth, validSession, DefaultConfig(testCookieName)); !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("NewHandler(missing profile store) error = %v", err)
+	}
 }
 
 func mustHandler(t *testing.T, authenticator Authenticator, session Session, config Config) http.Handler {
