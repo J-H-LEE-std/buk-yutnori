@@ -103,11 +103,14 @@ func (h *roomsHandler) list(response http.ResponseWriter, request *http.Request)
 func (h *roomsHandler) create(response http.ResponseWriter, request *http.Request) {
 	setPrivateJSONHeaders(response)
 	user, ok := h.requireUser(response, request)
-	if !ok || !h.requireProfile(response, request, user) {
+	if !ok {
 		return
 	}
 	if !hasRequestGuard(request) {
 		writeError(response, http.StatusForbidden, "request_not_allowed")
+		return
+	}
+	if !h.requireProfile(response, request, user) {
 		return
 	}
 
@@ -140,11 +143,14 @@ func (h *roomsHandler) create(response http.ResponseWriter, request *http.Reques
 func (h *roomsHandler) join(response http.ResponseWriter, request *http.Request) {
 	setPrivateJSONHeaders(response)
 	user, ok := h.requireUser(response, request)
-	if !ok || !h.requireProfile(response, request, user) {
+	if !ok {
 		return
 	}
 	if !hasRequestGuard(request) {
 		writeError(response, http.StatusForbidden, "request_not_allowed")
+		return
+	}
+	if !h.requireProfile(response, request, user) {
 		return
 	}
 

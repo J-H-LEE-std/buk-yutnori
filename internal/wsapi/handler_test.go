@@ -14,6 +14,7 @@ import (
 
 	"buk-yutnori/internal/application"
 	"buk-yutnori/internal/auth"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 
 	"github.com/coder/websocket"
@@ -103,6 +104,24 @@ func TestHandlerRejectsHandshakeBeforeSession(t *testing.T) {
 			default:
 			}
 		})
+	}
+}
+
+func TestHandlerRejectsMissingProfileBeforeUpgrade(t *testing.T) {
+	config := DefaultConfig(testCookieName)
+	config.ProfileStore = profileLookupStore{err: profile.ErrNotFound}
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, SessionFunc(func(context.Context, auth.User, *Connection) error {
+		t.Fatal("session called for profile-less handshake")
+		return nil
+	}), config)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	connection, response, err := dial(t, server.URL, server.URL, testRawToken)
+	if connection != nil {
+		connection.CloseNow()
+	}
+	if err == nil || response == nil || response.StatusCode != http.StatusForbidden {
+		t.Fatalf("profile-less handshake = connection:%v response:%v err:%v, want 403", connection, response, err)
 	}
 }
 

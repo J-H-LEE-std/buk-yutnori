@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"buk-yutnori/internal/auth"
+	"buk-yutnori/internal/profile"
 	"buk-yutnori/internal/protocol"
 
 	"github.com/coder/websocket"
@@ -47,6 +48,7 @@ func (function SessionFunc) Serve(ctx context.Context, user auth.User, connectio
 type Config struct {
 	SessionCookieName string
 	MaxMessageBytes   int64
+	ProfileStore      profile.Store
 }
 
 // DefaultConfig returns the browser transport defaults.
@@ -94,6 +96,16 @@ func (h *handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 	if err := user.ID.Validate(); err != nil {
 		writeHandshakeError(response, http.StatusInternalServerError, "internal_error")
 		return
+	}
+	if h.config.ProfileStore != nil {
+		if _, err := h.config.ProfileStore.Lookup(request.Context(), user.ID); err != nil {
+			if errors.Is(err, profile.ErrNotFound) {
+				writeHandshakeError(response, http.StatusForbidden, "profile_required")
+			} else {
+				writeHandshakeError(response, http.StatusInternalServerError, "internal_error")
+			}
+			return
+		}
 	}
 
 	connection, err := websocket.Accept(response, request, &websocket.AcceptOptions{

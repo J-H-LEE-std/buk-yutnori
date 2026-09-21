@@ -125,10 +125,12 @@ func run() error {
 	if err := realtimeSession.SetProfileStore(profileStore); err != nil {
 		return err
 	}
+	websocketConfig := wsapi.DefaultConfig(httpapi.SessionCookieName)
+	websocketConfig.ProfileStore = profileStore
 	websocketHandler, err := wsapi.NewHandler(
 		authService,
 		realtimeSession,
-		wsapi.DefaultConfig(httpapi.SessionCookieName),
+		websocketConfig,
 	)
 	if err != nil {
 		return err
