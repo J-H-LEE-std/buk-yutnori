@@ -844,6 +844,48 @@ try {
     throw new Error(`own profile UI did not preserve the HTTP contract: ${JSON.stringify(ownProfileFlow)}`);
   }
 
+  const profileRetryFlow = await evaluate(`(async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    const responses = [
+      { ok: false, status: 500, json: async () => ({ code: "internal_error" }) },
+      { ok: false, status: 404, json: async () => ({ code: "profile_not_found" }) },
+    ];
+    globalThis.fetch = async (url, options = {}) => {
+      requests.push({ url: String(url), method: options.method ?? "GET" });
+      return responses.shift();
+    };
+    authenticatedUserId = "usr_EREREREREREREREREREREQ";
+    roomListAuthenticated = true;
+    await openOwnProfile(null, true);
+    const retryButton = document.getElementById("profile-cancel");
+    const failed = {
+      visible: !document.getElementById("profile-modal").hidden,
+      label: retryButton.textContent,
+      retry: retryButton.dataset.retry,
+      focused: document.activeElement === retryButton,
+    };
+    retryButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const missing = {
+      requests: requests.length,
+      formEnabled: !document.getElementById("profile-nickname").disabled,
+      cancelHidden: retryButton.hidden,
+    };
+    globalThis.fetch = originalFetch;
+    nicknameRequired = false;
+    profileModal.hidden = true;
+    authenticatedUserId = null;
+    roomListAuthenticated = false;
+    return { failed, missing };
+  })()`, true);
+  if (!profileRetryFlow.failed.visible || profileRetryFlow.failed.label !== "다시 시도"
+      || profileRetryFlow.failed.retry !== "true" || !profileRetryFlow.failed.focused
+      || profileRetryFlow.missing.requests !== 2 || !profileRetryFlow.missing.formEnabled
+      || !profileRetryFlow.missing.cancelHidden) {
+    throw new Error(`profile retry flow was not recoverable: ${JSON.stringify(profileRetryFlow)}`);
+  }
+
   const publicProfileFlow = await evaluate(`(async () => {
     const originalFetch = globalThis.fetch;
     const requested = [];
