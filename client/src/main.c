@@ -32,6 +32,7 @@ static Texture2D piece_texture_b;
 static Texture2D result_textures[BUK_CLIENT_RESULT_COUNT];
 static Font buk_font;
 static bool buk_font_loaded;
+static int buk_codepoint = 0x5317;
 static bool buk_marker_set;
 static BukClientBoardNodeId buk_marker_node;
 static bool latest_result_set;
@@ -734,7 +735,8 @@ int main(void)
     board_texture = LoadAssetTexture(BUK_CLIENT_ASSET_BOARD_MAIN);
     piece_texture_a = LoadAssetTexture(BUK_CLIENT_ASSET_PIECE_A_ON_BOARD);
     piece_texture_b = LoadAssetTexture(BUK_CLIENT_ASSET_PIECE_B_ON_BOARD);
-    buk_font = LoadFont("assets/font/notosans_kr_regular.ttf");
+    buk_font = LoadFontEx("assets/font/notosans_kr_regular.ttf", 64,
+                          &buk_codepoint, 1);
     buk_font_loaded = buk_font.texture.id != 0U;
     for (size_t result_index = 0U; result_index < BUK_CLIENT_RESULT_COUNT; result_index++) {
         result_textures[result_index] = LoadAssetTexture(

@@ -79,7 +79,7 @@ func TestCanonicalQueueSpecMatchesDomain(t *testing.T) {
 		t.Fatalf("base order = %q, want %q", document.Queue.BaseOrder, room.MovementFIFO)
 	}
 	freeRule := strings.ToLower(document.Queue.FreeMode.Rule)
-	if !strings.Contains(freeRule, "first buk token") || !strings.Contains(freeRule, "ordering barrier") {
+	if !strings.Contains(freeRule, "buk token") || !strings.Contains(freeRule, "generated") || !strings.Contains(freeRule, "immediately") {
 		t.Fatalf("unexpected free-mode rule: %q", document.Queue.FreeMode.Rule)
 	}
 	if document.Queue.UnusableOrdinaryToken != "discard_only_that_token" {
@@ -127,6 +127,12 @@ func TestCanonicalTurnStatesMatchDomain(t *testing.T) {
 	}
 	if document.Queue.BukNoCandidate != "discard_buk_and_end_turn" {
 		t.Fatalf("Buk no-candidate policy = %q", document.Queue.BukNoCandidate)
+	}
+	if !reflect.DeepEqual(document.Queue.BukPriority.AppliesTo,
+		[]room.MovementOrder{room.MovementFIFO, room.MovementFree}) ||
+		document.Queue.BukPriority.Invariant != "buk_is_resolved_immediately_when_generated" ||
+		!document.Queue.BukPriority.NoStackedBukTokens {
+		t.Fatalf("Buk priority contract = %#v", document.Queue.BukPriority)
 	}
 }
 
@@ -193,6 +199,11 @@ type turnSpecDocument struct {
 		} `yaml:"free_mode"`
 		UnusableOrdinaryToken string `yaml:"unusable_ordinary_token"`
 		BukNoCandidate        string `yaml:"buk_no_candidate"`
+		BukPriority           struct {
+			AppliesTo          []room.MovementOrder `yaml:"applies_to"`
+			Invariant          string               `yaml:"invariant"`
+			NoStackedBukTokens bool                 `yaml:"no_stacked_buk_tokens"`
+		} `yaml:"buk_priority"`
 	} `yaml:"queue"`
 	ExtraThrow struct {
 		AppendPosition string `yaml:"append_position"`

@@ -74,17 +74,17 @@ func TestBukHeadResolvesAutomaticallyWithoutPieceSelection(t *testing.T) {
 	}
 }
 
-// Free movement order exposes every ordinary token before a Buk barrier;
-// FIFO resolves strictly head-first. Same scripted throws, different input.
-func TestQueueOrderingBarrierFreeVersusFIFO(t *testing.T) {
+// Buk is resolved before ordinary tokens in both movement modes. Once it is
+// consumed, free/FIFO rules apply to the residual ordinary queue.
+func TestQueueOrderingBukPriorityFreeVersusFIFO(t *testing.T) {
 	cases := []struct {
 		name           string
 		order          room.MovementOrder
 		required       string
 		wantCandidates int
 	}{
-		{name: "free exposes tokens before buk barrier", order: room.MovementFree, required: "select_move", wantCandidates: 2},
-		{name: "fifo resolves head only", order: room.MovementFIFO, required: "select_move", wantCandidates: 1},
+		{name: "free resumes with ordinary tokens after buk", order: room.MovementFree, required: "select_move", wantCandidates: 2},
+		{name: "fifo resumes with ordinary head after buk", order: room.MovementFIFO, required: "select_move", wantCandidates: 1},
 	}
 	for _, testCase := range cases {
 		testCase := testCase
@@ -97,8 +97,7 @@ func TestQueueOrderingBarrierFreeVersusFIFO(t *testing.T) {
 			})
 			defer fixture.recorder.close()
 			firstPlayer := fixture.runtime().currentPlayer()
-			// yut grants an extra throw, mo grants another, then buk lands
-			// behind two ordinary tokens.
+			// yut grants an extra throw, mo grants another, then Buk is generated.
 			fixture.scriptThrowsFor(map[domain.PlayerID][]domain.YutResult{
 				firstPlayer: {domain.YutYut, domain.YutMo, domain.YutBuk},
 			})
@@ -109,19 +108,18 @@ func TestQueueOrderingBarrierFreeVersusFIFO(t *testing.T) {
 			if len(moves) == 0 {
 				t.Fatal("no MOVE_REQUIRED after throwing chain")
 			}
-			first := moves[0]
-			if first.Payload.RequiredInput != testCase.required || len(first.Payload.Candidates) < testCase.wantCandidates {
-				t.Fatalf("first MOVE_REQUIRED = %+v, want %s with at least %d candidates", first, testCase.required, testCase.wantCandidates)
-			}
-
-			// Resolve the ordinary tokens; the buk tail must resolve
-			// automatically without ever being selectable.
-			fixture.driveUntilPlayerOrEnd(t, firstPlayer)
 			resolved := fixture.recorder.ofTypes("BUK_RESOLVED")
 			if len(resolved) != 1 {
 				t.Fatalf("BUK_RESOLVED count = %d, want 1", len(resolved))
 			}
 			bukToken := resolved[0].Payload.TokenID
+			first := moves[0]
+			if first.Payload.RequiredInput != testCase.required || len(first.Payload.Candidates) < testCase.wantCandidates {
+				t.Fatalf("first MOVE_REQUIRED = %+v, want %s with at least %d candidates", first, testCase.required, testCase.wantCandidates)
+			}
+
+			// Resolve the residual ordinary tokens; Buk must never be selectable.
+			fixture.driveUntilPlayerOrEnd(t, firstPlayer)
 			for _, move := range fixture.recorder.ofTypes("MOVE_REQUIRED") {
 				for _, candidate := range move.Payload.Candidates {
 					if candidate.TokenID == bukToken {

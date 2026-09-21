@@ -145,6 +145,16 @@ func TestResultQueueRejectsDuplicateAndReusedIDs(t *testing.T) {
 	}
 }
 
+func TestResultQueueRejectsStackedBuk(t *testing.T) {
+	queue := mustQueue(t, resultToken("token-buk-1", domain.YutBuk, domain.ResultOriginInitialThrow))
+	if err := queue.Append(resultToken("token-buk-2", domain.YutBuk, domain.ResultOriginYutExtra)); !errors.Is(err, ErrStackedBuk) {
+		t.Fatalf("Append(second Buk) error = %v, want ErrStackedBuk", err)
+	}
+	if got := queue.Len(); got != 1 {
+		t.Fatalf("Len() after rejected Buk = %d, want 1", got)
+	}
+}
+
 func TestFIFOOnlyExposesAndConsumesHead(t *testing.T) {
 	queue := mustQueue(t,
 		resultToken("token-1", domain.YutDo, domain.ResultOriginInitialThrow),
@@ -175,7 +185,7 @@ func TestFIFOOnlyExposesAndConsumesHead(t *testing.T) {
 	assertTokenIDs(t, queue.Snapshot(), "token-2")
 }
 
-func TestFreeOrderStopsAtFirstBukBarrier(t *testing.T) {
+func TestBukHasImmediatePriorityOverAllQueuedTokens(t *testing.T) {
 	queue := mustQueue(t,
 		resultToken("token-do", domain.YutDo, domain.ResultOriginInitialThrow),
 		resultToken("token-geol", domain.YutGeol, domain.ResultOriginInitialThrow),
@@ -187,47 +197,52 @@ func TestFreeOrderStopsAtFirstBukBarrier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Available() error = %v", err)
 	}
-	assertTokenIDs(t, available, "token-do", "token-geol")
+	assertTokenIDs(t, available, "token-buk")
 	available[0].ID = "mutated"
 	assertTokenIDs(t, queue.Snapshot(), "token-do", "token-geol", "token-buk", "token-mo")
 
 	if _, err := queue.Consume("token-mo", room.MovementFree); !errors.Is(err, ErrResultTokenNotAvailable) {
 		t.Fatalf("Consume(after Buk) error = %v, want ErrResultTokenNotAvailable", err)
 	}
-	if _, err := queue.Consume("token-buk", room.MovementFree); !errors.Is(err, ErrResultTokenNotAvailable) {
-		t.Fatalf("Consume(Buk before prefix) error = %v, want ErrResultTokenNotAvailable", err)
+	if _, err := queue.Consume("token-buk", room.MovementFree); err != nil {
+		t.Fatalf("Consume(priority Buk) error = %v", err)
 	}
 	if _, err := queue.Consume("token-geol", room.MovementFree); err != nil {
-		t.Fatalf("Consume(free prefix) error = %v", err)
+		t.Fatalf("Consume(resumed free token) error = %v", err)
 	}
-	assertAvailableIDs(t, queue, room.MovementFree, "token-do")
+	assertAvailableIDs(t, queue, room.MovementFree, "token-do", "token-mo")
 	if _, err := queue.Consume("token-do", room.MovementFree); err != nil {
-		t.Fatalf("Consume(last prefix) error = %v", err)
-	}
-	assertAvailableIDs(t, queue, room.MovementFree, "token-buk")
-	if _, err := queue.Consume("token-mo", room.MovementFree); !errors.Is(err, ErrResultTokenNotAvailable) {
-		t.Fatalf("Consume(after head Buk) error = %v, want ErrResultTokenNotAvailable", err)
-	}
-	if _, err := queue.Consume("token-buk", room.MovementFree); err != nil {
-		t.Fatalf("Consume(head Buk) error = %v", err)
+		t.Fatalf("Consume(first resumed token) error = %v", err)
 	}
 	assertAvailableIDs(t, queue, room.MovementFree, "token-mo")
 }
 
-func TestYutBeforeBukCannotBeSkipped(t *testing.T) {
+func TestBukBeforeYutIsExposedImmediately(t *testing.T) {
 	queue := mustQueue(t,
 		resultToken("token-yut", domain.YutYut, domain.ResultOriginInitialThrow),
 		resultToken("token-buk", domain.YutBuk, domain.ResultOriginYutExtra),
 	)
 
-	assertAvailableIDs(t, queue, room.MovementFree, "token-yut")
-	if _, err := queue.Consume("token-buk", room.MovementFree); !errors.Is(err, ErrResultTokenNotAvailable) {
-		t.Fatalf("Consume(Buk) error = %v, want ErrResultTokenNotAvailable", err)
+	assertAvailableIDs(t, queue, room.MovementFree, "token-buk")
+	if _, err := queue.Consume("token-buk", room.MovementFree); err != nil {
+		t.Fatalf("Consume(Buk) error = %v", err)
 	}
 	if _, err := queue.Consume("token-yut", room.MovementFree); err != nil {
-		t.Fatalf("Consume(Yut) error = %v", err)
+		t.Fatalf("Consume(Yut after Buk) error = %v", err)
 	}
-	assertAvailableIDs(t, queue, room.MovementFree, "token-buk")
+	assertAvailableIDs(t, queue, room.MovementFree, []domain.ResultTokenID{}...)
+}
+
+func TestBukHasPriorityInFIFOOrder(t *testing.T) {
+	queue := mustQueue(t,
+		resultToken("token-do", domain.YutDo, domain.ResultOriginInitialThrow),
+		resultToken("token-buk", domain.YutBuk, domain.ResultOriginYutExtra),
+	)
+	assertAvailableIDs(t, queue, room.MovementFIFO, "token-buk")
+	if _, err := queue.Consume("token-buk", room.MovementFIFO); err != nil {
+		t.Fatalf("Consume(Buk) error = %v", err)
+	}
+	assertAvailableIDs(t, queue, room.MovementFIFO, "token-do")
 }
 
 func TestQueueFailuresLeaveStateUnchanged(t *testing.T) {

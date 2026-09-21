@@ -24,6 +24,9 @@ var (
 
 	// ErrInvalidMovementOrder identifies a non-canonical queue ordering mode.
 	ErrInvalidMovementOrder = errors.New("invalid movement order")
+
+	// ErrStackedBuk identifies an attempt to enqueue a second unresolved Buk.
+	ErrStackedBuk = errors.New("unresolved Buk already exists")
 )
 
 // ResultQueue stores unresolved result tokens in generation order.
@@ -62,6 +65,13 @@ func (queue *ResultQueue) Append(token ResultToken) error {
 	if _, exists := queue.seenIDs[token.ID]; exists {
 		return fmt.Errorf("%w: %q", ErrDuplicateResultTokenID, token.ID)
 	}
+	if token.Result == domain.YutBuk {
+		for _, queued := range queue.tokens {
+			if queued.Result == domain.YutBuk {
+				return ErrStackedBuk
+			}
+		}
+	}
 	queue.tokens = append(queue.tokens, token)
 	queue.seenIDs[token.ID] = struct{}{}
 	return nil
@@ -82,9 +92,9 @@ func (queue *ResultQueue) Snapshot() []ResultToken {
 }
 
 // Available returns the tokens eligible for the next resolution step.
-//
-// FIFO exposes only the head. Free order exposes every non-Buk token before
-// the first Buk. When Buk is at the head, only that Buk is exposed.
+// Buk is an immediate priority token: the unresolved Buk token is exposed
+// alone regardless of the ordinary tokens that precede it. Once it is
+// consumed, FIFO/free ordinary-token rules resume.
 func (queue *ResultQueue) Available(order room.MovementOrder) ([]ResultToken, error) {
 	if err := validateMovementOrder(order); err != nil {
 		return nil, err
@@ -92,8 +102,7 @@ func (queue *ResultQueue) Available(order room.MovementOrder) ([]ResultToken, er
 
 	queue.mutex.RLock()
 	defer queue.mutex.RUnlock()
-	end := availableEnd(queue.tokens, order)
-	return append([]ResultToken(nil), queue.tokens[:end]...), nil
+	return append([]ResultToken(nil), availableTokens(queue.tokens, order)...), nil
 }
 
 // Consume removes and returns one currently available token.
@@ -111,7 +120,8 @@ func (queue *ResultQueue) Consume(id domain.ResultTokenID, order room.MovementOr
 		}
 		return ResultToken{}, fmt.Errorf("%w: %q", ErrResultTokenNotFound, id)
 	}
-	if index >= availableEnd(queue.tokens, order) {
+	available := availableTokens(queue.tokens, order)
+	if !containsTokenID(available, id) {
 		return ResultToken{}, fmt.Errorf("%w: %q", ErrResultTokenNotAvailable, id)
 	}
 
@@ -130,22 +140,28 @@ func (queue *ResultQueue) indexOf(id domain.ResultTokenID) int {
 	return -1
 }
 
-func availableEnd(tokens []ResultToken, order room.MovementOrder) int {
+func availableTokens(tokens []ResultToken, order room.MovementOrder) []ResultToken {
 	if len(tokens) == 0 {
-		return 0
-	}
-	if order == room.MovementFIFO {
-		return 1
+		return nil
 	}
 	for index, token := range tokens {
 		if token.Result == domain.YutBuk {
-			if index == 0 {
-				return 1
-			}
-			return index
+			return tokens[index : index+1]
 		}
 	}
-	return len(tokens)
+	if order == room.MovementFIFO {
+		return tokens[:1]
+	}
+	return tokens
+}
+
+func containsTokenID(tokens []ResultToken, id domain.ResultTokenID) bool {
+	for _, token := range tokens {
+		if token.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func validateMovementOrder(order room.MovementOrder) error {

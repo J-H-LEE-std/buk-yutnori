@@ -197,7 +197,7 @@ func TestMachineRunsPieceRouteAndMovePhases(t *testing.T) {
 	assertMachineState(t, machine, domain.TurnEnd, domain.InputNone, "", "")
 }
 
-func TestBukCannotPassEarlierTokenAndResolvesAutomatically(t *testing.T) {
+func TestBukResolvesImmediatelyBeforeEarlierToken(t *testing.T) {
 	machine := mustMachine(t, room.MovementFree, true)
 	startMachine(t, machine)
 	recordThrow(t, machine, resultToken("token-yut", domain.YutYut, domain.ResultOriginInitialThrow))
@@ -205,46 +205,6 @@ func TestBukCannotPassEarlierTokenAndResolvesAutomatically(t *testing.T) {
 
 	if err := machine.ResolveQueue(); err != nil {
 		t.Fatalf("ResolveQueue() error = %v", err)
-	}
-	assertMachineState(
-		t,
-		machine,
-		domain.TurnWaitMoveSelection,
-		domain.InputSelectMove,
-		"",
-		"",
-	)
-	applySelectedMove(t, machine, "token-yut", false)
-	if err := machine.CompleteMove("token-yut", MoveOutcome{}); err != nil {
-		t.Fatalf("CompleteMove() error = %v", err)
-	}
-
-	if err := machine.ResolveQueue(); err != nil {
-		t.Fatalf("ResolveQueue() error = %v", err)
-	}
-	assertMachineState(t, machine, domain.TurnResolveBuk, domain.InputNone, "", "token-buk")
-	if err := machine.CompleteBuk("token-buk", BukOutcome{NoCandidate: true}); err != nil {
-		t.Fatalf("CompleteBuk() error = %v", err)
-	}
-	assertMachineState(t, machine, domain.TurnEnd, domain.InputNone, "", "")
-	if got := machine.Snapshot().ResultQueue; len(got) != 0 {
-		t.Fatalf("queue after Buk resolution = %v, want empty", got)
-	}
-}
-
-func TestBukBarrierResolvesBeforeResidualQueue(t *testing.T) {
-	machine := mustMachine(t, room.MovementFree, true)
-	startMachine(t, machine)
-	recordThrow(t, machine, resultToken("token-yut", domain.YutYut, domain.ResultOriginInitialThrow))
-	recordThrow(t, machine, resultToken("token-buk", domain.YutBuk, domain.ResultOriginYutExtra))
-	resolveSingleOrdinary(t, machine, "token-yut")
-	applySelectedMove(t, machine, "token-yut", false)
-	if err := machine.CompleteMove("token-yut", MoveOutcome{CaptureExtraThrow: true}); err != nil {
-		t.Fatalf("CompleteMove() error = %v", err)
-	}
-	recordThrow(t, machine, resultToken("token-after-capture", domain.YutDo, domain.ResultOriginCaptureExtra))
-	if err := machine.ResolveQueue(); err != nil {
-		t.Fatalf("ResolveQueue() at Buk barrier error = %v", err)
 	}
 	assertMachineState(t, machine, domain.TurnResolveBuk, domain.InputNone, "", "token-buk")
 	if err := machine.CompleteBuk("token-buk", BukOutcome{}); err != nil {
@@ -254,7 +214,40 @@ func TestBukBarrierResolvesBeforeResidualQueue(t *testing.T) {
 		t.Fatalf("ResolveQueue() after Buk error = %v", err)
 	}
 	assertMachineState(t, machine, domain.TurnWaitMoveSelection, domain.InputSelectMove, "", "")
-	assertTokenIDs(t, machine.Snapshot().ResultQueue, "token-after-capture")
+	assertTokenIDs(t, machine.Snapshot().ResultQueue, "token-yut")
+}
+
+func TestBukPriorityResumesResidualQueue(t *testing.T) {
+	machine := mustMachine(t, room.MovementFree, true)
+	startMachine(t, machine)
+	recordThrow(t, machine, resultToken("token-yut", domain.YutYut, domain.ResultOriginInitialThrow))
+	recordThrow(t, machine, resultToken("token-buk", domain.YutBuk, domain.ResultOriginYutExtra))
+	if err := machine.ResolveQueue(); err != nil {
+		t.Fatalf("ResolveQueue() at Buk priority error = %v", err)
+	}
+	assertMachineState(t, machine, domain.TurnResolveBuk, domain.InputNone, "", "token-buk")
+	if err := machine.CompleteBuk("token-buk", BukOutcome{}); err != nil {
+		t.Fatalf("CompleteBuk() error = %v", err)
+	}
+	if err := machine.ResolveQueue(); err != nil {
+		t.Fatalf("ResolveQueue() after Buk error = %v", err)
+	}
+	assertMachineState(t, machine, domain.TurnWaitMoveSelection, domain.InputSelectMove, "", "")
+	assertTokenIDs(t, machine.Snapshot().ResultQueue, "token-yut")
+}
+
+func TestBukResolutionBlocksAnotherThrowUntilBukIsConsumed(t *testing.T) {
+	machine := mustMachine(t, room.MovementFree, true)
+	startMachine(t, machine)
+	recordThrow(t, machine, resultToken("token-buk", domain.YutBuk, domain.ResultOriginInitialThrow))
+	assertMachineState(t, machine, domain.TurnResolveQueue, domain.InputNone, "", "")
+	if _, err := machine.BeginThrow(); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("BeginThrow while Buk is pending = %v, want ErrInvalidTransition", err)
+	}
+	if err := machine.ResolveQueue(); err != nil {
+		t.Fatalf("ResolveQueue() error = %v", err)
+	}
+	assertMachineState(t, machine, domain.TurnResolveBuk, domain.InputNone, "", "token-buk")
 }
 
 func TestMachineDiscardsOnlySelectedUnusableResult(t *testing.T) {

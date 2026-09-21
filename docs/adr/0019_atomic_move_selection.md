@@ -28,7 +28,7 @@
 - 선택한 조합에 normal/shortcut 모두 가능하면 그 뒤에만 `SELECT_ROUTE`를 요청한다.
   경로가 하나면 서버가 같은 상태 전이에서 이동을 확정한다.
 - `movement_order=fifo`에서 후보 token은 선두 하나뿐이므로 토큰 UI를 열지 않고
-  말 클릭만 받는다. `free`에서도 북은 기존 순서 장벽을 유지한다.
+  말 클릭만 받는다. `free`에서도 북 토큰이 생성되면 일반 결과보다 먼저 자동 처리한다.
 - `THROW_YUT`는 입력 command다. 서버가 이를 생성하거나 `TURN_ADDED` 이벤트를
   만들지 않는다. 윷·모·잡기 추가 던지기는 `YUT_RESULT.token.origin`과 다음
   `TURN_STARTED(required_input=throw)`로 표현한다.
