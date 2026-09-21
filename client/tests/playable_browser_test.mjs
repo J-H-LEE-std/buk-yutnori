@@ -57,13 +57,14 @@ try {
   // Only the test binary accepts this credential. All subsequent operations
   // use the production HTTP handlers, session cookie, WebSocket and game rules.
   await evaluate(`handleGoogleCredential({credential:${JSON.stringify(`browser-test-player-${Date.now()}`)}})`);
-  await wait('document.querySelector("main").dataset.screen === "lobby" && realtimeSocket?.readyState === WebSocket.OPEN');
-  await click('#my-profile');
-  await wait('!document.querySelector("#profile-save").disabled');
+  await wait('document.querySelector("main").dataset.screen === "lobby"');
+  await wait('!document.querySelector("#profile-modal").hidden && !document.querySelector("#profile-save").disabled');
+  assert(await evaluate('document.querySelector("#profile-cancel").hidden'), 'new users must not cancel nickname setup');
   await fill('#profile-nickname','브라우저검증');
   await click('#profile-save');
-  await wait('!document.querySelector("#profile-save").disabled');
-  await click('#profile-cancel');
+  await wait('document.querySelector("#profile-modal").hidden');
+  await wait('realtimeSocket?.readyState === WebSocket.OPEN');
+  assert.equal(await evaluate('document.querySelector("#auth-status").textContent.includes("usr_")'), false);
   await screenshot('02-lobby');
   await fill('#room-title','혼자 CPU와 수동 검증');
   await click('#room-create');
