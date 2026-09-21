@@ -699,6 +699,7 @@
           }
           profileRecord.textContent = "확인할 수 없음";
           profileStatus.textContent = profileErrorMessage(code);
+          profileModal.hidden = false;
           profileCancel.hidden = false;
           profileCancel.disabled = false;
           profileCancel.dataset.retry = String(mandatoryCheck);
@@ -735,6 +736,7 @@
         if (generation !== profileRequestGeneration || authenticatedUserId !== userId) return false;
         profileRecord.textContent = "확인할 수 없음";
         profileStatus.textContent = profileErrorMessage("internal_error");
+        profileModal.hidden = false;
         profileCancel.hidden = false;
         profileCancel.disabled = false;
         profileCancel.dataset.retry = String(mandatoryCheck);
