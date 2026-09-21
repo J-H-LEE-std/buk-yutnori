@@ -651,6 +651,7 @@
 
     async function openOwnProfile(trigger = null, required = false) {
       if (!authenticatedUserId || !roomListAuthenticated) return false;
+      const mandatoryCheck = required;
       nicknameRequired = required;
       rememberProfileTrigger(trigger);
       const userId = authenticatedUserId;
@@ -710,7 +711,7 @@
           profileCancel.textContent = "닫기";
           restoreProfileFocus();
         }
-        activateAuthenticatedExperience();
+        if (mandatoryCheck) activateAuthenticatedExperience();
         return true;
       } catch (error) {
         console.error(error);
@@ -764,7 +765,7 @@
           profileModal.hidden = true;
           restoreProfileFocus();
         }
-        activateAuthenticatedExperience();
+        if (wasRequired) activateAuthenticatedExperience();
         return true;
       } catch (error) {
         console.error(error);
