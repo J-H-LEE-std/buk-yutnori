@@ -61,5 +61,6 @@ float BukClientPieceLogicalX(int index);
 float BukClientPieceLogicalY(int index);
 float BukClientSpaceLogicalX(const char *space);
 float BukClientSpaceLogicalY(const char *space);
+int BukClientSetBukMarker(const char *space);
 
 #endif

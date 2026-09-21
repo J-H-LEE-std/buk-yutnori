@@ -32,6 +32,8 @@ static Texture2D piece_texture_b;
 static Texture2D result_textures[BUK_CLIENT_RESULT_COUNT];
 static Font buk_font;
 static bool buk_font_loaded;
+static bool buk_marker_set;
+static BukClientBoardNodeId buk_marker_node;
 static bool latest_result_set;
 static BukClientResult latest_result;
 
@@ -107,6 +109,22 @@ float BukClientSpaceLogicalX(const char *space) { return SpaceLogicalPoint(space
 EMSCRIPTEN_KEEPALIVE
 #endif
 float BukClientSpaceLogicalY(const char *space) { return SpaceLogicalPoint(space).y; }
+
+#if defined(PLATFORM_WEB)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int BukClientSetBukMarker(const char *space)
+{
+    BukClientBoardNodeId node;
+    if (space == NULL || space[0] == '\0') {
+        buk_marker_set = false;
+        return 1;
+    }
+    if (!BukClientBoardFindNode(space, &node)) return 0;
+    buk_marker_node = node;
+    buk_marker_set = true;
+    return 1;
+}
 
 static Texture2D LoadAssetTexture(size_t index)
 {
@@ -222,6 +240,15 @@ static void DrawCanonicalBoard(const BukClientGameLayout *layout)
         DrawCircleV((Vector2){ point.x, point.y }, radius, fill);
         rendered_board_node_count++;
     }
+}
+
+static void DrawBukMarker(const BukClientGameLayout *layout)
+{
+    BukClientPoint point;
+    if (!buk_marker_set || !BukClientBoardMapNode(layout->board, buk_marker_node, &point)) return;
+    DrawBukGlyph((Rectangle){ point.x - 28.0F * layout->scale,
+                              point.y - 28.0F * layout->scale,
+                              56.0F * layout->scale, 56.0F * layout->scale });
 }
 
 static void DrawAuthoritativeRouteHighlights(const BukClientGameLayout *layout)
@@ -598,6 +625,7 @@ static void UpdateDrawFrame(void)
         DrawRectangleRec(RaylibRectangle(layout.content),
                          (Color){ 245, 239, 225, 255 });
         DrawCanonicalBoard(&layout);
+        DrawBukMarker(&layout);
         DrawAuthoritativeRouteHighlights(&layout);
         DrawAuthoritativePieces(&layout);
         DrawGameHud(&layout);
