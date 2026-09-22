@@ -25,7 +25,8 @@
 ## 프로토콜 세부 정책 미결정
 
 - `ERROR` 이벤트의 표준 오류 코드 목록
-- WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책
+- WebSocket heartbeat/idle timeout과 graceful shutdown 시 active connection 종료 정책은
+  ADR-0021/#177에서 확정했다.
 - 대기실 구독자 알림 계약은 ADR-0015의 ROOM_UPDATED 부분으로 확정되었다. 즉시 시작
   전이도 ROOM_UPDATED 신호 + HTTP 방 상세 조회(pull-on-notify) 조합으로 동기화한다.
 - 레지스트리 방 이벤트의 저장과 RECONNECT replay는 여전히 미결이다. ADR-0015 방송은
@@ -85,7 +86,7 @@
 
 - 실제 presence 연결 상태는 ADR-0020/#157에서 확정한다. nickname 변경 realtime push는
   별도 구현에서 판단한다.
-- 방 비밀번호 실패 시도 제한
+- 방 비밀번호 실패 시도 제한은 ADR-0021/#177에서 방 입장 전체 시도 제한으로 확정했다.
 - 채팅·게임 로그 보존 기간
 - 사용자 계정 삭제 정책
 - 브라우저 최소 지원 버전

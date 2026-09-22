@@ -286,8 +286,7 @@
       <div id="finished-pieces" class="move-candidates" aria-label="완주한 말"></div>
     </section>
     <div class="game-stage">
-      <canvas id="canvas" width="1280" height="720" tabindex="-1"
-              oncontextmenu="event.preventDefault()"></canvas>
+      <canvas id="canvas" width="1280" height="720" tabindex="-1"></canvas>
       <button id="throw-yut" type="button" hidden disabled>윷 던지기</button>
     </div>
     <section class="bridge" aria-labelledby="ime-label">
@@ -2543,8 +2542,10 @@
       chatInput.focus();
     });
 
+    const gameCanvas = document.getElementById("canvas");
+    gameCanvas.addEventListener("contextmenu", (event) => event.preventDefault());
     var Module = {
-      canvas: document.getElementById("canvas"),
+      canvas: gameCanvas,
       print: (...args) => console.log(...args),
       printErr: (...args) => console.error(...args),
       onRuntimeInitialized: () => {

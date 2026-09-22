@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"buk-yutnori/internal/auth"
 	"buk-yutnori/internal/profile"
@@ -18,6 +20,13 @@ import (
 )
 
 const DefaultMaxMessageBytes int64 = 16 * 1024
+
+const (
+	DefaultMaxConnections        = 1000
+	DefaultMaxConnectionsPerUser = 5
+	DefaultHeartbeatInterval     = 30 * time.Second
+	DefaultHeartbeatTimeout      = 10 * time.Second
+)
 
 var (
 	ErrInvalidConfiguration = errors.New("invalid WebSocket configuration")
@@ -46,28 +55,61 @@ func (function SessionFunc) Serve(ctx context.Context, user auth.User, connectio
 
 // Config contains transport limits and the server session cookie name.
 type Config struct {
-	SessionCookieName string
-	MaxMessageBytes   int64
-	ProfileStore      profile.Store
+	SessionCookieName     string
+	MaxMessageBytes       int64
+	ProfileStore          profile.Store
+	MaxConnections        int
+	MaxConnectionsPerUser int
+	HeartbeatInterval     time.Duration
+	HeartbeatTimeout      time.Duration
+	ShutdownContext       context.Context
 }
 
 // DefaultConfig returns the browser transport defaults.
 func DefaultConfig(sessionCookieName string) Config {
-	return Config{SessionCookieName: sessionCookieName, MaxMessageBytes: DefaultMaxMessageBytes}
+	return Config{
+		SessionCookieName:     sessionCookieName,
+		MaxMessageBytes:       DefaultMaxMessageBytes,
+		MaxConnections:        DefaultMaxConnections,
+		MaxConnectionsPerUser: DefaultMaxConnectionsPerUser,
+		HeartbeatInterval:     DefaultHeartbeatInterval,
+		HeartbeatTimeout:      DefaultHeartbeatTimeout,
+		ShutdownContext:       context.Background(),
+	}
 }
 
 type handler struct {
 	authenticator Authenticator
 	session       Session
 	config        Config
+	mu            sync.Mutex
+	active        int
+	activeByUser  map[auth.UserID]int
 }
 
 // NewHandler constructs the authenticated WebSocket endpoint.
 func NewHandler(authenticator Authenticator, session Session, config Config) (http.Handler, error) {
-	if authenticator == nil || session == nil || config.SessionCookieName == "" || config.MaxMessageBytes <= 0 || config.ProfileStore == nil {
+	if config.SessionCookieName != "" && config.MaxMessageBytes > 0 {
+		if config.MaxConnections == 0 {
+			config.MaxConnections = DefaultMaxConnections
+		}
+		if config.MaxConnectionsPerUser == 0 {
+			config.MaxConnectionsPerUser = DefaultMaxConnectionsPerUser
+		}
+		if config.HeartbeatInterval == 0 {
+			config.HeartbeatInterval = DefaultHeartbeatInterval
+		}
+		if config.HeartbeatTimeout == 0 {
+			config.HeartbeatTimeout = DefaultHeartbeatTimeout
+		}
+		if config.ShutdownContext == nil {
+			config.ShutdownContext = context.Background()
+		}
+	}
+	if authenticator == nil || session == nil || config.SessionCookieName == "" || config.MaxMessageBytes <= 0 || config.ProfileStore == nil || config.MaxConnections <= 0 || config.MaxConnectionsPerUser <= 0 || config.HeartbeatInterval <= 0 || config.HeartbeatTimeout <= 0 || config.ShutdownContext == nil {
 		return nil, ErrInvalidConfiguration
 	}
-	return &handler{authenticator: authenticator, session: session, config: config}, nil
+	return &handler{authenticator: authenticator, session: session, config: config, activeByUser: make(map[auth.UserID]int)}, nil
 }
 
 func (h *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -107,6 +149,12 @@ func (h *handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 			return
 		}
 	}
+	if !h.acquire(user.ID) {
+		response.Header().Set("Retry-After", "1")
+		writeHandshakeError(response, http.StatusTooManyRequests, "connection_limit_reached")
+		return
+	}
+	defer h.release(user.ID)
 
 	connection, err := websocket.Accept(response, request, &websocket.AcceptOptions{
 		CompressionMode: websocket.CompressionDisabled,
@@ -117,14 +165,68 @@ func (h *handler) ServeHTTP(response http.ResponseWriter, request *http.Request)
 	defer connection.CloseNow()
 	connection.SetReadLimit(h.config.MaxMessageBytes)
 
-	sessionContext, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	sessionContext, cancel := context.WithCancel(h.config.ShutdownContext)
 	wrapped := &Connection{connection: connection}
+	heartbeatDone := make(chan struct{})
+	go h.heartbeat(sessionContext, cancel, connection, heartbeatDone)
+	defer func() {
+		cancel()
+		<-heartbeatDone
+	}()
 	if err := h.session.Serve(sessionContext, user, wrapped); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		if websocket.CloseStatus(err) != -1 || errors.Is(err, ErrUnsupportedData) || errors.Is(err, ErrInvalidCommand) || errors.Is(err, ErrMessageTooBig) || errors.Is(err, ErrEventBackpressure) {
 			return
 		}
 		_ = connection.Close(websocket.StatusInternalError, "session_failed")
+	}
+}
+
+func (h *handler) acquire(userID auth.UserID) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.active >= h.config.MaxConnections || h.activeByUser[userID] >= h.config.MaxConnectionsPerUser {
+		return false
+	}
+	h.active++
+	h.activeByUser[userID]++
+	return true
+}
+
+func (h *handler) release(userID auth.UserID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.active--
+	if h.activeByUser[userID] <= 1 {
+		delete(h.activeByUser, userID)
+	} else {
+		h.activeByUser[userID]--
+	}
+}
+
+func (h *handler) heartbeat(ctx context.Context, cancel context.CancelFunc, connection *websocket.Conn, done chan<- struct{}) {
+	defer close(done)
+	ticker := time.NewTicker(h.config.HeartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			if h.config.ShutdownContext.Err() != nil {
+				_ = connection.Close(websocket.StatusGoingAway, "server_shutdown")
+			}
+			return
+		case <-ticker.C:
+			pingContext, pingCancel := context.WithTimeout(ctx, h.config.HeartbeatTimeout)
+			err := connection.Ping(pingContext)
+			pingCancel()
+			if err != nil {
+				cancel()
+				connection.CloseNow()
+				return
+			}
+		}
 	}
 }
 

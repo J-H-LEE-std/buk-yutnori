@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"io/fs"
+	"net/netip"
 	"testing"
 )
 
@@ -24,6 +25,26 @@ func TestLoadConfigRequiresGoogleClientIDAndUsesLocalDefaults(t *testing.T) {
 	}
 	if config.listenAddr != "127.0.0.1:8080" || config.webRoot != "build/client/web" {
 		t.Fatalf("config defaults = %+v", config)
+	}
+}
+
+func TestLoadConfigParsesTrustedProxyCIDRsFailClosed(t *testing.T) {
+	t.Parallel()
+	values := map[string]string{
+		"BUK_GOOGLE_CLIENT_ID":    "client-id",
+		"BUK_TRUSTED_PROXY_CIDRS": "10.0.0.2/32, 2001:db8::/64",
+	}
+	config, err := loadConfig(func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+	want := []netip.Prefix{netip.MustParsePrefix("10.0.0.2/32"), netip.MustParsePrefix("2001:db8::/64")}
+	if len(config.trustedProxyCIDRs) != len(want) || config.trustedProxyCIDRs[0] != want[0] || config.trustedProxyCIDRs[1] != want[1] {
+		t.Fatalf("trusted proxies = %v", config.trustedProxyCIDRs)
+	}
+	values["BUK_TRUSTED_PROXY_CIDRS"] = "0.0.0.0/0,broken"
+	if _, err := loadConfig(func(key string) string { return values[key] }); err == nil {
+		t.Fatal("malformed trusted proxy config error = nil")
 	}
 }
 

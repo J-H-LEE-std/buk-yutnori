@@ -165,6 +165,62 @@ func TestHandlerUpgradesWithCompletedProfile(t *testing.T) {
 	}
 }
 
+func TestHandlerEnforcesPerUserConnectionLimitBeforeUpgrade(t *testing.T) {
+	config := DefaultConfig(testCookieName)
+	config.ProfileStore = profileLookupStore{}
+	config.MaxConnectionsPerUser = 1
+	started := make(chan struct{}, 1)
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, SessionFunc(func(ctx context.Context, _ auth.User, _ *Connection) error {
+		started <- struct{}{}
+		<-ctx.Done()
+		return ctx.Err()
+	}), config)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	first, _, err := dial(t, server.URL, server.URL, testRawToken)
+	if err != nil {
+		t.Fatalf("first Dial() error = %v", err)
+	}
+	defer first.CloseNow()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first session did not start")
+	}
+	second, response, err := dial(t, server.URL, server.URL, testRawToken)
+	if second != nil {
+		second.CloseNow()
+	}
+	if err == nil || response == nil || response.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second handshake = connection:%v response:%v err:%v", second, response, err)
+	}
+}
+
+func TestHandlerClosesActiveConnectionOnShutdown(t *testing.T) {
+	shutdown, cancelShutdown := context.WithCancel(context.Background())
+	config := DefaultConfig(testCookieName)
+	config.ProfileStore = profileLookupStore{}
+	config.ShutdownContext = shutdown
+	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, SessionFunc(func(ctx context.Context, _ auth.User, _ *Connection) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}), config)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	connection, _, err := dial(t, server.URL, server.URL, testRawToken)
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer connection.CloseNow()
+	cancelShutdown()
+	readContext, cancelRead := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelRead()
+	_, _, err = connection.Read(readContext)
+	if got := websocket.CloseStatus(err); got != websocket.StatusGoingAway {
+		t.Fatalf("close status = %v, want %v, error = %v", got, websocket.StatusGoingAway, err)
+	}
+}
+
 func TestConnectionReadsStrictTextClientCommandAndWritesJSON(t *testing.T) {
 	commandResult := make(chan protocol.ClientCommand, 1)
 	handler := mustHandler(t, &recordingAuthenticator{user: auth.User{ID: testUserID}}, SessionFunc(func(ctx context.Context, _ auth.User, connection *Connection) error {
