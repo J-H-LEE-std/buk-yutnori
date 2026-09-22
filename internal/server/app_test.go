@@ -149,7 +149,32 @@ func TestBoundaryProtectionUsesForwardedClientOnlyFromTrustedProxy(t *testing.T)
 	}
 }
 
-func TestBoundaryProtectionLimitsRoomJoinPerClientAndRoom(t *testing.T) {
+func TestBoundaryProtectionSafelyCombinesMultipleForwardedHeaderLines(t *testing.T) {
+	t.Parallel()
+	config := DefaultSecurityConfig()
+	config.LoginLimit = 1
+	config.TrustedProxyCIDRs = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	protection := newBoundaryProtection(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}), config)
+	for attempt := 0; attempt < 2; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, "https://game.example/api/v1/auth/google", nil)
+		request.RemoteAddr = "10.0.0.2:8080"
+		request.Header.Add("X-Forwarded-For", "203.0.113.99")
+		request.Header.Add("X-Forwarded-For", "198.51.100.20, 10.0.0.3")
+		response := httptest.NewRecorder()
+		protection.ServeHTTP(response, request)
+		want := http.StatusNoContent
+		if attempt == 1 {
+			want = http.StatusTooManyRequests
+		}
+		if response.Code != want {
+			t.Fatalf("attempt %d status = %d, want %d", attempt+1, response.Code, want)
+		}
+	}
+}
+
+func TestBoundaryProtectionLimitsRoomJoinPerClientAcrossRoomIDs(t *testing.T) {
 	t.Parallel()
 	config := DefaultSecurityConfig()
 	config.JoinLimit = 1
@@ -170,7 +195,7 @@ func TestBoundaryProtectionLimitsRoomJoinPerClientAndRoom(t *testing.T) {
 	if got := request("198.51.100.1", "room-a"); got != http.StatusTooManyRequests {
 		t.Fatalf("repeated join status = %d", got)
 	}
-	if got := request("198.51.100.1", "room-b"); got != http.StatusNoContent {
+	if got := request("198.51.100.1", "room-b"); got != http.StatusTooManyRequests {
 		t.Fatalf("different room status = %d", got)
 	}
 	if got := request("198.51.100.2", "room-a"); got != http.StatusNoContent {
@@ -191,25 +216,47 @@ func TestLimiterBoundsKeysWithoutRepeatedFullMapSweeps(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.September, 23, 0, 0, 0, 0, time.UTC)
 	limiter := newFixedWindowLimiter(func() time.Time { return now }, 1, time.Minute)
-	for index := 0; index < maxLimiterEntries-1; index++ {
-		limiter.entries[strconv.Itoa(index)] = limitEntry{start: now, count: 1}
+	for index := 0; index < maxLimiterEntries; index++ {
+		key := strconv.Itoa(index)
+		limiter.entries[key] = limitEntry{start: now, count: 1}
+		limiter.order = append(limiter.order, key)
 	}
-	limiter.lastSweep = now
 	if allowed, _ := limiter.allow("new-a"); !allowed {
-		t.Fatal("first overflow request should consume the bounded overflow bucket")
+		t.Fatal("first request after saturation should get an isolated FIFO slot")
 	}
-	if allowed, _ := limiter.allow("new-b"); allowed {
-		t.Fatal("second overflow request should be rate limited")
+	if allowed, _ := limiter.allow("new-b"); !allowed {
+		t.Fatal("unrelated request after saturation must not share a global bucket")
 	}
 	if got := len(limiter.entries); got != maxLimiterEntries {
 		t.Fatalf("limiter entries = %d", got)
 	}
-	now = now.Add(time.Minute)
-	if allowed, _ := limiter.allow("after-window"); !allowed {
-		t.Fatal("request after cleanup window should be allowed")
+	if _, exists := limiter.entries["0"]; exists {
+		t.Fatal("oldest FIFO entry was not evicted")
 	}
-	if got := len(limiter.entries); got != 1 {
-		t.Fatalf("expired entries after one scheduled sweep = %d", got)
+	if _, exists := limiter.entries["new-a"]; !exists {
+		t.Fatal("new isolated entry is missing")
+	}
+}
+
+func TestBoundaryProtectionGroupsIPv6ClientsBy64Prefix(t *testing.T) {
+	t.Parallel()
+	config := DefaultSecurityConfig()
+	config.LoginLimit = 1
+	protection := newBoundaryProtection(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}), config)
+	for index, remote := range []string{"[2001:db8:1234:5678::1]:1234", "[2001:db8:1234:5678::ffff]:5678"} {
+		request := httptest.NewRequest(http.MethodPost, "https://game.example/api/v1/auth/google", nil)
+		request.RemoteAddr = remote
+		response := httptest.NewRecorder()
+		protection.ServeHTTP(response, request)
+		want := http.StatusNoContent
+		if index == 1 {
+			want = http.StatusTooManyRequests
+		}
+		if response.Code != want {
+			t.Fatalf("IPv6 attempt %d status = %d, want %d", index+1, response.Code, want)
+		}
 	}
 }
 

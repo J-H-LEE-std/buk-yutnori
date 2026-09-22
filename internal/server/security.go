@@ -65,12 +65,13 @@ func (config SecurityConfig) validate() error {
 }
 
 type fixedWindowLimiter struct {
-	mu        sync.Mutex
-	now       func() time.Time
-	limit     int
-	window    time.Duration
-	entries   map[string]limitEntry
-	lastSweep time.Time
+	mu           sync.Mutex
+	now          func() time.Time
+	limit        int
+	window       time.Duration
+	entries      map[string]limitEntry
+	order        []string
+	nextEviction int
 }
 
 type limitEntry struct {
@@ -86,21 +87,18 @@ func (limiter *fixedWindowLimiter) allow(key string) (bool, time.Duration) {
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
 	now := limiter.now()
-	if _, exists := limiter.entries[key]; !exists && len(limiter.entries) >= maxLimiterEntries-1 {
-		if limiter.lastSweep.IsZero() || !now.Before(limiter.lastSweep.Add(limiter.window)) {
-			for existingKey, existing := range limiter.entries {
-				if !now.Before(existing.start.Add(limiter.window)) {
-					delete(limiter.entries, existingKey)
-				}
-			}
-			limiter.lastSweep = now
-		}
-		if len(limiter.entries) >= maxLimiterEntries-1 {
-			key = "\x00overflow"
-		}
-	}
 	entry := limiter.entries[key]
 	if entry.start.IsZero() || !now.Before(entry.start.Add(limiter.window)) {
+		if _, exists := limiter.entries[key]; !exists {
+			if len(limiter.entries) < maxLimiterEntries {
+				limiter.order = append(limiter.order, key)
+			} else {
+				evicted := limiter.order[limiter.nextEviction]
+				delete(limiter.entries, evicted)
+				limiter.order[limiter.nextEviction] = key
+				limiter.nextEviction = (limiter.nextEviction + 1) % maxLimiterEntries
+			}
+		}
 		limiter.entries[key] = limitEntry{start: now, count: 1}
 		return true, 0
 	}
@@ -136,7 +134,7 @@ func (protection *boundaryProtection) ServeHTTP(response http.ResponseWriter, re
 	case request.Method == http.MethodPost && request.URL.Path == "/api/v1/auth/google":
 		allowed, retryAfter = protection.loginLimiter.allow(client)
 	case request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/api/v1/rooms/") && strings.HasSuffix(request.URL.Path, "/join"):
-		allowed, retryAfter = protection.joinLimiter.allow(client + "\x00" + request.URL.Path)
+		allowed, retryAfter = protection.joinLimiter.allow(client)
 	default:
 		protection.next.ServeHTTP(response, request)
 		return
@@ -159,24 +157,32 @@ func (protection *boundaryProtection) ServeHTTP(response http.ResponseWriter, re
 func (protection *boundaryProtection) clientAddress(request *http.Request) string {
 	peer := parseAddress(request.RemoteAddr)
 	if !containsPrefix(protection.trusted, peer) {
-		return peer.String()
+		return rateLimitAddress(peer)
 	}
 	forwarded := request.Header.Values("X-Forwarded-For")
-	if len(forwarded) != 1 {
-		return peer.String()
+	if len(forwarded) == 0 {
+		return rateLimitAddress(peer)
 	}
-	parts := strings.Split(forwarded[0], ",")
+	parts := strings.Split(strings.Join(forwarded, ","), ",")
 	for index := len(parts) - 1; index >= 0; index-- {
 		address, err := netip.ParseAddr(strings.TrimSpace(parts[index]))
 		if err != nil {
-			return peer.String()
+			return rateLimitAddress(peer)
 		}
 		address = address.Unmap()
 		if !containsPrefix(protection.trusted, address) {
-			return address.String()
+			return rateLimitAddress(address)
 		}
 	}
-	return peer.String()
+	return rateLimitAddress(peer)
+}
+
+func rateLimitAddress(address netip.Addr) string {
+	address = address.Unmap()
+	if address.Is6() {
+		return netip.PrefixFrom(address, 64).Masked().String()
+	}
+	return address.String()
 }
 
 func parseAddress(remote string) netip.Addr {

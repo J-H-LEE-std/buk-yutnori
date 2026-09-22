@@ -48,7 +48,7 @@ origin은 Google OAuth 설정의 허용 JavaScript origin에도 등록해야 한
 WebSocket 수신 메시지는 16 KiB로 제한하고 압축은 기본 비활성이다. ADR-0021에 따라
 전체 1,000개·사용자당 5개 연결 상한, 30초 heartbeat와 10초 pong 제한을 적용하고
 graceful shutdown은 활성 연결을 닫는다. 로그인은 peer 주소당 분당 10회, 방 입장은
-peer 주소·방 조합당 5분에 10회로 제한한다. 이 제한은 Cloudflare/WAF와 무관하게 서버
+peer 주소당 5분에 10회로 제한하며 IPv6 주소는 `/64` 단위로 묶는다. 이 제한은 Cloudflare/WAF와 무관하게 서버
 프로세스에서 항상 동작한다.
 
 ## 서버 로그
