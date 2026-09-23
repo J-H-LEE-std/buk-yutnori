@@ -31,6 +31,8 @@ WASM build를 실행한다. WASM 브라우저 검사는 실제 Backspace 키 입
 삭제하고 변경된 UTF-8 값이 C/WASM 상태와 다시 일치하는지도 확인한다.
 클라이언트 보안 변경은 snapshot 컬렉션과 C ABI 문자열의 최대값 및 최대값+1,
 NUL 종료되지 않은 고정 용량 입력, 제한 초과 snapshot의 원자적 거부를 검사한다.
+네이티브 CI는 AddressSanitizer와 UndefinedBehaviorSanitizer로 전체 C 단위 테스트를
+다시 실행하고, 고정 seed의 bounded 호출 순서 fuzz 검사로 staging 수명주기를 반복한다.
 SQLite·WebSocket 통합 검사와 Docker smoke 검사는 해당 서버·배포 코드가 추가될 때
 단계적으로 연결한다.
 

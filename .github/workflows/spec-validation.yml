@@ -124,6 +124,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile and run C client tests
         run: make -C client test
+      - name: Run C client sanitizers and bounded fuzz sequences
+        run: make -C client security-test
 
   client-wasm:
     name: client / wasm build
