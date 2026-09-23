@@ -2,6 +2,7 @@ package turn
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -256,6 +257,22 @@ func TestSnapshotSchemaResourceLimitsMatchDomain(t *testing.T) {
 	}
 	if eventCandidateLimit != wantCandidates {
 		t.Fatalf("event candidates maxItems = %d, want %d", eventCandidateLimit, wantCandidates)
+	}
+}
+
+func TestBrowserMoveCandidateBoundMatchesDomain(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "client", "web", "shell.html")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	source := string(data)
+	teamPieceBound := fmt.Sprintf("const MAX_TEAM_PIECES = %d;", room.MaxPiecesPerTeam)
+	if !strings.Contains(source, teamPieceBound) {
+		t.Fatalf("browser shell must derive MAX_TEAM_PIECES from domain bound %d", room.MaxPiecesPerTeam)
+	}
+	if !strings.Contains(source, "const MAX_MOVE_CANDIDATES = MAX_PENDING_RESULT_TOKENS * MAX_TEAM_PIECES;") {
+		t.Fatal("browser candidate limit must multiply result and team-piece bounds")
 	}
 }
 

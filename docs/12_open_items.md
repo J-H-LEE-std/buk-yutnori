@@ -10,6 +10,8 @@
   `docs/04_board_graph_and_movement.md`, `spec/turn_state_machine.yaml` 및
   Issue #163의 규칙 테스트를 정본으로 한다.
 
+## 해소된 구현 차단 및 확정 사항
+
 이번 명세 정합성 수정으로 전체 보드, 북 후보, 완주 거리, 백도 경로 상태의 알려진 구현 차단 항목은 해소되었다. 전체 보드 그래프는 `spec/board_graph.yaml`이 정본이며 추가 보드 자료를 기다리지 않는다.
 
 - profile 미설정 사용자의 전적은 #143에서 nickname과 독립된 `user_stats` 행으로
