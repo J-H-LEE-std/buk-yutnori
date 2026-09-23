@@ -31,11 +31,6 @@ func TestCanonicalQueueSpecMatchesDomain(t *testing.T) {
 	if !document.Queue.Token.StableIDRequired {
 		t.Fatal("spec does not require stable token IDs")
 	}
-	if document.Queue.MaxPendingTokens != MaxResultQueueTokens ||
-		document.Queue.AtCapacity != "stop_all_extra_throws_and_resolve_queued_tokens" ||
-		document.Queue.CaptureExtraThrowWhenAtCapacity != "suppressed" {
-		t.Fatalf("queue capacity contract = %#v", document.Queue)
-	}
 	wantResults := []domain.YutResult{
 		domain.YutDo,
 		domain.YutGae,
@@ -124,10 +119,14 @@ func TestCanonicalTurnStatesMatchDomain(t *testing.T) {
 	if !reflect.DeepEqual(document.States, want) {
 		t.Fatalf("spec states = %v, want %v", document.States, want)
 	}
-	if document.ExtraThrow.OnYutOrMo != "immediate_when_enabled_and_queue_below_capacity" {
+	if document.Queue.MaxPendingTokens != MaxResultQueueTokens || !document.Queue.SealOnReachingMax ||
+		document.Queue.AfterSeal != "suppress_all_extra_throws_for_remainder_of_turn" {
+		t.Fatalf("queue cap/seal contract = %#v", document.Queue)
+	}
+	if document.ExtraThrow.OnYutOrMo != "immediate_when_enabled_and_turn_not_sealed" {
 		t.Fatalf("yut/mo extra throw = %q", document.ExtraThrow.OnYutOrMo)
 	}
-	if document.ExtraThrow.OnCapture != "immediate_when_policy_allows_and_queue_below_capacity" {
+	if document.ExtraThrow.OnCapture != "immediate_when_policy_allows_and_turn_not_sealed" {
 		t.Fatalf("capture extra throw = %q", document.ExtraThrow.OnCapture)
 	}
 	if document.Queue.BukNoCandidate != "discard_buk_and_end_turn" {
@@ -207,8 +206,9 @@ func TestSnapshotSchemaResourceLimitsMatchDomain(t *testing.T) {
 	if !ok {
 		t.Fatal("schema missing move_request definition")
 	}
-	if got := moveRequest.Properties["candidates"].MaxItems; got != MaxResultQueueTokens*16 {
-		t.Fatalf("schema candidate maxItems = %d, want %d", got, MaxResultQueueTokens*16)
+	wantCandidates := MaxResultQueueTokens * room.MaxPiecesPerTeam
+	if got := moveRequest.Properties["candidates"].MaxItems; got != wantCandidates {
+		t.Fatalf("schema candidate maxItems = %d, want %d", got, wantCandidates)
 	}
 	eventPath := filepath.Join("..", "..", "..", "schemas", "ws_server_event.schema.json")
 	eventData, err := os.ReadFile(eventPath)
@@ -244,6 +244,19 @@ func TestSnapshotSchemaResourceLimitsMatchDomain(t *testing.T) {
 	if eventQueueLimit != MaxResultQueueTokens {
 		t.Fatalf("event result_queue maxItems = %d, want %d", eventQueueLimit, MaxResultQueueTokens)
 	}
+	moveRequired, ok := eventSchema.Defs["move_required"]
+	if !ok {
+		t.Fatal("event schema missing move_required definition")
+	}
+	var eventCandidateLimit int
+	for _, alternative := range moveRequired.AllOf {
+		if candidates, exists := alternative.Properties.Payload.Properties["candidates"]; exists {
+			eventCandidateLimit = candidates.MaxItems
+		}
+	}
+	if eventCandidateLimit != wantCandidates {
+		t.Fatalf("event candidates maxItems = %d, want %d", eventCandidateLimit, wantCandidates)
+	}
 }
 
 func containsString(values []string, candidate string) bool {
@@ -259,10 +272,10 @@ type turnSpecDocument struct {
 	Version int                `yaml:"version"`
 	States  []domain.TurnPhase `yaml:"states"`
 	Queue   struct {
-		MaxPendingTokens                int    `yaml:"max_pending_tokens"`
-		AtCapacity                      string `yaml:"at_capacity"`
-		CaptureExtraThrowWhenAtCapacity string `yaml:"capture_extra_throw_when_at_capacity"`
-		Token                           struct {
+		MaxPendingTokens  int    `yaml:"max_pending_tokens"`
+		SealOnReachingMax bool   `yaml:"seal_on_reaching_max"`
+		AfterSeal         string `yaml:"after_seal"`
+		Token             struct {
 			StableIDRequired       bool                     `yaml:"stable_id_required"`
 			ResultValues           []domain.YutResult       `yaml:"result_values"`
 			OrdinaryMovementSpaces map[domain.YutResult]int `yaml:"ordinary_movement_spaces"`

@@ -356,9 +356,9 @@ try {
         },
       },
     };
-    const candidates = Array.from({ length: 512 }, (_, index) => ({
-      token_id: 'result-' + (Math.floor(index / 16) + 1),
-      piece_id: 'piece-' + (index % 16), routes: ['normal'],
+    const candidates = Array.from({ length: 128 }, (_, index) => ({
+      token_id: 'result-' + (Math.floor(index / 4) + 1),
+      piece_id: 'piece-' + (index % 4), routes: ['normal'],
     }));
     return validateGameSnapshot(validSnapshot) !== null
       && validateGameSnapshot(overflowSnapshot) === null

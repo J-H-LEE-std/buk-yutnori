@@ -223,9 +223,7 @@ static void TestAcceptsMaximumGameRuleResultQueue(void)
         assert(BukClientPresentationStagePiece(
             &state, index % 2U == 0U ? BUK_CLIENT_TEAM_A : BUK_CLIENT_TEAM_B,
             BUK_CLIENT_PIECE_WAITING, BUK_CLIENT_BOARD_NODE_COUNT, false, 0U));
-        if (index < BUK_CLIENT_MAX_PRESENTATION_RESULTS) {
-            assert(BukClientPresentationStageResult(&state, BUK_CLIENT_RESULT_YUT));
-        }
+        assert(BukClientPresentationStageResult(&state, BUK_CLIENT_RESULT_YUT));
     }
     assert(BukClientPresentationCommitSnapshot(&state));
     snapshot = BukClientPresentationConfirmed(&state);

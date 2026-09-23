@@ -436,7 +436,8 @@
     const RESULTS = new Set(["do", "gae", "geol", "yut", "mo", "backdo", "buk"]);
     const RESULT_ORIGINS = new Set(["initial_throw", "yut_extra", "mo_extra", "capture_extra"]);
     const MAX_PENDING_RESULT_TOKENS = 32;
-    const MAX_MOVE_CANDIDATES = MAX_PENDING_RESULT_TOKENS * 16;
+    const MAX_TEAM_PIECES = 4;
+    const MAX_MOVE_CANDIDATES = MAX_PENDING_RESULT_TOKENS * MAX_TEAM_PIECES;
     const PARTICIPANT_ROLES = new Set(["player", "spectator"]);
     const PERMISSIONS = new Set(["control_game", "chat", "pause_game", "manage_room"]);
     const CPU_REASONS = new Set(["disconnected", "timeout", "lobby_player", null]);

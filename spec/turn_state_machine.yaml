@@ -17,8 +17,8 @@ states:
 
 queue:
   max_pending_tokens: 32
-  at_capacity: stop_all_extra_throws_and_resolve_queued_tokens
-  capture_extra_throw_when_at_capacity: suppressed
+  seal_on_reaching_max: true
+  after_seal: suppress_all_extra_throws_for_remainder_of_turn
   token:
     stable_id_required: true
     result_values: [do, gae, geol, yut, mo, backdo, buk]
@@ -60,8 +60,8 @@ move_request:
   inactive_value: null
 
 extra_throw:
-  on_yut_or_mo: immediate_when_enabled_and_queue_below_capacity
-  on_capture: immediate_when_policy_allows_and_queue_below_capacity
+  on_yut_or_mo: immediate_when_enabled_and_turn_not_sealed
+  on_capture: immediate_when_policy_allows_and_turn_not_sealed
   append_position: queue_tail
 
 timeouts:

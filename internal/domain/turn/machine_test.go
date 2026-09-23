@@ -58,7 +58,17 @@ func TestMachineRunsCanonicalThrowingChain(t *testing.T) {
 }
 
 func TestMachineSealsAllThrowsWhenQueueReachesCapacity(t *testing.T) {
-	machine := mustMachine(t, room.MovementFree, true)
+	for _, order := range []room.MovementOrder{room.MovementFree, room.MovementFIFO} {
+		t.Run(string(order), func(t *testing.T) {
+			t.Parallel()
+			testMachineSealsQueueAtCapacity(t, order, domain.YutYut)
+		})
+	}
+}
+
+func testMachineSealsQueueAtCapacity(t *testing.T, order room.MovementOrder, last domain.YutResult) {
+	t.Helper()
+	machine := mustMachine(t, order, true)
 	startMachine(t, machine)
 	origin := domain.ResultOriginInitialThrow
 	for index := range MaxResultQueueTokens {
@@ -69,9 +79,13 @@ func TestMachineSealsAllThrowsWhenQueueReachesCapacity(t *testing.T) {
 		if gotOrigin != origin {
 			t.Fatalf("BeginThrow(%d) origin = %q, want %q", index, gotOrigin, origin)
 		}
+		result := domain.YutYut
+		if index == MaxResultQueueTokens-1 {
+			result = last
+		}
 		if err := machine.RecordThrow(resultToken(
 			domain.ResultTokenID(fmt.Sprintf("token-%d", index)),
-			domain.YutYut,
+			result,
 			origin,
 		)); err != nil {
 			t.Fatalf("RecordThrow(%d) error = %v", index, err)
@@ -100,6 +114,43 @@ func TestMachineSealsAllThrowsWhenQueueReachesCapacity(t *testing.T) {
 	assertMachineState(t, machine, domain.TurnResolveQueue, domain.InputNone, "", "")
 	if got := len(machine.Snapshot().ResultQueue); got != MaxResultQueueTokens-1 {
 		t.Fatalf("queued tokens after first move = %d, want %d", got, MaxResultQueueTokens-1)
+	}
+}
+
+func TestMachineSealsWhenThirtySecondResultIsMo(t *testing.T) {
+	testMachineSealsQueueAtCapacity(t, room.MovementFree, domain.YutMo)
+}
+
+func TestMachineSealsWhenThirtySecondResultIsBukAndBukCaptureCannotReopenThrow(t *testing.T) {
+	machine := mustMachine(t, room.MovementFree, true)
+	startMachine(t, machine)
+	for index := range MaxResultQueueTokens - 1 {
+		origin, err := machine.BeginThrow()
+		if err != nil {
+			t.Fatalf("BeginThrow(%d): %v", index, err)
+		}
+		if err := machine.RecordThrow(resultToken(domain.ResultTokenID(fmt.Sprintf("token-%d", index)), domain.YutYut, origin)); err != nil {
+			t.Fatalf("RecordThrow(%d): %v", index, err)
+		}
+	}
+	origin, err := machine.BeginThrow()
+	if err != nil {
+		t.Fatalf("BeginThrow(32nd): %v", err)
+	}
+	if err := machine.RecordThrow(resultToken("token-buk", domain.YutBuk, origin)); err != nil {
+		t.Fatalf("RecordThrow(32nd Buk): %v", err)
+	}
+	assertMachineState(t, machine, domain.TurnResolveQueue, domain.InputNone, "", "")
+	if err := machine.ResolveQueue(); err != nil {
+		t.Fatalf("ResolveQueue(Buk): %v", err)
+	}
+	assertMachineState(t, machine, domain.TurnResolveBuk, domain.InputNone, "", "token-buk")
+	if err := machine.CompleteBuk("token-buk", BukOutcome{CaptureExtraThrow: true}); err != nil {
+		t.Fatalf("CompleteBuk(capture): %v", err)
+	}
+	assertMachineState(t, machine, domain.TurnResolveQueue, domain.InputNone, "", "")
+	if _, err := machine.BeginThrow(); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("BeginThrow after Buk capture at sealed capacity = %v", err)
 	}
 }
 
