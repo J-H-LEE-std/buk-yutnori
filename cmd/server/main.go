@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
@@ -30,10 +31,11 @@ import (
 )
 
 type config struct {
-	googleClientID string
-	listenAddr     string
-	webRoot        string
-	dbPath         string
+	googleClientID    string
+	listenAddr        string
+	webRoot           string
+	dbPath            string
+	trustedProxyCIDRs []netip.Prefix
 }
 
 func main() {
@@ -48,6 +50,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	shutdownContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	verifier, err := googleid.New(config.googleClientID)
 	if err != nil {
 		return err
@@ -127,6 +131,7 @@ func run() error {
 	}
 	websocketConfig := wsapi.DefaultConfig(httpapi.SessionCookieName)
 	websocketConfig.ProfileStore = profileStore
+	websocketConfig.ShutdownContext = shutdownContext
 	websocketHandler, err := wsapi.NewHandler(
 		authService,
 		realtimeSession,
@@ -135,7 +140,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	handler, err := server.NewHandler(authHandler, profileHandler, roomsHandler, websocketHandler, config.webRoot)
+	securityConfig := server.DefaultSecurityConfig()
+	securityConfig.TrustedProxyCIDRs = config.trustedProxyCIDRs
+	handler, err := server.NewHandlerWithSecurity(authHandler, profileHandler, roomsHandler, websocketHandler, config.webRoot, securityConfig)
 	if err != nil {
 		return err
 	}
@@ -143,13 +150,12 @@ func run() error {
 	httpServer := &http.Server{
 		Addr:              config.listenAddr,
 		Handler:           handler,
+		MaxHeaderBytes:    64 * 1024,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	shutdownContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	sessionCleanupContext, cancelSessionCleanup := context.WithCancel(shutdownContext)
 	sessionCleanupTicker := time.NewTicker(sessionCleanupInterval)
 	sessionCleanupDone := make(chan struct{})
@@ -204,7 +210,11 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if dbPath == "" {
 		dbPath = "buk.db"
 	}
-	return config{googleClientID: clientID, listenAddr: listenAddr, webRoot: webRoot, dbPath: dbPath}, nil
+	trustedProxyCIDRs, err := server.ParseTrustedProxyCIDRs(getenv("BUK_TRUSTED_PROXY_CIDRS"))
+	if err != nil {
+		return config{}, fmt.Errorf("parse BUK_TRUSTED_PROXY_CIDRS: %w", err)
+	}
+	return config{googleClientID: clientID, listenAddr: listenAddr, webRoot: webRoot, dbPath: dbPath, trustedProxyCIDRs: trustedProxyCIDRs}, nil
 }
 
 // loadConfigFromSources gives an explicitly supplied environment value

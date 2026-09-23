@@ -12,6 +12,8 @@
 
 ## 환경
 
+- 서버 빌드와 Docker builder는 보안 수정이 포함된 Go 1.26.6 이상을 사용한다. 더 낮은
+  patch 버전으로 빌드한 바이너리는 배포하지 않는다.
 - 로컬 개발은 HTTP/WS 허용 가능
 - 운영은 HTTPS/WSS만 허용
 - 리버스 프록시는 WebSocket upgrade와 외부 Host·Origin을 보존한다. 서버는
@@ -21,6 +23,9 @@
   audience를 고정하기 위해 서버 설정으로 주입
 - `BUK_LISTEN_ADDR`: 프로토타입 서버 주소, 기본 `127.0.0.1:8080`
 - `BUK_WEB_ROOT`: 생성된 WASM 정적 파일 경로, 기본 `build/client/web`
+- `BUK_TRUSTED_PROXY_CIDRS`: 쉼표로 구분한 리버스 프록시 CIDR. 비어 있으면
+  `X-Forwarded-For`를 무시한다. 인터넷 전체나 컨테이너 네트워크 전체를 불필요하게
+  신뢰하지 않고 실제 프록시 주소 범위만 지정한다.
 
 로컬 수동 테스트는 저장소 루트의 ignored `google.yaml`에 아래처럼 공개 OAuth web
 client ID만 둘 수 있다.
@@ -40,9 +45,11 @@ origin은 Google OAuth 설정의 허용 JavaScript origin에도 등록해야 한
 운영 배포의 Docker·HTTPS/WSS·모니터링·부하 시험 요구는 Milestone 6에서 별도로
 충족한다.
 
-WebSocket 수신 메시지는 16 KiB로 제한하고 압축은 기본 비활성이다. active connection
-graceful shutdown과 heartbeat/idle timeout 정책은 connection registry 도입 전
-확정해야 한다.
+WebSocket 수신 메시지는 16 KiB로 제한하고 압축은 기본 비활성이다. ADR-0021에 따라
+전체 1,000개·사용자당 5개 연결 상한, 30초 heartbeat와 10초 pong 제한을 적용하고
+graceful shutdown은 활성 연결을 닫는다. 로그인은 peer 주소당 분당 10회, 방 입장은
+peer 주소당 5분에 10회로 제한하며 IPv6 주소는 `/64` 단위로 묶는다. 이 제한은 Cloudflare/WAF와 무관하게 서버
+프로세스에서 항상 동작한다.
 
 ## 서버 로그
 
