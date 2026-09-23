@@ -2,6 +2,7 @@ package turn
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -119,10 +120,14 @@ func TestCanonicalTurnStatesMatchDomain(t *testing.T) {
 	if !reflect.DeepEqual(document.States, want) {
 		t.Fatalf("spec states = %v, want %v", document.States, want)
 	}
-	if document.ExtraThrow.OnYutOrMo != "immediate_when_enabled" {
+	if document.Queue.MaxPendingTokens != MaxResultQueueTokens || !document.Queue.SealOnReachingMax ||
+		document.Queue.AfterSeal != "suppress_all_extra_throws_for_remainder_of_turn" {
+		t.Fatalf("queue cap/seal contract = %#v", document.Queue)
+	}
+	if document.ExtraThrow.OnYutOrMo != "immediate_when_enabled_and_turn_not_sealed" {
 		t.Fatalf("yut/mo extra throw = %q", document.ExtraThrow.OnYutOrMo)
 	}
-	if document.ExtraThrow.OnCapture != "immediate_when_policy_allows" {
+	if document.ExtraThrow.OnCapture != "immediate_when_policy_allows_and_turn_not_sealed" {
 		t.Fatalf("capture extra throw = %q", document.ExtraThrow.OnCapture)
 	}
 	if document.Queue.BukNoCandidate != "discard_buk_and_end_turn" {
@@ -174,6 +179,103 @@ func TestResultTokenSchemasMatchDomain(t *testing.T) {
 	}
 }
 
+func TestSnapshotSchemaResourceLimitsMatchDomain(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "schemas", "game_snapshot.schema.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	var schema struct {
+		Properties struct {
+			ResultQueue struct {
+				MaxItems int `json:"maxItems"`
+			} `json:"result_queue"`
+		} `json:"properties"`
+		Defs map[string]struct {
+			Properties map[string]struct {
+				MaxItems int `json:"maxItems"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("Unmarshal(%q) error = %v", path, err)
+	}
+	if got := schema.Properties.ResultQueue.MaxItems; got != MaxResultQueueTokens {
+		t.Fatalf("schema result_queue maxItems = %d, want %d", got, MaxResultQueueTokens)
+	}
+	moveRequest, ok := schema.Defs["move_request"]
+	if !ok {
+		t.Fatal("schema missing move_request definition")
+	}
+	wantCandidates := MaxResultQueueTokens * room.MaxPiecesPerTeam
+	if got := moveRequest.Properties["candidates"].MaxItems; got != wantCandidates {
+		t.Fatalf("schema candidate maxItems = %d, want %d", got, wantCandidates)
+	}
+	eventPath := filepath.Join("..", "..", "..", "schemas", "ws_server_event.schema.json")
+	eventData, err := os.ReadFile(eventPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", eventPath, err)
+	}
+	var eventSchema struct {
+		Defs map[string]struct {
+			AllOf []struct {
+				Properties struct {
+					Payload struct {
+						Properties map[string]struct {
+							MaxItems int `json:"maxItems"`
+						} `json:"properties"`
+					} `json:"payload"`
+				} `json:"properties"`
+			} `json:"allOf"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(eventData, &eventSchema); err != nil {
+		t.Fatalf("Unmarshal(%q) error = %v", eventPath, err)
+	}
+	queueUpdated, ok := eventSchema.Defs["result_queue_updated"]
+	if !ok {
+		t.Fatal("event schema missing result_queue_updated definition")
+	}
+	var eventQueueLimit int
+	for _, alternative := range queueUpdated.AllOf {
+		if resultQueue, exists := alternative.Properties.Payload.Properties["result_queue"]; exists {
+			eventQueueLimit = resultQueue.MaxItems
+		}
+	}
+	if eventQueueLimit != MaxResultQueueTokens {
+		t.Fatalf("event result_queue maxItems = %d, want %d", eventQueueLimit, MaxResultQueueTokens)
+	}
+	moveRequired, ok := eventSchema.Defs["move_required"]
+	if !ok {
+		t.Fatal("event schema missing move_required definition")
+	}
+	var eventCandidateLimit int
+	for _, alternative := range moveRequired.AllOf {
+		if candidates, exists := alternative.Properties.Payload.Properties["candidates"]; exists {
+			eventCandidateLimit = candidates.MaxItems
+		}
+	}
+	if eventCandidateLimit != wantCandidates {
+		t.Fatalf("event candidates maxItems = %d, want %d", eventCandidateLimit, wantCandidates)
+	}
+}
+
+func TestBrowserMoveCandidateBoundMatchesDomain(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "client", "web", "shell.html")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	source := string(data)
+	teamPieceBound := fmt.Sprintf("const MAX_TEAM_PIECES = %d;", room.MaxPiecesPerTeam)
+	if !strings.Contains(source, teamPieceBound) {
+		t.Fatalf("browser shell must derive MAX_TEAM_PIECES from domain bound %d", room.MaxPiecesPerTeam)
+	}
+	if !strings.Contains(source, "const MAX_MOVE_CANDIDATES = MAX_PENDING_RESULT_TOKENS * MAX_TEAM_PIECES;") {
+		t.Fatal("browser candidate limit must multiply result and team-piece bounds")
+	}
+}
+
 func containsString(values []string, candidate string) bool {
 	for _, value := range values {
 		if value == candidate {
@@ -187,7 +289,10 @@ type turnSpecDocument struct {
 	Version int                `yaml:"version"`
 	States  []domain.TurnPhase `yaml:"states"`
 	Queue   struct {
-		Token struct {
+		MaxPendingTokens  int    `yaml:"max_pending_tokens"`
+		SealOnReachingMax bool   `yaml:"seal_on_reaching_max"`
+		AfterSeal         string `yaml:"after_seal"`
+		Token             struct {
 			StableIDRequired       bool                     `yaml:"stable_id_required"`
 			ResultValues           []domain.YutResult       `yaml:"result_values"`
 			OrdinaryMovementSpaces map[domain.YutResult]int `yaml:"ordinary_movement_spaces"`

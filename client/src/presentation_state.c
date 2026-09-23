@@ -258,6 +258,10 @@ bool BukClientPresentationStageResult(BukClientPresentationState *state,
         if (state != NULL) state->pending_failed = true;
         return false;
     }
+    if (state->pending.result_count >= BUK_CLIENT_MAX_PRESENTATION_RESULTS) {
+        state->pending_failed = true;
+        return false;
+    }
     if (!EnsureResultCapacity(state)) return false;
     state->pending.results[state->pending.result_count] = result;
     state->pending.result_count++;
