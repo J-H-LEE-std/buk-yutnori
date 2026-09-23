@@ -7,6 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define BUK_CLIENT_MAX_PRESENTATION_PIECES 32U
+#define BUK_CLIENT_MAX_PRESENTATION_RESULTS 64U
+
 typedef enum BukClientMatchStatus {
     BUK_CLIENT_MATCH_STARTING,
     BUK_CLIENT_MATCH_ACTIVE,

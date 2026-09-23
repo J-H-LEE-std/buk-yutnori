@@ -16,8 +16,12 @@ bool BukClientStateSetInput(BukClientState *state, const char *utf8_input)
 
     if ((state == NULL) || (utf8_input == NULL)) return false;
 
-    input_length = strlen(utf8_input);
-    if (input_length >= BUK_CLIENT_INPUT_CAPACITY) return false;
+    input_length = 0U;
+    while (input_length < BUK_CLIENT_INPUT_CAPACITY &&
+           utf8_input[input_length] != '\0') {
+        input_length++;
+    }
+    if (input_length == BUK_CLIENT_INPUT_CAPACITY) return false;
 
     memcpy(state->input, utf8_input, input_length + 1U);
     state->input_length = input_length;

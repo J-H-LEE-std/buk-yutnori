@@ -215,8 +215,14 @@ try {
     const valid = validateMoveRequest(request,'select_move');
     request.candidates[0].previews[0].traversed = ['not-a-board-space'];
     const invalidSpace = !validateMoveRequest(request,'select_move');
+    request.candidates[0].previews[0].traversed = Array(
+      CLIENT_INPUT_LIMITS.traversedSpaces + 1,
+    ).fill('do');
+    const oversizedTraversal = !validateMoveRequest(request,'select_move');
     request.candidates = [null];
-    return valid && invalidSpace && !validateMoveRequest(request,'select_move');
+    const oversizedId = !isStringId('x'.repeat(CLIENT_INPUT_LIMITS.stringBytes + 1));
+    return valid && invalidSpace && oversizedTraversal && oversizedId
+      && !validateMoveRequest(request,'select_move');
   })()`);
   if (!previewValidation) throw new Error('server preview validation failed');
   await evaluate(`new Promise((resolve, reject) => {
