@@ -435,6 +435,8 @@
     const PIECE_STATES = new Set(["waiting", "on_board", "home_checkpoint", "finished"]);
     const RESULTS = new Set(["do", "gae", "geol", "yut", "mo", "backdo", "buk"]);
     const RESULT_ORIGINS = new Set(["initial_throw", "yut_extra", "mo_extra", "capture_extra"]);
+    const MAX_PENDING_RESULT_TOKENS = 32;
+    const MAX_MOVE_CANDIDATES = MAX_PENDING_RESULT_TOKENS * 16;
     const PARTICIPANT_ROLES = new Set(["player", "spectator"]);
     const PERMISSIONS = new Set(["control_game", "chat", "pause_game", "manage_room"]);
     const CPU_REASONS = new Set(["disconnected", "timeout", "lobby_player", null]);
@@ -1655,7 +1657,8 @@
       if (requiredInput === "none" || requiredInput === "throw") return request === null;
       if (!hasExactKeys(request, ["required_input", "candidates"])
           || request.required_input !== requiredInput
-          || !Array.isArray(request.candidates) || request.candidates.length === 0) return false;
+          || !Array.isArray(request.candidates) || request.candidates.length === 0
+          || request.candidates.length > MAX_MOVE_CANDIDATES) return false;
       const seen = new Set();
       for (const candidate of request.candidates) {
         if (!isRecord(candidate)) return false;
@@ -1770,6 +1773,7 @@
           || !snapshot.participants.every(validateParticipant)
           || !validateCurrentTurn(snapshot.current_turn)
           || !Array.isArray(snapshot.result_queue)
+          || snapshot.result_queue.length > MAX_PENDING_RESULT_TOKENS
           || !snapshot.result_queue.every(validateResultToken)
           || new Set(snapshot.result_queue.map((token) => token.token_id)).size
              !== snapshot.result_queue.length
@@ -1910,6 +1914,7 @@
           if (!isStringId(payload.token.token_id) || !RESULTS.has(payload.token.result)
               || !RESULT_ORIGINS.has(payload.token.origin)) return null;
           if (!next.result_queue.some((token) => token.token_id === payload.token.token_id)) {
+            if (next.result_queue.length >= MAX_PENDING_RESULT_TOKENS) return null;
             next.result_queue.push({ ...payload.token, generated_by_player_id: payload.player_id });
           }
         } else if (event.type === "RESULT_QUEUE_UPDATED" && Array.isArray(payload.result_queue)) {

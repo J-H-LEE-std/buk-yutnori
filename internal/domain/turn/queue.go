@@ -9,6 +9,9 @@ import (
 	"buk-yutnori/internal/domain/room"
 )
 
+// MaxResultQueueTokens is the maximum number of unresolved results in one turn.
+const MaxResultQueueTokens = 32
+
 var (
 	// ErrDuplicateResultTokenID identifies an ID already seen by this queue.
 	ErrDuplicateResultTokenID = errors.New("duplicate result token ID")
@@ -27,6 +30,9 @@ var (
 
 	// ErrStackedBuk identifies an attempt to enqueue a second unresolved Buk.
 	ErrStackedBuk = errors.New("unresolved Buk already exists")
+
+	// ErrResultQueueFull identifies an append beyond the unresolved-token limit.
+	ErrResultQueueFull = errors.New("result queue is full")
 )
 
 // ResultQueue stores unresolved result tokens in generation order.
@@ -64,6 +70,9 @@ func (queue *ResultQueue) Append(token ResultToken) error {
 	}
 	if _, exists := queue.seenIDs[token.ID]; exists {
 		return fmt.Errorf("%w: %q", ErrDuplicateResultTokenID, token.ID)
+	}
+	if len(queue.tokens) >= MaxResultQueueTokens {
+		return ErrResultQueueFull
 	}
 	if token.Result == domain.YutBuk {
 		for _, queued := range queue.tokens {

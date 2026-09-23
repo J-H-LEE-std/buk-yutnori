@@ -2,6 +2,7 @@ package turn
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
@@ -54,6 +55,52 @@ func TestMachineRunsCanonicalThrowingChain(t *testing.T) {
 		t.Fatalf("ResolveQueue() error = %v", err)
 	}
 	assertMachineState(t, machine, domain.TurnWaitMoveSelection, domain.InputSelectMove, "", "")
+}
+
+func TestMachineSealsAllThrowsWhenQueueReachesCapacity(t *testing.T) {
+	machine := mustMachine(t, room.MovementFree, true)
+	startMachine(t, machine)
+	origin := domain.ResultOriginInitialThrow
+	for index := range MaxResultQueueTokens {
+		gotOrigin, err := machine.BeginThrow()
+		if err != nil {
+			t.Fatalf("BeginThrow(%d) error = %v", index, err)
+		}
+		if gotOrigin != origin {
+			t.Fatalf("BeginThrow(%d) origin = %q, want %q", index, gotOrigin, origin)
+		}
+		if err := machine.RecordThrow(resultToken(
+			domain.ResultTokenID(fmt.Sprintf("token-%d", index)),
+			domain.YutYut,
+			origin,
+		)); err != nil {
+			t.Fatalf("RecordThrow(%d) error = %v", index, err)
+		}
+		if index < MaxResultQueueTokens-1 {
+			origin = domain.ResultOriginYutExtra
+		}
+	}
+	assertMachineState(t, machine, domain.TurnResolveQueue, domain.InputNone, "", "")
+	if got := len(machine.Snapshot().ResultQueue); got != MaxResultQueueTokens {
+		t.Fatalf("queued tokens = %d, want %d", got, MaxResultQueueTokens)
+	}
+	if _, err := machine.BeginThrow(); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("BeginThrow after capacity reached = %v, want ErrInvalidTransition", err)
+	}
+	resolveSingleOrdinary(t, machine, "token-0")
+	if err := machine.SelectMove("token-0", false); err != nil {
+		t.Fatalf("SelectMove() error = %v", err)
+	}
+	if err := machine.MoveApplied("token-0"); err != nil {
+		t.Fatalf("MoveApplied() error = %v", err)
+	}
+	if err := machine.CompleteMove("token-0", MoveOutcome{CaptureExtraThrow: true}); err != nil {
+		t.Fatalf("CompleteMove(capture) error = %v", err)
+	}
+	assertMachineState(t, machine, domain.TurnResolveQueue, domain.InputNone, "", "")
+	if got := len(machine.Snapshot().ResultQueue); got != MaxResultQueueTokens-1 {
+		t.Fatalf("queued tokens after first move = %d, want %d", got, MaxResultQueueTokens-1)
+	}
 }
 
 func TestMachineCanDisableYutMoExtraThrow(t *testing.T) {

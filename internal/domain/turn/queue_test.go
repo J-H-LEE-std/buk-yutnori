@@ -155,6 +155,24 @@ func TestResultQueueRejectsStackedBuk(t *testing.T) {
 	}
 }
 
+func TestResultQueueRejectsTokenBeyondCapacity(t *testing.T) {
+	tokens := make([]ResultToken, MaxResultQueueTokens)
+	for index := range tokens {
+		tokens[index] = resultToken(
+			domain.ResultTokenID(fmt.Sprintf("token-%d", index)),
+			domain.YutGae,
+			domain.ResultOriginInitialThrow,
+		)
+	}
+	queue := mustQueue(t, tokens...)
+	if err := queue.Append(resultToken("overflow", domain.YutDo, domain.ResultOriginYutExtra)); !errors.Is(err, ErrResultQueueFull) {
+		t.Fatalf("Append(overflow) error = %v, want ErrResultQueueFull", err)
+	}
+	if got := queue.Len(); got != MaxResultQueueTokens {
+		t.Fatalf("Len() after overflow = %d, want %d", got, MaxResultQueueTokens)
+	}
+}
+
 func TestFIFOOnlyExposesAndConsumesHead(t *testing.T) {
 	queue := mustQueue(t,
 		resultToken("token-1", domain.YutDo, domain.ResultOriginInitialThrow),
@@ -266,7 +284,7 @@ func TestQueueFailuresLeaveStateUnchanged(t *testing.T) {
 }
 
 func TestResultQueueSerializesConcurrentAppends(t *testing.T) {
-	const appends = 1000
+	const appends = MaxResultQueueTokens * 2
 	queue := mustQueue(t)
 	appendErrors := make(chan error, appends)
 	var wait sync.WaitGroup
@@ -282,15 +300,25 @@ func TestResultQueueSerializesConcurrentAppends(t *testing.T) {
 	wait.Wait()
 	close(appendErrors)
 
+	successes := 0
+	full := 0
 	for err := range appendErrors {
-		if err != nil {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrResultQueueFull):
+			full++
+		default:
 			t.Fatalf("Append() error = %v", err)
 		}
 	}
-	if got := queue.Len(); got != appends {
-		t.Fatalf("Len() = %d, want %d", got, appends)
+	if successes != MaxResultQueueTokens || full != appends-MaxResultQueueTokens {
+		t.Fatalf("append outcomes = %d successful, %d full; want %d successful, %d full", successes, full, MaxResultQueueTokens, appends-MaxResultQueueTokens)
 	}
-	seen := make(map[domain.ResultTokenID]struct{}, appends)
+	if got := queue.Len(); got != MaxResultQueueTokens {
+		t.Fatalf("Len() = %d, want %d", got, MaxResultQueueTokens)
+	}
+	seen := make(map[domain.ResultTokenID]struct{}, MaxResultQueueTokens)
 	for _, token := range queue.Snapshot() {
 		if _, duplicate := seen[token.ID]; duplicate {
 			t.Fatalf("duplicate token ID %q", token.ID)

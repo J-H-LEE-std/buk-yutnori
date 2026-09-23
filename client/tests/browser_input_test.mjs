@@ -332,6 +332,46 @@ try {
     return true;
   })()`);
 
+  const gameRuleLimitValidation = await evaluate(`(() => {
+    const results = Array.from({ length: 32 }, (_, index) => ({
+      token_id: 'result-' + (index + 1), result: 'gae', origin: 'initial_throw',
+      generated_by_player_id: 'user-a',
+    }));
+    const validSnapshot = makeTestGameSnapshot('room-limit', 'match-limit', 1);
+    validSnapshot.result_queue = results;
+    validSnapshot.current_turn.move_request.candidates = [{
+      token_id: results[0].token_id, piece_id: 'A-1', routes: ['normal'],
+    }];
+    const overflowSnapshot = structuredClone(validSnapshot);
+    overflowSnapshot.result_queue.push({
+      token_id: 'result-33', result: 'gae', origin: 'yut_extra',
+      generated_by_player_id: 'user-a',
+    });
+    const resultEvent = {
+      version: 1, direction: 'server_event', room_id: validSnapshot.room_id,
+      match_id: validSnapshot.match_id, sequence: validSnapshot.sequence + 1,
+      type: 'YUT_RESULT', payload: {
+        player_id: 'user-a', token: {
+          token_id: 'result-33', result: 'gae', origin: 'yut_extra',
+        },
+      },
+    };
+    const candidates = Array.from({ length: 512 }, (_, index) => ({
+      token_id: 'result-' + (Math.floor(index / 16) + 1),
+      piece_id: 'piece-' + (index % 16), routes: ['normal'],
+    }));
+    return validateGameSnapshot(validSnapshot) !== null
+      && validateGameSnapshot(overflowSnapshot) === null
+      && reduceReplayEvents(validSnapshot, [resultEvent]) === null
+      && validateMoveRequest({ required_input: 'select_move', candidates }, 'select_move')
+      && !validateMoveRequest({
+        required_input: 'select_move', candidates: [...candidates, {
+          token_id: 'result-1', piece_id: 'overflow-piece', routes: ['normal'],
+        }],
+      }, 'select_move');
+  })()`);
+  if (!gameRuleLimitValidation) throw new Error('game rule result/candidate limits failed');
+
   const initial = await evaluate(`(() => {
     document.querySelector('main').dataset.diagnostics = 'true';
     document.querySelector('.bridge').hidden = false;

@@ -31,6 +31,11 @@ func TestCanonicalQueueSpecMatchesDomain(t *testing.T) {
 	if !document.Queue.Token.StableIDRequired {
 		t.Fatal("spec does not require stable token IDs")
 	}
+	if document.Queue.MaxPendingTokens != MaxResultQueueTokens ||
+		document.Queue.AtCapacity != "stop_all_extra_throws_and_resolve_queued_tokens" ||
+		document.Queue.CaptureExtraThrowWhenAtCapacity != "suppressed" {
+		t.Fatalf("queue capacity contract = %#v", document.Queue)
+	}
 	wantResults := []domain.YutResult{
 		domain.YutDo,
 		domain.YutGae,
@@ -119,10 +124,10 @@ func TestCanonicalTurnStatesMatchDomain(t *testing.T) {
 	if !reflect.DeepEqual(document.States, want) {
 		t.Fatalf("spec states = %v, want %v", document.States, want)
 	}
-	if document.ExtraThrow.OnYutOrMo != "immediate_when_enabled" {
+	if document.ExtraThrow.OnYutOrMo != "immediate_when_enabled_and_queue_below_capacity" {
 		t.Fatalf("yut/mo extra throw = %q", document.ExtraThrow.OnYutOrMo)
 	}
-	if document.ExtraThrow.OnCapture != "immediate_when_policy_allows" {
+	if document.ExtraThrow.OnCapture != "immediate_when_policy_allows_and_queue_below_capacity" {
 		t.Fatalf("capture extra throw = %q", document.ExtraThrow.OnCapture)
 	}
 	if document.Queue.BukNoCandidate != "discard_buk_and_end_turn" {
@@ -174,6 +179,73 @@ func TestResultTokenSchemasMatchDomain(t *testing.T) {
 	}
 }
 
+func TestSnapshotSchemaResourceLimitsMatchDomain(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "schemas", "game_snapshot.schema.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	var schema struct {
+		Properties struct {
+			ResultQueue struct {
+				MaxItems int `json:"maxItems"`
+			} `json:"result_queue"`
+		} `json:"properties"`
+		Defs map[string]struct {
+			Properties map[string]struct {
+				MaxItems int `json:"maxItems"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("Unmarshal(%q) error = %v", path, err)
+	}
+	if got := schema.Properties.ResultQueue.MaxItems; got != MaxResultQueueTokens {
+		t.Fatalf("schema result_queue maxItems = %d, want %d", got, MaxResultQueueTokens)
+	}
+	moveRequest, ok := schema.Defs["move_request"]
+	if !ok {
+		t.Fatal("schema missing move_request definition")
+	}
+	if got := moveRequest.Properties["candidates"].MaxItems; got != MaxResultQueueTokens*16 {
+		t.Fatalf("schema candidate maxItems = %d, want %d", got, MaxResultQueueTokens*16)
+	}
+	eventPath := filepath.Join("..", "..", "..", "schemas", "ws_server_event.schema.json")
+	eventData, err := os.ReadFile(eventPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", eventPath, err)
+	}
+	var eventSchema struct {
+		Defs map[string]struct {
+			AllOf []struct {
+				Properties struct {
+					Payload struct {
+						Properties map[string]struct {
+							MaxItems int `json:"maxItems"`
+						} `json:"properties"`
+					} `json:"payload"`
+				} `json:"properties"`
+			} `json:"allOf"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(eventData, &eventSchema); err != nil {
+		t.Fatalf("Unmarshal(%q) error = %v", eventPath, err)
+	}
+	queueUpdated, ok := eventSchema.Defs["result_queue_updated"]
+	if !ok {
+		t.Fatal("event schema missing result_queue_updated definition")
+	}
+	var eventQueueLimit int
+	for _, alternative := range queueUpdated.AllOf {
+		if resultQueue, exists := alternative.Properties.Payload.Properties["result_queue"]; exists {
+			eventQueueLimit = resultQueue.MaxItems
+		}
+	}
+	if eventQueueLimit != MaxResultQueueTokens {
+		t.Fatalf("event result_queue maxItems = %d, want %d", eventQueueLimit, MaxResultQueueTokens)
+	}
+}
+
 func containsString(values []string, candidate string) bool {
 	for _, value := range values {
 		if value == candidate {
@@ -187,7 +259,10 @@ type turnSpecDocument struct {
 	Version int                `yaml:"version"`
 	States  []domain.TurnPhase `yaml:"states"`
 	Queue   struct {
-		Token struct {
+		MaxPendingTokens                int    `yaml:"max_pending_tokens"`
+		AtCapacity                      string `yaml:"at_capacity"`
+		CaptureExtraThrowWhenAtCapacity string `yaml:"capture_extra_throw_when_at_capacity"`
+		Token                           struct {
 			StableIDRequired       bool                     `yaml:"stable_id_required"`
 			ResultValues           []domain.YutResult       `yaml:"result_values"`
 			OrdinaryMovementSpaces map[domain.YutResult]int `yaml:"ordinary_movement_spaces"`
