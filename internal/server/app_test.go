@@ -212,29 +212,34 @@ func TestParseTrustedProxyCIDRsRejectsMalformedInput(t *testing.T) {
 	}
 }
 
-func TestLimiterBoundsKeysWithoutRepeatedFullMapSweeps(t *testing.T) {
+func TestLimiterRejectsNewKeysUntilTheOldestWindowExpires(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, time.September, 23, 0, 0, 0, 0, time.UTC)
 	limiter := newFixedWindowLimiter(func() time.Time { return now }, 1, time.Minute)
 	for index := 0; index < maxLimiterEntries; index++ {
-		key := strconv.Itoa(index)
-		limiter.entries[key] = limitEntry{start: now, count: 1}
-		limiter.order = append(limiter.order, key)
+		if allowed, _ := limiter.allow(strconv.Itoa(index)); !allowed {
+			t.Fatalf("initial key %d was rejected", index)
+		}
 	}
-	if allowed, _ := limiter.allow("new-a"); !allowed {
-		t.Fatal("first request after saturation should get an isolated FIFO slot")
-	}
-	if allowed, _ := limiter.allow("new-b"); !allowed {
-		t.Fatal("unrelated request after saturation must not share a global bucket")
+	if allowed, retryAfter := limiter.allow("new-a"); allowed || retryAfter != time.Minute {
+		t.Fatalf("new key at saturation = (%v, %v), want (false, 1m)", allowed, retryAfter)
 	}
 	if got := len(limiter.entries); got != maxLimiterEntries {
 		t.Fatalf("limiter entries = %d", got)
 	}
-	if _, exists := limiter.entries["0"]; exists {
-		t.Fatal("oldest FIFO entry was not evicted")
+	if _, exists := limiter.entries["0"]; !exists {
+		t.Fatal("unexpired oldest entry was evicted")
+	}
+
+	now = now.Add(time.Minute)
+	if allowed, _ := limiter.allow("new-a"); !allowed {
+		t.Fatal("new key was rejected after stored windows expired")
 	}
 	if _, exists := limiter.entries["new-a"]; !exists {
-		t.Fatal("new isolated entry is missing")
+		t.Fatal("new entry is missing")
+	}
+	if got := len(limiter.entries); got != 1 {
+		t.Fatalf("expired entries retained = %d", got)
 	}
 }
 

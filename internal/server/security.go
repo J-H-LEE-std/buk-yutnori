@@ -1,6 +1,7 @@
 package server
 
 import (
+	"container/list"
 	"errors"
 	"net"
 	"net/http"
@@ -65,13 +66,12 @@ func (config SecurityConfig) validate() error {
 }
 
 type fixedWindowLimiter struct {
-	mu           sync.Mutex
-	now          func() time.Time
-	limit        int
-	window       time.Duration
-	entries      map[string]limitEntry
-	order        []string
-	nextEviction int
+	mu          sync.Mutex
+	now         func() time.Time
+	limit       int
+	window      time.Duration
+	entries     map[string]*limitEntry
+	expirations *list.List
 }
 
 type limitEntry struct {
@@ -80,33 +80,40 @@ type limitEntry struct {
 }
 
 func newFixedWindowLimiter(now func() time.Time, limit int, window time.Duration) *fixedWindowLimiter {
-	return &fixedWindowLimiter{now: now, limit: limit, window: window, entries: make(map[string]limitEntry)}
+	return &fixedWindowLimiter{
+		now: now, limit: limit, window: window,
+		entries: make(map[string]*limitEntry), expirations: list.New(),
+	}
 }
 
 func (limiter *fixedWindowLimiter) allow(key string) (bool, time.Duration) {
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
 	now := limiter.now()
-	entry := limiter.entries[key]
-	if entry.start.IsZero() || !now.Before(entry.start.Add(limiter.window)) {
-		if _, exists := limiter.entries[key]; !exists {
-			if len(limiter.entries) < maxLimiterEntries {
-				limiter.order = append(limiter.order, key)
-			} else {
-				evicted := limiter.order[limiter.nextEviction]
-				delete(limiter.entries, evicted)
-				limiter.order[limiter.nextEviction] = key
-				limiter.nextEviction = (limiter.nextEviction + 1) % maxLimiterEntries
-			}
+	for front := limiter.expirations.Front(); front != nil; front = limiter.expirations.Front() {
+		expiredKey := front.Value.(string)
+		entry := limiter.entries[expiredKey]
+		if now.Before(entry.start.Add(limiter.window)) {
+			break
 		}
-		limiter.entries[key] = limitEntry{start: now, count: 1}
+		delete(limiter.entries, expiredKey)
+		limiter.expirations.Remove(front)
+	}
+	entry, exists := limiter.entries[key]
+	if !exists {
+		if len(limiter.entries) >= maxLimiterEntries {
+			oldest := limiter.entries[limiter.expirations.Front().Value.(string)]
+			return false, oldest.start.Add(limiter.window).Sub(now)
+		}
+		entry = &limitEntry{start: now, count: 1}
+		limiter.expirations.PushBack(key)
+		limiter.entries[key] = entry
 		return true, 0
 	}
 	if entry.count >= limiter.limit {
 		return false, entry.start.Add(limiter.window).Sub(now)
 	}
 	entry.count++
-	limiter.entries[key] = entry
 	return true, 0
 }
 
