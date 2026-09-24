@@ -34,7 +34,7 @@ const (
 
 var (
 	allowedMaxPlayers         = []int{2, 4, 6, 8}
-	allowedPieceCounts        = []int{2, 3, 4}
+	allowedPieceCounts        = []int{2, 3, MaxPiecesPerTeam}
 	allowedCaptureExtraThrows = []CaptureExtraThrowPolicy{
 		CaptureExtraThrowAlways,
 		CaptureExtraThrowDoToGeolPlusSpecial,
@@ -51,6 +51,10 @@ var (
 	allowedThrowTimeoutSeconds    = []int{10, 20, 30}
 	allowedMovementTimeoutSeconds = []int{30, 60, 90, 120, 150}
 )
+
+// MaxPiecesPerTeam is the maximum number of independently selectable pieces
+// for one team and bounds server-generated move candidates per result token.
+const MaxPiecesPerTeam = 4
 
 // Settings contains the complete canonical rule configuration for one room.
 type Settings struct {

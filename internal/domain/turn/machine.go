@@ -87,6 +87,7 @@ type Machine struct {
 	expectedOrigin domain.ResultOrigin
 	selectedID     domain.ResultTokenID
 	queue          *ResultQueue
+	throwingCapped bool
 }
 
 // NewMachine creates a turn in the canonical turn_start phase.
@@ -183,8 +184,13 @@ func (machine *Machine) RecordThrow(token ResultToken) error {
 	if err := machine.queue.Append(token); err != nil {
 		return err
 	}
+	if machine.queue.Len() >= MaxResultQueueTokens {
+		machine.throwingCapped = true
+	}
 
 	switch {
+	case machine.throwingCapped:
+		machine.setState(domain.TurnResolveQueue, domain.InputNone, "", "")
 	case machine.yutMoExtra && token.Result == domain.YutYut:
 		machine.setState(
 			domain.TurnWaitThrow,
@@ -362,6 +368,8 @@ func (machine *Machine) advanceAfterResolution(captureExtra, matchEnded bool) {
 	switch {
 	case matchEnded:
 		machine.setState(domain.TurnMatchEnd, domain.InputNone, "", "")
+	case machine.throwingCapped:
+		machine.setState(domain.TurnResolveQueue, domain.InputNone, "", "")
 	case captureExtra:
 		machine.setState(
 			domain.TurnWaitThrow,
