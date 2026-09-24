@@ -1,6 +1,7 @@
 package application
 
 import (
+	"errors"
 	"testing"
 
 	"buk-yutnori/internal/auth"
@@ -71,6 +72,52 @@ func TestBukHeadResolvesAutomaticallyWithoutPieceSelection(t *testing.T) {
 	}
 	if findEvent(events, "PIECE_MOVED") == nil {
 		t.Fatal("waiting-piece fallback must emit PIECE_MOVED")
+	}
+}
+
+func TestThrowChainStopsAt32AndRejectsFurtherThrow(t *testing.T) {
+	t.Parallel()
+	fixture := newMatchFixture(t, nil)
+	defer fixture.recorder.close()
+	player := fixture.runtime().currentPlayer()
+	throws := make([]domain.YutResult, 32)
+	for index := range throws {
+		throws[index] = domain.YutYut
+	}
+	throws[len(throws)-1] = domain.YutMo
+	fixture.scriptThrowsFor(map[domain.PlayerID][]domain.YutResult{player: throws})
+
+	for index := range throws {
+		if err := fixture.registry.ThrowYut(auth.UserID(player), fixture.roomID, fixture.matchID); err != nil {
+			t.Fatalf("THROW_YUT(%d): %v", index+1, err)
+		}
+	}
+	rt := fixture.runtime()
+	if got := len(rt.machine.Snapshot().ResultQueue); got != 32 {
+		t.Fatalf("result queue length = %d, want 32", got)
+	}
+	if snapshot := rt.machine.Snapshot(); snapshot.RequiredInput != domain.InputSelectMove {
+		t.Fatalf("required input after 32nd (Mo) = %q, want select_move", snapshot.RequiredInput)
+	}
+	if rt.timerKind != matchTimerKindMove {
+		t.Fatalf("timer kind after sealed throw chain = %q, want move", rt.timerKind)
+	}
+	if got := len(fixture.recorder.ofTypes("YUT_RESULT")); got != 32 {
+		t.Fatalf("YUT_RESULT count = %d, want 32", got)
+	}
+	turnStarts := fixture.recorder.ofTypes("TURN_STARTED")
+	yutResults := fixture.recorder.ofTypes("YUT_RESULT")
+	if len(turnStarts) != 32 || len(yutResults) != 32 {
+		t.Fatalf("TURN_STARTED/YUT_RESULT counts = %d/%d, want 32/32", len(turnStarts), len(yutResults))
+	}
+	if turnStarts[len(turnStarts)-1].Sequence >= yutResults[len(yutResults)-1].Sequence {
+		t.Fatalf("TURN_STARTED emitted after sealing result: last start=%d last result=%d", turnStarts[len(turnStarts)-1].Sequence, yutResults[len(yutResults)-1].Sequence)
+	}
+	if err := fixture.registry.ThrowYut(auth.UserID(player), fixture.roomID, fixture.matchID); !errors.Is(err, ErrInvalidTurnAction) {
+		t.Fatalf("33rd THROW_YUT = %v, want ErrInvalidTurnAction", err)
+	}
+	if got := len(fixture.recorder.ofTypes("YUT_RESULT")); got != 32 {
+		t.Fatalf("YUT_RESULT count after rejected throw = %d, want 32", got)
 	}
 }
 

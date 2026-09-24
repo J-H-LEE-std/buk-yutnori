@@ -338,6 +338,178 @@ try {
     return true;
   })()`);
 
+  const gameRuleLimitValidation = await evaluate(`(() => {
+    const results = Array.from({ length: 32 }, (_, index) => ({
+      token_id: 'result-' + (index + 1), result: 'gae', origin: 'initial_throw',
+      generated_by_player_id: 'user-a',
+    }));
+    const validSnapshot = makeTestGameSnapshot('room-limit', 'match-limit', 1);
+    validSnapshot.result_queue = results;
+    validSnapshot.current_turn.move_request.candidates = [{
+      token_id: results[0].token_id, piece_id: 'A-1', routes: ['normal'],
+    }];
+    const overflowSnapshot = structuredClone(validSnapshot);
+    overflowSnapshot.result_queue.push({
+      token_id: 'result-33', result: 'gae', origin: 'yut_extra',
+      generated_by_player_id: 'user-a',
+    });
+    const resultEvent = {
+      version: 1, direction: 'server_event', room_id: validSnapshot.room_id,
+      match_id: validSnapshot.match_id, sequence: validSnapshot.sequence + 1,
+      type: 'YUT_RESULT', payload: {
+        player_id: 'user-a', token: {
+          token_id: 'result-33', result: 'gae', origin: 'yut_extra',
+        },
+      },
+    };
+    const candidates = Array.from({ length: 128 }, (_, index) => ({
+      token_id: 'result-' + (Math.floor(index / 4) + 1),
+      piece_id: 'piece-' + (index % 4), routes: ['normal'],
+    }));
+    return validateGameSnapshot(validSnapshot) !== null
+      && validateGameSnapshot(overflowSnapshot) === null
+      && reduceReplayEvents(validSnapshot, [resultEvent]) === null
+      && validateMoveRequest({ required_input: 'select_move', candidates }, 'select_move')
+      && !validateMoveRequest({
+        required_input: 'select_move', candidates: [...candidates, {
+          token_id: 'result-1', piece_id: 'overflow-piece', routes: ['normal'],
+        }],
+      }, 'select_move');
+  })()`);
+  if (!gameRuleLimitValidation) throw new Error('game rule result/candidate limits failed');
+
+  const collectionLimitValidation = await evaluate(`(() => {
+    const limits = CLIENT_INPUT_LIMITS;
+    const withParticipants = (count) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      snapshot.participants = Array.from({ length: count }, (_, index) => ({
+        user_id: 'spectator-' + index, nickname: '관전자' + index, role: 'spectator',
+        team_id: null, permissions: ['chat'], connected: true,
+        cpu_control: { active: false, reason: null },
+      }));
+      return snapshot;
+    };
+    const withWaitingPieces = (count) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      snapshot.pieces = Array.from({ length: count }, (_, index) => ({
+        piece_id: 'piece-' + index, team_id: index % 2 === 0 ? 'A' : 'B', state: 'waiting',
+        current_space_id: null, stack_id: null, position_group_id: null,
+        actual_previous_space: null,
+      }));
+      snapshot.stacks = [];
+      snapshot.position_groups = [];
+      snapshot.current_turn.move_request.candidates = [{
+        token_id: 'token-1', piece_id: 'piece-0', routes: ['normal'],
+      }];
+      return snapshot;
+    };
+    const withPositionGroups = (count) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      snapshot.pieces = [];
+      snapshot.position_groups = [];
+      const pieceCount = Math.min(count, limits.pieces);
+      for (let index = 0; index < pieceCount; index += 1) {
+        const pieceId = 'piece-' + index;
+        const groupId = 'group-' + index;
+        snapshot.pieces.push({ piece_id: pieceId, team_id: 'A', state: 'on_board',
+          current_space_id: 'do', stack_id: null, position_group_id: groupId,
+          actual_previous_space: null });
+        snapshot.position_groups.push({ group_id: groupId, team_id: 'A', space_id: 'do',
+          piece_ids: [pieceId] });
+      }
+      // Position groups are not staged into C, and the browser validator does not
+      // cross-check unreferenced groups against pieces. Keep the +1 fixture at the
+      // independent piece cap so it isolates the position-group limit.
+      while (snapshot.position_groups.length < count) {
+        const index = snapshot.position_groups.length;
+        snapshot.position_groups.push({ group_id: 'unreferenced-group-' + index,
+          team_id: 'A', space_id: 'do', piece_ids: ['unreferenced-piece-' + index] });
+      }
+      snapshot.stacks = [];
+      snapshot.current_turn.move_request.candidates = [{
+        token_id: 'token-1', piece_id: 'piece-0', routes: ['normal'],
+      }];
+      return snapshot;
+    };
+    const withStacks = (count) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      snapshot.pieces = [];
+      snapshot.stacks = [];
+      snapshot.position_groups = [];
+      for (let index = 0; index < count; index += 1) {
+        const stackId = 'stack-' + index;
+        const groupId = 'group-' + index;
+        const pieceIds = ['piece-' + (index * 2), 'piece-' + (index * 2 + 1)];
+        for (const pieceId of pieceIds) {
+          snapshot.pieces.push({ piece_id: pieceId, team_id: 'A', state: 'on_board',
+            current_space_id: 'do', stack_id: stackId, position_group_id: groupId,
+            actual_previous_space: null });
+        }
+        snapshot.stacks.push({ stack_id: stackId, team_id: 'A', space_id: 'do',
+          piece_ids: pieceIds, actual_previous_space: null });
+        snapshot.position_groups.push({ group_id: groupId, team_id: 'A', space_id: 'do',
+          piece_ids: pieceIds });
+      }
+      snapshot.current_turn.move_request.candidates = [{
+        token_id: 'token-1', piece_id: 'piece-0', routes: ['normal'],
+      }];
+      return snapshot;
+    };
+    const routeRequest = (previewCount) => ({
+      required_input: previewCount === 1 ? 'select_move' : 'select_route',
+      candidates: [{
+      token_id: 'token-1', piece_id: 'A-1',
+      routes: previewCount === 1 ? ['normal'] : ['normal', 'shortcut'],
+      previews: Array.from({ length: previewCount }, (_, index) => ({
+        route: index === 0 ? 'normal' : 'shortcut', traversed: [],
+        destination_state: 'on_board', destination_space_id: 'do',
+      })),
+    }] });
+    const replayMessage = (eventCount) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      return {
+        version: 1, direction: 'server_response', type: 'COMMAND_RESULT',
+        room_id: snapshot.room_id, match_id: snapshot.match_id,
+        payload: { status: 'accepted', synchronization: {
+          snapshot,
+          events: Array.from({ length: eventCount }, (_, index) => ({
+            version: 1, direction: 'server_event', room_id: snapshot.room_id,
+            match_id: snapshot.match_id, sequence: snapshot.sequence + index + 1,
+            type: 'RESULT_SELECTED', payload: { token_id: 'token-1' },
+          })),
+        } },
+      };
+    };
+    const longNickname = withParticipants(limits.participants);
+    longNickname.participants[0].nickname = '👨‍👩‍👧‍👦'.repeat(20);
+    const tooLongNickname = structuredClone(longNickname);
+    tooLongNickname.participants[0].nickname = 'x'.repeat(16 * 1024 + 1);
+
+    return validateGameSnapshot(withParticipants(limits.participants - 1)) !== null
+      && validateGameSnapshot(withParticipants(limits.participants)) !== null
+      && validateGameSnapshot(withParticipants(limits.participants + 1)) === null
+      && validateGameSnapshot(withWaitingPieces(limits.pieces - 1)) !== null
+      && validateGameSnapshot(withWaitingPieces(limits.pieces)) !== null
+      && validateGameSnapshot(withWaitingPieces(limits.pieces + 1)) === null
+      && validateGameSnapshot(withStacks(limits.stacks - 1)) !== null
+      && validateGameSnapshot(withStacks(limits.stacks)) !== null
+      && validateGameSnapshot(withStacks(limits.stacks + 1)) === null
+      && validateGameSnapshot(withPositionGroups(limits.positionGroups - 1)) !== null
+      && validateGameSnapshot(withPositionGroups(limits.positionGroups)) !== null
+      && validateGameSnapshot(withPositionGroups(limits.positionGroups + 1)) === null
+      && validateMoveRequest(routeRequest(limits.previewsPerCandidate - 1), 'select_move')
+      && validateMoveRequest(routeRequest(limits.previewsPerCandidate), 'select_route')
+      && !validateMoveRequest(routeRequest(limits.previewsPerCandidate + 1), 'select_route')
+      && synchronizationSequences(replayMessage(limits.replayEvents - 1)) !== null
+      && synchronizationSequences(replayMessage(limits.replayEvents)) !== null
+      && synchronizationSequences(replayMessage(limits.replayEvents + 1)) === null
+      && validateGameSnapshot(longNickname) !== null
+      && validateGameSnapshot(tooLongNickname) === null;
+  })()`);
+  if (!collectionLimitValidation) {
+    throw new Error('oversized browser input collections were not rejected');
+  }
+
   const initial = await evaluate(`(() => {
     document.querySelector('main').dataset.diagnostics = 'true';
     document.querySelector('.bridge').hidden = false;

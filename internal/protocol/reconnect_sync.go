@@ -8,7 +8,10 @@ import (
 	"buk-yutnori/internal/domain"
 )
 
-const ErrorCodeResyncRequired = "RESYNC_REQUIRED"
+const (
+	ErrorCodeResyncRequired = "RESYNC_REQUIRED"
+	MaxReconnectEvents      = 128
+)
 
 var ErrInvalidReconnectSynchronization = errors.New("invalid reconnect synchronization")
 
@@ -37,6 +40,11 @@ type reconnectEventScope struct {
 // NewReconnectSynchronization validates routing and sequence continuity while
 // preserving the complete schema-validated snapshot and event JSON values.
 func NewReconnectSynchronization(command ClientCommand, snapshot json.RawMessage, events []json.RawMessage) (ReconnectSynchronization, error) {
+	if len(events) > MaxReconnectEvents {
+		return ReconnectSynchronization{}, invalidReconnectSynchronization(
+			"event count %d exceeds maximum %d", len(events), MaxReconnectEvents,
+		)
+	}
 	synchronization := ReconnectSynchronization{
 		Snapshot: cloneRawMessage(snapshot),
 		Events:   cloneRawMessages(events),
@@ -56,6 +64,11 @@ func (synchronization ReconnectSynchronization) Clone() ReconnectSynchronization
 }
 
 func validateReconnectSynchronization(command ClientCommand, synchronization ReconnectSynchronization) error {
+	if len(synchronization.Events) > MaxReconnectEvents {
+		return invalidReconnectSynchronization(
+			"event count %d exceeds maximum %d", len(synchronization.Events), MaxReconnectEvents,
+		)
+	}
 	if err := validateResultCommand(command); err != nil {
 		return invalidReconnectSynchronization("invalid command envelope: %v", err)
 	}

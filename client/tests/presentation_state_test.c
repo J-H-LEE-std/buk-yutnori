@@ -263,6 +263,95 @@ static void TestBoundsSnapshotStorage(void)
     BukClientPresentationStateDestroy(&state);
 }
 
+static void TestAcceptsMaximumPresentationPieces(void)
+{
+    BukClientPresentationState state;
+    const BukClientPresentationSnapshot *snapshot;
+    size_t index;
+
+    BukClientPresentationStateInit(&state);
+    BukClientPresentationBeginSnapshot(&state);
+    StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE, BUK_CLIENT_TURN_WAIT_THROW,
+                  BUK_CLIENT_REQUIRED_THROW, BUK_CLIENT_TIMER_THROW,
+                  BUK_CLIENT_TEAM_A, 5000U);
+    for (index = 0U; index < BUK_CLIENT_MAX_PRESENTATION_PIECES; index++) {
+        assert(BukClientPresentationStagePiece(
+            &state, index % 2U == 0U ? BUK_CLIENT_TEAM_A : BUK_CLIENT_TEAM_B,
+            BUK_CLIENT_PIECE_WAITING, BUK_CLIENT_BOARD_NODE_COUNT, false, 0U));
+    }
+
+    assert(BukClientPresentationCommitSnapshot(&state));
+    snapshot = BukClientPresentationConfirmed(&state);
+    assert(snapshot != NULL);
+    assert(snapshot->piece_count == BUK_CLIENT_MAX_PRESENTATION_PIECES);
+    BukClientPresentationStateDestroy(&state);
+}
+
+static void TestAcceptsMaximumGameRuleResultQueue(void)
+{
+    BukClientPresentationState state;
+    const BukClientPresentationSnapshot *snapshot;
+    size_t index;
+
+    BukClientPresentationStateInit(&state);
+    BukClientPresentationBeginSnapshot(&state);
+    StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE, BUK_CLIENT_TURN_RESOLVE_QUEUE,
+                  BUK_CLIENT_REQUIRED_SELECT_MOVE, BUK_CLIENT_TIMER_MOVE,
+                  BUK_CLIENT_TEAM_A, 5000U);
+    assert(BukClientPresentationStageMoveRequest(
+        &state, BUK_CLIENT_REQUIRED_SELECT_MOVE, false, false,
+        BUK_CLIENT_BOARD_NODE_COUNT));
+    for (index = 0U; index < BUK_CLIENT_MAX_PRESENTATION_RESULTS; index++) {
+        assert(BukClientPresentationStageResult(&state, BUK_CLIENT_RESULT_YUT));
+    }
+    assert(BukClientPresentationCommitSnapshot(&state));
+    snapshot = BukClientPresentationConfirmed(&state);
+    assert(snapshot != NULL);
+    assert(snapshot->result_count == BUK_CLIENT_MAX_PRESENTATION_RESULTS);
+    BukClientPresentationStateDestroy(&state);
+}
+
+static void TestRejectsResultQueueAboveGameRuleLimitAtomically(void)
+{
+    BukClientPresentationState state;
+    const BukClientPresentationSnapshot *snapshot;
+    size_t index;
+
+    BukClientPresentationStateInit(&state);
+    BukClientPresentationBeginSnapshot(&state);
+    StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE, BUK_CLIENT_TURN_RESOLVE_QUEUE,
+                  BUK_CLIENT_REQUIRED_SELECT_MOVE, BUK_CLIENT_TIMER_MOVE,
+                  BUK_CLIENT_TEAM_A, 5000U);
+    assert(BukClientPresentationStageMoveRequest(
+        &state, BUK_CLIENT_REQUIRED_SELECT_MOVE, false, false,
+        BUK_CLIENT_BOARD_NODE_COUNT));
+    for (index = 0U; index < BUK_CLIENT_MAX_PRESENTATION_RESULTS; index++) {
+        assert(BukClientPresentationStageResult(&state, BUK_CLIENT_RESULT_YUT));
+    }
+    assert(BukClientPresentationCommitSnapshot(&state));
+    snapshot = BukClientPresentationConfirmed(&state);
+    assert(snapshot != NULL);
+    assert(snapshot->result_count == BUK_CLIENT_MAX_PRESENTATION_RESULTS);
+
+    BukClientPresentationBeginSnapshot(&state);
+    StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE, BUK_CLIENT_TURN_RESOLVE_QUEUE,
+                  BUK_CLIENT_REQUIRED_SELECT_MOVE, BUK_CLIENT_TIMER_MOVE,
+                  BUK_CLIENT_TEAM_B, 4000U);
+    assert(BukClientPresentationStageMoveRequest(
+        &state, BUK_CLIENT_REQUIRED_SELECT_MOVE, false, false,
+        BUK_CLIENT_BOARD_NODE_COUNT));
+    for (index = 0U; index < BUK_CLIENT_MAX_PRESENTATION_RESULTS; index++) {
+        assert(BukClientPresentationStageResult(&state, BUK_CLIENT_RESULT_MO));
+    }
+    assert(!BukClientPresentationStageResult(&state, BUK_CLIENT_RESULT_YUT));
+    assert(!BukClientPresentationCommitSnapshot(&state));
+    snapshot = BukClientPresentationConfirmed(&state);
+    assert(snapshot != NULL);
+    assert(snapshot->remaining_ms == 5000U);
+    assert(snapshot->result_count == BUK_CLIENT_MAX_PRESENTATION_RESULTS);
+    BukClientPresentationStateDestroy(&state);
+}
+
 static void TestCommitsOnlyConsistentAuthoritativeRouteRequest(void)
 {
     BukClientPresentationState state;
@@ -309,6 +398,9 @@ int main(void)
     TestRequiresExactlyOneMetadataRecord();
     TestParsesOnlyCanonicalTokens();
     TestBoundsSnapshotStorage();
+    TestAcceptsMaximumPresentationPieces();
+    TestAcceptsMaximumGameRuleResultQueue();
+    TestRejectsResultQueueAboveGameRuleLimitAtomically();
     TestCommitsOnlyConsistentAuthoritativeRouteRequest();
     puts("presentation_state_test: ok");
     return 0;
