@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -271,8 +273,50 @@ func TestBrowserMoveCandidateBoundMatchesDomain(t *testing.T) {
 	if !strings.Contains(source, teamPieceBound) {
 		t.Fatalf("browser shell must derive MAX_TEAM_PIECES from domain bound %d", room.MaxPiecesPerTeam)
 	}
+	resultQueueBound := fmt.Sprintf("const MAX_PENDING_RESULT_TOKENS = %d;", MaxResultQueueTokens)
+	if !strings.Contains(source, resultQueueBound) {
+		t.Fatalf("browser shell must match result queue bound %d", MaxResultQueueTokens)
+	}
 	if !strings.Contains(source, "const MAX_MOVE_CANDIDATES = MAX_PENDING_RESULT_TOKENS * MAX_TEAM_PIECES;") {
 		t.Fatal("browser candidate limit must multiply result and team-piece bounds")
+	}
+}
+
+func TestBrowserAndCClientBoundsAgree(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	shellPath := filepath.Join(root, "client", "web", "shell.html")
+	shellData, err := os.ReadFile(shellPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", shellPath, err)
+	}
+	headerPath := filepath.Join(root, "client", "include", "buk_client", "presentation_state.h")
+	headerData, err := os.ReadFile(headerPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", headerPath, err)
+	}
+	readBound := func(source, pattern, label string) int {
+		t.Helper()
+		matches := regexp.MustCompile(pattern).FindStringSubmatch(source)
+		if len(matches) != 2 {
+			t.Fatalf("%s bound was not found", label)
+		}
+		value, err := strconv.Atoi(matches[1])
+		if err != nil {
+			t.Fatalf("parse %s bound: %v", label, err)
+		}
+		return value
+	}
+	shell := string(shellData)
+	header := string(headerData)
+	jsPieces := readBound(shell, `(?m)^\s*pieces:\s*([0-9]+),$`, "JavaScript pieces")
+	cPieces := readBound(header, `(?m)^#define BUK_CLIENT_MAX_PRESENTATION_PIECES ([0-9]+)U$`, "C pieces")
+	if jsPieces != cPieces {
+		t.Fatalf("JavaScript piece limit = %d, C piece limit = %d", jsPieces, cPieces)
+	}
+	jsResults := readBound(shell, `(?m)^\s*const MAX_PENDING_RESULT_TOKENS = ([0-9]+);$`, "JavaScript results")
+	cResults := readBound(header, `(?m)^#define BUK_CLIENT_MAX_PRESENTATION_RESULTS ([0-9]+)U$`, "C results")
+	if jsResults != cResults {
+		t.Fatalf("JavaScript result limit = %d, C result limit = %d", jsResults, cResults)
 	}
 }
 

@@ -52,6 +52,18 @@ static void TestRejectsOversizedInputWithoutMutation(void)
     CHECK(BukClientStateInputLength(&state) == strlen("previous"));
 }
 
+static void TestRejectsUnterminatedCapacitySizedInput(void)
+{
+    char unterminated[BUK_CLIENT_INPUT_CAPACITY];
+    BukClientState state;
+
+    memset(unterminated, 'x', sizeof(unterminated));
+    BukClientStateInit(&state);
+    CHECK(BukClientStateSetInput(&state, "preserved"));
+    CHECK(!BukClientStateSetInput(&state, unterminated));
+    CHECK(strcmp(BukClientStateInput(&state), "preserved") == 0);
+}
+
 static void TestRejectsNullArguments(void)
 {
     BukClientState state;
@@ -69,6 +81,7 @@ int main(void)
     TestInitialStateIsEmpty();
     TestPreservesKoreanUtf8Input();
     TestRejectsOversizedInputWithoutMutation();
+    TestRejectsUnterminatedCapacitySizedInput();
     TestRejectsNullArguments();
 
     if (failures != 0) {

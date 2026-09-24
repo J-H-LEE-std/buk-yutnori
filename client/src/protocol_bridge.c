@@ -64,6 +64,7 @@ static bool ParseSequence(const char *text, uint64_t *sequence)
     while (text[index] != '\0') {
         uint64_t digit;
 
+        if (index >= SEQUENCE_TEXT_CAPACITY - 1U) return false;
         if ((text[index] < '0') || (text[index] > '9')) return false;
         digit = (uint64_t)(text[index] - '0');
         if (value > (UINT64_MAX - digit) / 10U) return false;

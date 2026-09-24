@@ -55,6 +55,10 @@ payload 불일치는 전체 bundle을 거부하고 기존 확정 상태를 유�
 
 ## raylib/WASM 역할
 
+서버 snapshot과 JavaScript→C ABI 입력의 자원 상한 및 초과 시 원자적 거부 계약은
+`docs/adr/0022_client_input_resource_bounds.md`를 따른다. JavaScript 검증 성공만으로
+C 메모리 안전을 가정하지 않으며 두 경계가 각각 입력을 방어한다.
+
 - 윷판 렌더링
 - 말 렌더링과 애니메이션
 - 윷 던지기 애니메이션

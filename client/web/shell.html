@@ -420,6 +420,21 @@
     const LOBBY_CHAT_ROOM_ID = "lobby";
     const MAX_CHAT_CODE_POINTS = 200;
     const MAX_RENDERED_CHAT_MESSAGES = 100;
+    const MAX_PENDING_RESULT_TOKENS = 32;
+    const MAX_TEAM_PIECES = 4;
+    const MAX_MOVE_CANDIDATES = MAX_PENDING_RESULT_TOKENS * MAX_TEAM_PIECES;
+    const MAX_DISPLAY_TEXT_BYTES = 16 * 1024;
+    const CLIENT_INPUT_LIMITS = Object.freeze({
+      stringBytes: 256,
+      participants: 20,
+      pieces: 32,
+      stacks: 16,
+      positionGroups: 32,
+      previewsPerCandidate: 2,
+      traversedSpaces: 64,
+      replayEvents: 128,
+    });
+    const utf8Encoder = new TextEncoder();
     const REALTIME_RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 5000];
     const MATCH_STATUSES = new Set(["starting", "active", "paused", "finished", "invalid"]);
     const TURN_PHASES = new Set([
@@ -435,9 +450,6 @@
     const PIECE_STATES = new Set(["waiting", "on_board", "home_checkpoint", "finished"]);
     const RESULTS = new Set(["do", "gae", "geol", "yut", "mo", "backdo", "buk"]);
     const RESULT_ORIGINS = new Set(["initial_throw", "yut_extra", "mo_extra", "capture_extra"]);
-    const MAX_PENDING_RESULT_TOKENS = 32;
-    const MAX_TEAM_PIECES = 4;
-    const MAX_MOVE_CANDIDATES = MAX_PENDING_RESULT_TOKENS * MAX_TEAM_PIECES;
     const PARTICIPANT_ROLES = new Set(["player", "spectator"]);
     const PERMISSIONS = new Set(["control_game", "chat", "pause_game", "manage_room"]);
     const CPU_REASONS = new Set(["disconnected", "timeout", "lobby_player", null]);
@@ -1591,15 +1603,23 @@
     }
 
     function isStringId(value) {
-      return typeof value === "string" && value.length > 0;
+      return typeof value === "string" && value.length > 0
+        && value.length <= CLIENT_INPUT_LIMITS.stringBytes
+        && utf8Encoder.encode(value).byteLength <= CLIENT_INPUT_LIMITS.stringBytes;
+    }
+
+    function isBoundedDisplayText(value) {
+      return typeof value === "string" && value.length > 0
+        && value.length <= MAX_DISPLAY_TEXT_BYTES
+        && utf8Encoder.encode(value).byteLength <= MAX_DISPLAY_TEXT_BYTES;
     }
 
     function isNullableStringId(value) {
       return value === null || isStringId(value);
     }
 
-    function isUniqueStringIdArray(value, minimum = 0) {
-      return Array.isArray(value) && value.length >= minimum
+    function isUniqueStringIdArray(value, minimum = 0, maximum = CLIENT_INPUT_LIMITS.pieces) {
+      return Array.isArray(value) && value.length >= minimum && value.length <= maximum
         && value.every(isStringId) && new Set(value).size === value.length;
     }
 
@@ -1619,8 +1639,8 @@
 
     function validateTeam(team) {
       return hasExactKeys(team, ["team_id", "player_ids", "turn_order"])
-        && isTeam(team.team_id) && isUniqueStringIdArray(team.player_ids)
-        && isUniqueStringIdArray(team.turn_order);
+        && isTeam(team.team_id) && isUniqueStringIdArray(team.player_ids, 0, 8)
+        && isUniqueStringIdArray(team.turn_order, 0, 8);
     }
 
     function validateParticipant(participant) {
@@ -1629,10 +1649,10 @@
         "cpu_control",
       ])) return false;
       const cpu = participant.cpu_control;
-      return isStringId(participant.user_id) && isStringId(participant.nickname)
+      return isStringId(participant.user_id) && isBoundedDisplayText(participant.nickname)
         && PARTICIPANT_ROLES.has(participant.role)
         && (participant.team_id === null || isTeam(participant.team_id))
-        && Array.isArray(participant.permissions)
+        && Array.isArray(participant.permissions) && participant.permissions.length <= PERMISSIONS.size
         && participant.permissions.every((permission) => PERMISSIONS.has(permission))
         && new Set(participant.permissions).size === participant.permissions.length
         && typeof participant.connected === "boolean"
@@ -1670,13 +1690,16 @@
             || !Array.isArray(candidate.routes) || !candidate.routes.every((route) => ROUTES.has(route))
             || new Set(candidate.routes).size !== candidate.routes.length) return false;
         if (Object.hasOwn(candidate, "previews")) {
-          if (!Array.isArray(candidate.previews) || candidate.previews.length === 0) return false;
+          if (!Array.isArray(candidate.previews) || candidate.previews.length === 0
+              || candidate.previews.length > CLIENT_INPUT_LIMITS.previewsPerCandidate) return false;
           const previewRoutes = new Set();
           for (const preview of candidate.previews) {
             if (!hasExactKeys(preview, ["route", "traversed", "destination_state", "destination_space_id"])
               || !(preview.route === null ? candidate.routes.length === 0 : candidate.routes.includes(preview.route))
               || previewRoutes.has(preview.route)
-              || !Array.isArray(preview.traversed) || !preview.traversed.every(isCanonicalBoardSpace)
+              || !Array.isArray(preview.traversed)
+              || preview.traversed.length > CLIENT_INPUT_LIMITS.traversedSpaces
+              || !preview.traversed.every(isCanonicalBoardSpace)
               || !["on_board", "home_checkpoint", "finished"].includes(preview.destination_state)
               || (preview.destination_state === "finished" ? preview.destination_space_id !== null
                 : !isCanonicalBoardSpace(preview.destination_space_id))) return false;
@@ -1771,6 +1794,7 @@
           || !snapshot.teams.every(validateTeam)
           || new Set(snapshot.teams.map((team) => team.team_id)).size !== 2
           || !Array.isArray(snapshot.participants)
+          || snapshot.participants.length > CLIENT_INPUT_LIMITS.participants
           || !snapshot.participants.every(validateParticipant)
           || !validateCurrentTurn(snapshot.current_turn)
           || !Array.isArray(snapshot.result_queue)
@@ -1778,13 +1802,18 @@
           || !snapshot.result_queue.every(validateResultToken)
           || new Set(snapshot.result_queue.map((token) => token.token_id)).size
              !== snapshot.result_queue.length
-          || !Array.isArray(snapshot.pieces) || !snapshot.pieces.every(validatePiece)
+          || !Array.isArray(snapshot.pieces)
+          || snapshot.pieces.length > CLIENT_INPUT_LIMITS.pieces
+          || !snapshot.pieces.every(validatePiece)
           || new Set(snapshot.pieces.map((piece) => piece.piece_id)).size
              !== snapshot.pieces.length
-          || !Array.isArray(snapshot.stacks) || !snapshot.stacks.every(validateStack)
+          || !Array.isArray(snapshot.stacks)
+          || snapshot.stacks.length > CLIENT_INPUT_LIMITS.stacks
+          || !snapshot.stacks.every(validateStack)
           || new Set(snapshot.stacks.map((stack) => stack.stack_id)).size
              !== snapshot.stacks.length
           || !Array.isArray(snapshot.position_groups)
+          || snapshot.position_groups.length > CLIENT_INPUT_LIMITS.positionGroups
           || !snapshot.position_groups.every(validatePositionGroup)
           || new Set(snapshot.position_groups.map((group) => group.group_id)).size
              !== snapshot.position_groups.length
@@ -2018,6 +2047,7 @@
       const snapshot = synchronization?.snapshot;
       const events = synchronization?.events;
       if (!snapshot || !Array.isArray(events)
+          || events.length > CLIENT_INPUT_LIMITS.replayEvents
           || snapshot.room_id !== message.room_id
           || snapshot.match_id !== message.match_id
           || !Number.isSafeInteger(snapshot.sequence) || snapshot.sequence < 1) return null;

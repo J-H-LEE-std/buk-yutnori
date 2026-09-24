@@ -113,6 +113,7 @@
                     },
                     "events": {
                       "type": "array",
+                      "maxItems": 128,
                       "items": {
                         "$ref": "ws_server_event.schema.json"
                       }

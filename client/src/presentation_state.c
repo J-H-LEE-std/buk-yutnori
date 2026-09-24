@@ -108,6 +108,10 @@ static bool EnsurePieceCapacity(BukClientPresentationState *state)
     BukClientPresentationPiece *pieces;
     size_t new_capacity;
 
+    if (state->pending.piece_count >= BUK_CLIENT_MAX_PRESENTATION_PIECES) {
+        state->pending_failed = true;
+        return false;
+    }
     if (state->pending.piece_count < state->pending.piece_capacity) return true;
     new_capacity = state->pending.piece_capacity == 0U
                        ? 8U
@@ -132,6 +136,10 @@ static bool EnsureResultCapacity(BukClientPresentationState *state)
     BukClientResult *results;
     size_t new_capacity;
 
+    if (state->pending.result_count >= BUK_CLIENT_MAX_PRESENTATION_RESULTS) {
+        state->pending_failed = true;
+        return false;
+    }
     if (state->pending.result_count < state->pending.result_capacity) return true;
     new_capacity = state->pending.result_capacity == 0U
                        ? 8U
@@ -227,7 +235,8 @@ bool BukClientPresentationStagePiece(BukClientPresentationState *state,
         return false;
     }
     if ((!stacked && stack_size != 0U) ||
-        (stacked && stack_size < 2U) ||
+        (stacked && (stack_size < 2U ||
+                     stack_size > BUK_CLIENT_MAX_PRESENTATION_PIECES)) ||
         (stacked && (piece_state == BUK_CLIENT_PIECE_WAITING ||
                      piece_state == BUK_CLIENT_PIECE_FINISHED))) {
         state->pending_failed = true;
