@@ -4,6 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef BUK_CLIENT_ALLOCATOR_HOOK
+/* Native security tests may inject allocation failures; production uses libc. */
+void *BUK_CLIENT_ALLOCATOR_HOOK(void *pointer, size_t size);
+#define BukClientRealloc(pointer, size) BUK_CLIENT_ALLOCATOR_HOOK(pointer, size)
+#else
+#define BukClientRealloc(pointer, size) realloc(pointer, size)
+#endif
+
 typedef struct BukClientEnumName {
     const char *name;
     int value;
@@ -121,7 +129,8 @@ static bool EnsurePieceCapacity(BukClientPresentationState *state)
         state->pending_failed = true;
         return false;
     }
-    pieces = realloc(state->pending.pieces, new_capacity * sizeof(*pieces));
+    pieces = BukClientRealloc(state->pending.pieces,
+                              new_capacity * sizeof(*pieces));
     if (pieces == NULL) {
         state->pending_failed = true;
         return false;
@@ -149,7 +158,8 @@ static bool EnsureResultCapacity(BukClientPresentationState *state)
         state->pending_failed = true;
         return false;
     }
-    results = realloc(state->pending.results, new_capacity * sizeof(*results));
+    results = BukClientRealloc(state->pending.results,
+                               new_capacity * sizeof(*results));
     if (results == NULL) {
         state->pending_failed = true;
         return false;

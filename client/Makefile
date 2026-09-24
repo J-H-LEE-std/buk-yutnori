@@ -27,6 +27,12 @@ PROTOCOL_BRIDGE_TEST := $(BUILD_DIR)/protocol_bridge_test
 BOARD_LAYOUT_TEST := $(BUILD_DIR)/board_layout_test
 PRESENTATION_STATE_TEST := $(BUILD_DIR)/presentation_state_test
 ASSET_RUNTIME_TEST := $(BUILD_DIR)/asset_runtime_test
+SECURITY_FUZZ_TEST := $(BUILD_DIR)/security/security_fuzz_test
+SECURITY_CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror \
+	-Werror=implicit-function-declaration -Wmissing-prototypes -Wstrict-prototypes \
+	-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+SECURITY_FUZZ_CFLAGS := $(SECURITY_CFLAGS) \
+	-DBUK_CLIENT_ALLOCATOR_HOOK=BukClientTestRealloc
 RAYLIB_WEB_LIB := $(RAYLIB_PATH)/src/libraylib.web.a
 WEB_OUTPUT := $(BUILD_DIR)/web/index.html
 WEB_SUPPORT := $(addprefix $(BUILD_DIR)/web/,screen-model.js screens.js screens.css)
@@ -39,7 +45,7 @@ WEB_LDFLAGS := -sUSE_GLFW=3 -sWASM=1 -sASSERTIONS=1 -sENVIRONMENT=web \
 	-sEXPORTED_FUNCTIONS=_main,_BukClientSetInput,_BukClientGetInput,_BukClientRenderedBoardNodeCount,_BukClientRenderedBoardEdgeCount,_BukClientRenderedPieceCount,_BukClientRenderedStackBadgeCount,_BukClientRenderedRouteOptionCount,_BukClientHighlightedRouteEdgeCount,_BukClientAssetsInitialized,_BukClientAssetsLoadedCount,_BukClientAssetsFallbackCount,_BukClientSetEventCue,_BukClientClearEventCue,_BukClientEventCueName,_BukClientSetLatestResult,_BukClientClearLatestResult,_BukClientSetBukMarker,_BukClientProtocolRuntimeInit,_BukClientBeginSynchronization,_BukClientApplySnapshotSequence,_BukClientApplyEventSequence,_BukClientApplyReducedEventSequence,_BukClientStageSnapshotMetadata,_BukClientStageSnapshotPiece,_BukClientStageSnapshotResult,_BukClientStageSnapshotMoveRequest,_BukClientIsCanonicalBoardSpace,_BukClientFailSynchronization,_BukClientCompleteSynchronization,_BukClientCanSendStateCommands,_BukClientRequiresResynchronization,_BukClientLastSequence,_BukClientHasPresentationSnapshot,_BukClientPresentationPieceCount,_BukClientPresentationResultCount,_BukClientPresentationStatus,_BukClientPresentationTurnPhase,_BukClientPresentationRequiredInput,_BukClientPresentationCurrentTeam,_BukClientPresentationRemainingMilliseconds,_BukClientSetRouteInteractionEnabled,_BukClientCanSelectRoute,_BukClientRequestRouteSelection,_BukClientConsumeRouteSelection,_BukClientResolveRouteCommand \
 	-sEXPORTED_RUNTIME_METHODS=ccall --shell-file $(CURDIR)/web/shell.html
 
-.PHONY: all check-raylib test wasm
+.PHONY: all check-raylib test security-test wasm
 
 all: test
 
@@ -51,6 +57,16 @@ test: $(STATE_TEST) $(PROTOCOL_STATE_TEST) $(PROTOCOL_BRIDGE_TEST) $(BOARD_LAYOU
 	$(PRESENTATION_STATE_TEST)
 	$(ASSET_RUNTIME_TEST)
 	node tests/screen_flow_test.mjs
+
+security-test:
+	$(MAKE) -B BUILD_DIR=$(BUILD_DIR)/security NATIVE_CFLAGS='$(SECURITY_CFLAGS)' test
+	mkdir -p $(dir $(SECURITY_FUZZ_TEST))
+	$(NATIVE_CC) $(SECURITY_FUZZ_CFLAGS) $(INCLUDES) \
+		$(CURDIR)/tests/security_fuzz_test.c $(STATE_SOURCE) \
+		$(PROTOCOL_STATE_SOURCE) $(PROTOCOL_BRIDGE_SOURCE) \
+		$(PRESENTATION_STATE_SOURCE) $(BOARD_LAYOUT_SOURCE) \
+		-o $(SECURITY_FUZZ_TEST)
+	$(SECURITY_FUZZ_TEST)
 
 wasm: check-raylib $(WEB_OUTPUT) $(WEB_SUPPORT)
 
