@@ -39,7 +39,7 @@
   `game_snapshot` 토큰으로 완전하게 투영할 수 없으므로, 비어 있지 않은 큐는
   현재 fail-closed 처리하고 서버·스냅샷 스키마 통합 시 재검토한다. 재접속 replay 배열은
   현재 자원 방어 상한 128개를 서버·스키마·클라이언트가 공유하며, 체크포인트 기반 replay의
-  허용 tail 길이를 정할 때 이 상한과 WebSocket frame 상한을 함께 재검토해야 한다.
+  허용 tail 길이와 직렬화된 전송 payload의 별도 크기 정책을 함께 재검토해야 한다.
 - 말 우선 `SELECT_MOVE`와 `(token_id, piece_id, routes)` 후보 계약, 결과·말 선택의
   원자 저장 순서는 ADR-0019와 #149에서 정본으로 확정했고 #151에서 JSON schema·예시·
   turn state machine·서버·replay reducer·C/WASM staging에 이행했다. `RESULT_SELECTED`과

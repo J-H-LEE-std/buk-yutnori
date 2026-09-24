@@ -407,7 +407,8 @@ try {
       const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
       snapshot.pieces = [];
       snapshot.position_groups = [];
-      for (let index = 0; index < count; index += 1) {
+      const pieceCount = Math.min(count, limits.pieces);
+      for (let index = 0; index < pieceCount; index += 1) {
         const pieceId = 'piece-' + index;
         const groupId = 'group-' + index;
         snapshot.pieces.push({ piece_id: pieceId, team_id: 'A', state: 'on_board',
@@ -415,6 +416,14 @@ try {
           actual_previous_space: null });
         snapshot.position_groups.push({ group_id: groupId, team_id: 'A', space_id: 'do',
           piece_ids: [pieceId] });
+      }
+      // Position groups are not staged into C, and the browser validator does not
+      // cross-check unreferenced groups against pieces. Keep the +1 fixture at the
+      // independent piece cap so it isolates the position-group limit.
+      while (snapshot.position_groups.length < count) {
+        const index = snapshot.position_groups.length;
+        snapshot.position_groups.push({ group_id: 'unreferenced-group-' + index,
+          team_id: 'A', space_id: 'do', piece_ids: ['unreferenced-piece-' + index] });
       }
       snapshot.stacks = [];
       snapshot.current_turn.move_request.candidates = [{
