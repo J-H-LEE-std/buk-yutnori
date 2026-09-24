@@ -263,6 +263,30 @@ static void TestBoundsSnapshotStorage(void)
     BukClientPresentationStateDestroy(&state);
 }
 
+static void TestAcceptsMaximumPresentationPieces(void)
+{
+    BukClientPresentationState state;
+    const BukClientPresentationSnapshot *snapshot;
+    size_t index;
+
+    BukClientPresentationStateInit(&state);
+    BukClientPresentationBeginSnapshot(&state);
+    StageMetadata(&state, BUK_CLIENT_MATCH_ACTIVE, BUK_CLIENT_TURN_WAIT_THROW,
+                  BUK_CLIENT_REQUIRED_THROW, BUK_CLIENT_TIMER_THROW,
+                  BUK_CLIENT_TEAM_A, 5000U);
+    for (index = 0U; index < BUK_CLIENT_MAX_PRESENTATION_PIECES; index++) {
+        assert(BukClientPresentationStagePiece(
+            &state, index % 2U == 0U ? BUK_CLIENT_TEAM_A : BUK_CLIENT_TEAM_B,
+            BUK_CLIENT_PIECE_WAITING, BUK_CLIENT_BOARD_NODE_COUNT, false, 0U));
+    }
+
+    assert(BukClientPresentationCommitSnapshot(&state));
+    snapshot = BukClientPresentationConfirmed(&state);
+    assert(snapshot != NULL);
+    assert(snapshot->piece_count == BUK_CLIENT_MAX_PRESENTATION_PIECES);
+    BukClientPresentationStateDestroy(&state);
+}
+
 static void TestAcceptsMaximumGameRuleResultQueue(void)
 {
     BukClientPresentationState state;
@@ -374,6 +398,7 @@ int main(void)
     TestRequiresExactlyOneMetadataRecord();
     TestParsesOnlyCanonicalTokens();
     TestBoundsSnapshotStorage();
+    TestAcceptsMaximumPresentationPieces();
     TestAcceptsMaximumGameRuleResultQueue();
     TestRejectsResultQueueAboveGameRuleLimitAtomically();
     TestCommitsOnlyConsistentAuthoritativeRouteRequest();

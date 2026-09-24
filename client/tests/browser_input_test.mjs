@@ -378,6 +378,50 @@ try {
   })()`);
   if (!gameRuleLimitValidation) throw new Error('game rule result/candidate limits failed');
 
+  const collectionLimitValidation = await evaluate(`(() => {
+    const limits = CLIENT_INPUT_LIMITS;
+    const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+    const oversizedParticipants = structuredClone(snapshot);
+    oversizedParticipants.participants = Array(limits.participants + 1).fill(null);
+    const oversizedPieces = structuredClone(snapshot);
+    oversizedPieces.pieces = Array(limits.pieces + 1).fill(null);
+    const oversizedStacks = structuredClone(snapshot);
+    oversizedStacks.stacks = Array(limits.stacks + 1).fill(null);
+    const oversizedGroups = structuredClone(snapshot);
+    oversizedGroups.position_groups = Array(limits.positionGroups + 1).fill(null);
+
+    const oversizedPreviews = {
+      required_input: 'select_route',
+      candidates: [{
+        token_id: 'token', piece_id: 'A-1', routes: ['normal', 'shortcut'],
+        previews: Array(limits.previewsPerCandidate + 1).fill(null),
+      }],
+    };
+    const oversizedReplay = {
+      version: 1, direction: 'server_response', type: 'COMMAND_RESULT',
+      room_id: snapshot.room_id, match_id: snapshot.match_id,
+      payload: { status: 'accepted', synchronization: {
+        snapshot,
+        events: Array.from({ length: limits.replayEvents + 1 }, (_, index) => ({
+          version: 1, direction: 'server_event', room_id: snapshot.room_id,
+          match_id: snapshot.match_id, sequence: snapshot.sequence + index + 1,
+          type: 'RESULT_SELECTED', payload: { token_id: 'token-1' },
+        })),
+      } },
+    };
+
+    return validateGameSnapshot(snapshot) !== null
+      && validateGameSnapshot(oversizedParticipants) === null
+      && validateGameSnapshot(oversizedPieces) === null
+      && validateGameSnapshot(oversizedStacks) === null
+      && validateGameSnapshot(oversizedGroups) === null
+      && !validateMoveRequest(oversizedPreviews, 'select_route')
+      && synchronizationSequences(oversizedReplay) === null;
+  })()`);
+  if (!collectionLimitValidation) {
+    throw new Error('oversized browser input collections were not rejected');
+  }
+
   const initial = await evaluate(`(() => {
     document.querySelector('main').dataset.diagnostics = 'true';
     document.querySelector('.bridge').hidden = false;
