@@ -380,43 +380,122 @@ try {
 
   const collectionLimitValidation = await evaluate(`(() => {
     const limits = CLIENT_INPUT_LIMITS;
-    const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
-    const oversizedParticipants = structuredClone(snapshot);
-    oversizedParticipants.participants = Array(limits.participants + 1).fill(null);
-    const oversizedPieces = structuredClone(snapshot);
-    oversizedPieces.pieces = Array(limits.pieces + 1).fill(null);
-    const oversizedStacks = structuredClone(snapshot);
-    oversizedStacks.stacks = Array(limits.stacks + 1).fill(null);
-    const oversizedGroups = structuredClone(snapshot);
-    oversizedGroups.position_groups = Array(limits.positionGroups + 1).fill(null);
-
-    const oversizedPreviews = {
-      required_input: 'select_route',
+    const withParticipants = (count) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      snapshot.participants = Array.from({ length: count }, (_, index) => ({
+        user_id: 'spectator-' + index, nickname: '관전자' + index, role: 'spectator',
+        team_id: null, permissions: ['chat'], connected: true,
+        cpu_control: { active: false, reason: null },
+      }));
+      return snapshot;
+    };
+    const withWaitingPieces = (count) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      snapshot.pieces = Array.from({ length: count }, (_, index) => ({
+        piece_id: 'piece-' + index, team_id: index % 2 === 0 ? 'A' : 'B', state: 'waiting',
+        current_space_id: null, stack_id: null, position_group_id: null,
+        actual_previous_space: null,
+      }));
+      snapshot.stacks = [];
+      snapshot.position_groups = [];
+      snapshot.current_turn.move_request.candidates = [{
+        token_id: 'token-1', piece_id: 'piece-0', routes: ['normal'],
+      }];
+      return snapshot;
+    };
+    const withPositionGroups = (count) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      snapshot.pieces = [];
+      snapshot.position_groups = [];
+      for (let index = 0; index < count; index += 1) {
+        const pieceId = 'piece-' + index;
+        const groupId = 'group-' + index;
+        snapshot.pieces.push({ piece_id: pieceId, team_id: 'A', state: 'on_board',
+          current_space_id: 'do', stack_id: null, position_group_id: groupId,
+          actual_previous_space: null });
+        snapshot.position_groups.push({ group_id: groupId, team_id: 'A', space_id: 'do',
+          piece_ids: [pieceId] });
+      }
+      snapshot.stacks = [];
+      snapshot.current_turn.move_request.candidates = [{
+        token_id: 'token-1', piece_id: 'piece-0', routes: ['normal'],
+      }];
+      return snapshot;
+    };
+    const withStacks = (count) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      snapshot.pieces = [];
+      snapshot.stacks = [];
+      snapshot.position_groups = [];
+      for (let index = 0; index < count; index += 1) {
+        const stackId = 'stack-' + index;
+        const groupId = 'group-' + index;
+        const pieceIds = ['piece-' + (index * 2), 'piece-' + (index * 2 + 1)];
+        for (const pieceId of pieceIds) {
+          snapshot.pieces.push({ piece_id: pieceId, team_id: 'A', state: 'on_board',
+            current_space_id: 'do', stack_id: stackId, position_group_id: groupId,
+            actual_previous_space: null });
+        }
+        snapshot.stacks.push({ stack_id: stackId, team_id: 'A', space_id: 'do',
+          piece_ids: pieceIds, actual_previous_space: null });
+        snapshot.position_groups.push({ group_id: groupId, team_id: 'A', space_id: 'do',
+          piece_ids: pieceIds });
+      }
+      snapshot.current_turn.move_request.candidates = [{
+        token_id: 'token-1', piece_id: 'piece-0', routes: ['normal'],
+      }];
+      return snapshot;
+    };
+    const routeRequest = (previewCount) => ({
+      required_input: previewCount === 1 ? 'select_move' : 'select_route',
       candidates: [{
-        token_id: 'token', piece_id: 'A-1', routes: ['normal', 'shortcut'],
-        previews: Array(limits.previewsPerCandidate + 1).fill(null),
-      }],
+      token_id: 'token-1', piece_id: 'A-1',
+      routes: previewCount === 1 ? ['normal'] : ['normal', 'shortcut'],
+      previews: Array.from({ length: previewCount }, (_, index) => ({
+        route: index === 0 ? 'normal' : 'shortcut', traversed: [],
+        destination_state: 'on_board', destination_space_id: 'do',
+      })),
+    }] });
+    const replayMessage = (eventCount) => {
+      const snapshot = makeTestGameSnapshot('room-bounds', 'match-bounds', 1);
+      return {
+        version: 1, direction: 'server_response', type: 'COMMAND_RESULT',
+        room_id: snapshot.room_id, match_id: snapshot.match_id,
+        payload: { status: 'accepted', synchronization: {
+          snapshot,
+          events: Array.from({ length: eventCount }, (_, index) => ({
+            version: 1, direction: 'server_event', room_id: snapshot.room_id,
+            match_id: snapshot.match_id, sequence: snapshot.sequence + index + 1,
+            type: 'RESULT_SELECTED', payload: { token_id: 'token-1' },
+          })),
+        } },
+      };
     };
-    const oversizedReplay = {
-      version: 1, direction: 'server_response', type: 'COMMAND_RESULT',
-      room_id: snapshot.room_id, match_id: snapshot.match_id,
-      payload: { status: 'accepted', synchronization: {
-        snapshot,
-        events: Array.from({ length: limits.replayEvents + 1 }, (_, index) => ({
-          version: 1, direction: 'server_event', room_id: snapshot.room_id,
-          match_id: snapshot.match_id, sequence: snapshot.sequence + index + 1,
-          type: 'RESULT_SELECTED', payload: { token_id: 'token-1' },
-        })),
-      } },
-    };
+    const longNickname = withParticipants(limits.participants);
+    longNickname.participants[0].nickname = '👨‍👩‍👧‍👦'.repeat(20);
+    const tooLongNickname = structuredClone(longNickname);
+    tooLongNickname.participants[0].nickname = 'x'.repeat(16 * 1024 + 1);
 
-    return validateGameSnapshot(snapshot) !== null
-      && validateGameSnapshot(oversizedParticipants) === null
-      && validateGameSnapshot(oversizedPieces) === null
-      && validateGameSnapshot(oversizedStacks) === null
-      && validateGameSnapshot(oversizedGroups) === null
-      && !validateMoveRequest(oversizedPreviews, 'select_route')
-      && synchronizationSequences(oversizedReplay) === null;
+    return validateGameSnapshot(withParticipants(limits.participants - 1)) !== null
+      && validateGameSnapshot(withParticipants(limits.participants)) !== null
+      && validateGameSnapshot(withParticipants(limits.participants + 1)) === null
+      && validateGameSnapshot(withWaitingPieces(limits.pieces - 1)) !== null
+      && validateGameSnapshot(withWaitingPieces(limits.pieces)) !== null
+      && validateGameSnapshot(withWaitingPieces(limits.pieces + 1)) === null
+      && validateGameSnapshot(withStacks(limits.stacks - 1)) !== null
+      && validateGameSnapshot(withStacks(limits.stacks)) !== null
+      && validateGameSnapshot(withStacks(limits.stacks + 1)) === null
+      && validateGameSnapshot(withPositionGroups(limits.positionGroups - 1)) !== null
+      && validateGameSnapshot(withPositionGroups(limits.positionGroups)) !== null
+      && validateGameSnapshot(withPositionGroups(limits.positionGroups + 1)) === null
+      && validateMoveRequest(routeRequest(limits.previewsPerCandidate - 1), 'select_move')
+      && validateMoveRequest(routeRequest(limits.previewsPerCandidate), 'select_route')
+      && !validateMoveRequest(routeRequest(limits.previewsPerCandidate + 1), 'select_route')
+      && synchronizationSequences(replayMessage(limits.replayEvents - 1)) !== null
+      && synchronizationSequences(replayMessage(limits.replayEvents)) !== null
+      && synchronizationSequences(replayMessage(limits.replayEvents + 1)) === null
+      && validateGameSnapshot(longNickname) !== null
+      && validateGameSnapshot(tooLongNickname) === null;
   })()`);
   if (!collectionLimitValidation) {
     throw new Error('oversized browser input collections were not rejected');

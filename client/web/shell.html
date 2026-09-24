@@ -423,6 +423,7 @@
     const MAX_PENDING_RESULT_TOKENS = 32;
     const MAX_TEAM_PIECES = 4;
     const MAX_MOVE_CANDIDATES = MAX_PENDING_RESULT_TOKENS * MAX_TEAM_PIECES;
+    const MAX_DISPLAY_TEXT_BYTES = 16 * 1024;
     const CLIENT_INPUT_LIMITS = Object.freeze({
       stringBytes: 256,
       participants: 20,
@@ -1607,6 +1608,12 @@
         && utf8Encoder.encode(value).byteLength <= CLIENT_INPUT_LIMITS.stringBytes;
     }
 
+    function isBoundedDisplayText(value) {
+      return typeof value === "string" && value.length > 0
+        && value.length <= MAX_DISPLAY_TEXT_BYTES
+        && utf8Encoder.encode(value).byteLength <= MAX_DISPLAY_TEXT_BYTES;
+    }
+
     function isNullableStringId(value) {
       return value === null || isStringId(value);
     }
@@ -1642,7 +1649,7 @@
         "cpu_control",
       ])) return false;
       const cpu = participant.cpu_control;
-      return isStringId(participant.user_id) && isStringId(participant.nickname)
+      return isStringId(participant.user_id) && isBoundedDisplayText(participant.nickname)
         && PARTICIPANT_ROLES.has(participant.role)
         && (participant.team_id === null || isTeam(participant.team_id))
         && Array.isArray(participant.permissions) && participant.permissions.length <= PERMISSIONS.size
