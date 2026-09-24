@@ -27,10 +27,12 @@ PROTOCOL_BRIDGE_TEST := $(BUILD_DIR)/protocol_bridge_test
 BOARD_LAYOUT_TEST := $(BUILD_DIR)/board_layout_test
 PRESENTATION_STATE_TEST := $(BUILD_DIR)/presentation_state_test
 ASSET_RUNTIME_TEST := $(BUILD_DIR)/asset_runtime_test
-SECURITY_FUZZ_TEST := $(BUILD_DIR)/security_fuzz_test
+SECURITY_FUZZ_TEST := $(BUILD_DIR)/security/security_fuzz_test
 SECURITY_CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror \
 	-Werror=implicit-function-declaration -Wmissing-prototypes -Wstrict-prototypes \
-	-fsanitize=address,undefined -fno-omit-frame-pointer
+	-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+SECURITY_FUZZ_CFLAGS := $(SECURITY_CFLAGS) \
+	-DBUK_CLIENT_ALLOCATOR_HOOK=BukClientTestRealloc
 RAYLIB_WEB_LIB := $(RAYLIB_PATH)/src/libraylib.web.a
 WEB_OUTPUT := $(BUILD_DIR)/web/index.html
 WEB_SUPPORT := $(addprefix $(BUILD_DIR)/web/,screen-model.js screens.js screens.css)
@@ -57,12 +59,13 @@ test: $(STATE_TEST) $(PROTOCOL_STATE_TEST) $(PROTOCOL_BRIDGE_TEST) $(BOARD_LAYOU
 	node tests/screen_flow_test.mjs
 
 security-test:
-	$(MAKE) BUILD_DIR=$(BUILD_DIR)/security NATIVE_CFLAGS='$(SECURITY_CFLAGS)' test
+	$(MAKE) -B BUILD_DIR=$(BUILD_DIR)/security NATIVE_CFLAGS='$(SECURITY_CFLAGS)' test
 	mkdir -p $(dir $(SECURITY_FUZZ_TEST))
-	$(NATIVE_CC) $(SECURITY_CFLAGS) $(INCLUDES) \
+	$(NATIVE_CC) $(SECURITY_FUZZ_CFLAGS) $(INCLUDES) \
 		$(CURDIR)/tests/security_fuzz_test.c $(STATE_SOURCE) \
+		$(PROTOCOL_STATE_SOURCE) $(PROTOCOL_BRIDGE_SOURCE) \
 		$(PRESENTATION_STATE_SOURCE) $(BOARD_LAYOUT_SOURCE) \
-		-Wl,--wrap=realloc -o $(SECURITY_FUZZ_TEST)
+		-o $(SECURITY_FUZZ_TEST)
 	$(SECURITY_FUZZ_TEST)
 
 wasm: check-raylib $(WEB_OUTPUT) $(WEB_SUPPORT)

@@ -31,8 +31,11 @@ WASM build를 실행한다. WASM 브라우저 검사는 실제 Backspace 키 입
 삭제하고 변경된 UTF-8 값이 C/WASM 상태와 다시 일치하는지도 확인한다.
 클라이언트 보안 변경은 snapshot 컬렉션과 C ABI 문자열의 최대값 및 최대값+1,
 NUL 종료되지 않은 고정 용량 입력, 제한 초과 snapshot의 원자적 거부를 검사한다.
-네이티브 CI는 AddressSanitizer와 UndefinedBehaviorSanitizer로 전체 C 단위 테스트를
-다시 실행하고, 고정 seed의 bounded 호출 순서 fuzz 검사로 staging 수명주기를 반복한다.
+네이티브 CI는 AddressSanitizer와 UndefinedBehaviorSanitizer(오류 발생 시 즉시 실패)로
+전체 C 단위 테스트를 다시 실행한다. 고정 seed의 bounded sequence 검사로 presentation
+staging과 protocol state/bridge 경계를 반복하며, 성공적인 commit과 컬렉션 capacity 성장,
+allocation failure 뒤 abort 및 복구를 단언한다. allocation fault 주입은 native 테스트 전용
+컴파일 훅을 사용하며 제품 및 WASM 빌드에는 포함되지 않는다.
 SQLite·WebSocket 통합 검사와 Docker smoke 검사는 해당 서버·배포 코드가 추가될 때
 단계적으로 연결한다.
 
