@@ -83,12 +83,34 @@ func TestNewHandlerRoutesAPIBeforeStaticClientAndSetsSecurityHeaders(t *testing.
 		if !strings.Contains(got, wantHash) {
 			t.Fatalf("Content-Security-Policy = %q, missing %s", got, wantHash)
 		}
+		if !strings.Contains(got, "style-src 'self' 'unsafe-inline' https://accounts.google.com") {
+			t.Fatalf("Content-Security-Policy blocks Google Identity Services styles: %q", got)
+		}
 	}
 	if got := staticResponse.Header().Get("Permissions-Policy"); got == "" {
 		t.Fatal("Permissions-Policy is empty")
 	}
 	if got := staticResponse.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("Cache-Control = %q", got)
+	}
+}
+
+func TestInlineScriptHashesUseBrowserHTMLPreprocessing(t *testing.T) {
+	t.Parallel()
+
+	// Browsers replace NUL with U+FFFD and normalize CR line endings while
+	// tokenizing script text before applying CSP. Hashing the file bytes instead
+	// leaves generated Emscripten shells permanently blocked at startup.
+	document := []byte("<script>const key = `left\x00right`;\r\nboot();\r</script>")
+	hashes, err := inlineScriptHashes(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized := "const key = `left\uFFFDright`;\nboot();\n"
+	digest := sha256.Sum256([]byte(normalized))
+	want := "'sha256-" + base64.StdEncoding.EncodeToString(digest[:]) + "'"
+	if len(hashes) != 1 || hashes[0] != want {
+		t.Fatalf("inlineScriptHashes() = %q, want %q", hashes, want)
 	}
 }
 

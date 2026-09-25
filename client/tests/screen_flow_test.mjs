@@ -6,6 +6,17 @@ import vm from 'node:vm';
 const context = vm.createContext({});
 vm.runInContext(readFileSync(new URL('../web/screen-model.js', import.meta.url), 'utf8'), context);
 const model = context.BukScreenModel;
+const shell = readFileSync(new URL('../web/shell.html', import.meta.url), 'utf8');
+assert.match(shell, /<main data-screen="login">/,
+  'the login view must be the initial fail-closed screen before session bootstrap');
+assert.match(shell, /main\[data-screen="login"\]\s*>\s*:not\(\.auth\):not\(\.screen-shell\)\s*\{\s*display:\s*none\s*!important;/,
+  'unauthenticated app content must stay hidden until screen initialization');
+assert.match(shell, /id="auth-retry"[^>]*hidden[^>]*>다시 연결<\/button>/,
+  'authentication timeout must offer an in-app reconnect action');
+assert.match(shell, /authRetry\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*void initializeAuth\(\);\s*\}\)/,
+  'the reconnect action must restart authentication bootstrap');
+assert.match(shell, /로그인 연결 시간이 초과됐습니다\. 다시 연결할까요\?/,
+  'timeout messaging must explain the reconnect choice');
 assert.equal(model.screen(false, 'room', 'match'), 'login');
 assert.equal(model.screen(true, null, null), 'lobby');
 assert.equal(model.screen(true, 'room', null), 'room');

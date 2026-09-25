@@ -85,7 +85,7 @@ func buildContentSecurityPolicy(indexPath string) (string, error) {
 	}
 	scriptSources := []string{"'self'", "'wasm-unsafe-eval'", "https://accounts.google.com"}
 	scriptSources = append(scriptSources, hashes...)
-	return "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src " + strings.Join(scriptSources, " ") + "; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; form-action 'self'", nil
+	return "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src " + strings.Join(scriptSources, " ") + "; style-src 'self' 'unsafe-inline' https://accounts.google.com; img-src 'self' data:; font-src 'self'; connect-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; form-action 'self'", nil
 }
 
 func inlineScriptHashes(document []byte) ([]string, error) {
@@ -109,9 +109,19 @@ func inlineScriptHashes(document []byte) ([]string, error) {
 		closeStart += openEnd + 1
 		content := remaining[openEnd+1 : closeStart]
 		if len(bytes.TrimSpace(content)) > 0 {
+			content = normalizeInlineScriptForCSP(content)
 			digest := sha256.Sum256(content)
 			hashes = append(hashes, "'sha256-"+base64.StdEncoding.EncodeToString(digest[:])+"'")
 		}
 		remaining = remaining[closeStart+len(closeTag):]
 	}
+}
+
+func normalizeInlineScriptForCSP(content []byte) []byte {
+	// CSP hashes the script text exposed by the HTML parser, not necessarily
+	// the original response bytes. Match the tokenizer's input preprocessing so
+	// generated Emscripten scripts containing a literal NUL are not blocked.
+	normalized := bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
+	normalized = bytes.ReplaceAll(normalized, []byte("\r"), []byte("\n"))
+	return bytes.ReplaceAll(normalized, []byte{0}, []byte("\xef\xbf\xbd"))
 }
