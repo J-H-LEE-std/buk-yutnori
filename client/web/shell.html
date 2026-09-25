@@ -2432,41 +2432,48 @@
       })();
     }
 
-    let googleIdentityServicesPromise = null;
+    let googleIdentityServicesScriptPromise = null;
     let googleIdentityServicesInitialized = false;
 
     function loadGoogleIdentityServices() {
       if (window.google?.accounts?.id) return Promise.resolve();
-      if (googleIdentityServicesPromise) return googleIdentityServicesPromise;
-      const loading = new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://accounts.google.com/gsi/client";
-        script.async = true;
-        let settled = false;
+      if (!googleIdentityServicesScriptPromise) {
+        googleIdentityServicesScriptPromise = new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://accounts.google.com/gsi/client";
+          script.async = true;
+          let settled = false;
+          const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            script.onload = null;
+            script.onerror = null;
+            if (callback === reject) {
+              script.remove();
+              googleIdentityServicesScriptPromise = null;
+            }
+            callback(value);
+          };
+          script.onload = () => finish(resolve);
+          script.onerror = () => finish(reject, new Error("Google Identity Services load failed"));
+          document.head.appendChild(script);
+        });
+      }
+      return new Promise((resolve, reject) => {
         const timeout = window.setTimeout(() => {
-          script.remove();
-          finish(reject, new Error("Google Identity Services load timed out"));
+          reject(new Error("Google Identity Services load timed out"));
         }, AUTH_BOOTSTRAP_TIMEOUT_MS);
-        const finish = (callback, value) => {
-          if (settled) return;
-          settled = true;
-          window.clearTimeout(timeout);
-          script.onload = null;
-          script.onerror = null;
-          callback(value);
-        };
-        script.onload = () => finish(resolve);
-        script.onerror = () => {
-          script.remove();
-          finish(reject, new Error("Google Identity Services load failed"));
-        };
-        document.head.appendChild(script);
+        googleIdentityServicesScriptPromise.then(
+          () => {
+            window.clearTimeout(timeout);
+            resolve();
+          },
+          error => {
+            window.clearTimeout(timeout);
+            reject(error);
+          },
+        );
       });
-      googleIdentityServicesPromise = loading;
-      loading.catch(() => {
-        if (googleIdentityServicesPromise === loading) googleIdentityServicesPromise = null;
-      });
-      return loading;
     }
 
     function offerAuthReconnect(message) {
@@ -2498,7 +2505,7 @@
           body: JSON.stringify({ credential: response.credential }),
         });
         if (!loginResponse.ok) {
-          if (loginResponse.status >= 500) {
+          if (loginResponse.status >= 500 || loginResponse.status === 429) {
             const loginError = new Error(`Google login failed: ${loginResponse.status}`);
             loginError.status = loginResponse.status;
             throw loginError;
@@ -2509,7 +2516,7 @@
       } catch (error) {
         console.error(error);
         if (error?.name === "AbortError" || error?.name === "TimeoutError"
-            || error instanceof TypeError || error?.status >= 500) {
+            || error instanceof TypeError || error?.status >= 500 || error?.status === 429) {
           offerAuthReconnect(authFailureMessage(error));
         } else {
           authStatus.textContent = "로그인에 실패했습니다.";

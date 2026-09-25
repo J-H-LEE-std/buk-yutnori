@@ -140,6 +140,11 @@ func TestInlineScriptHashesTokenizeScriptElements(t *testing.T) {
 			document: `<script src="/external.js">fallback()</script><script>real()</script>`,
 			want:     "real()",
 		},
+		{
+			name:     "self-closing syntax still starts an HTML script element",
+			document: `<script/>real()</script>`,
+			want:     "real()",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

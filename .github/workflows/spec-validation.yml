@@ -147,6 +147,12 @@ jobs:
           ref: 56a2c6e3681497b04edfd0a7972e6d435b266114
           path: .tools/emsdk
           persist-credentials: false
+      - name: Set up Go for authenticated browser tests
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache: true
+          cache-dependency-path: go.sum
       - name: Install Emscripten 5.0.4
         run: |
           .tools/emsdk/emsdk install 5.0.4
@@ -173,7 +179,7 @@ jobs:
             --virtual-time-budget=5000 --dump-dom http://localhost:8765/ \
             >/tmp/buk-client-dom.html
           grep -q '<span id="status" role="status">WASM 준비 완료</span>' /tmp/buk-client-dom.html
-          grep -q '<span id="auth-status" role="status">인증 서버 미연결 (WASM 단독 모드)</span>' /tmp/buk-client-dom.html
+          grep -q '<span id="auth-status" role="status">로그인 연결에 실패했습니다. 다시 연결할까요?</span>' /tmp/buk-client-dom.html
           grep -q '<span id="realtime-status" role="status">로그인 후 실시간 연결</span>' /tmp/buk-client-dom.html
           chrome_profile=$(mktemp -d)
           google-chrome --headless=new --no-sandbox --disable-gpu \
@@ -183,6 +189,53 @@ jobs:
           chrome_pid=$!
           node client/tests/browser_input_test.mjs \
             http://127.0.0.1:9222 http://localhost:8765/
+      - name: Test mobile authentication retries in Chrome
+        timeout-minutes: 5
+        env:
+          BUK_BROWSER_HARNESS: "1"
+        run: |
+          set -euo pipefail
+          harness_log=$(mktemp)
+          chrome_log=$(mktemp)
+          chrome_profile=$(mktemp -d)
+          harness_pid=
+          chrome_pid=
+          cleanup() {
+            if [ -n "$chrome_pid" ]; then kill "$chrome_pid" 2>/dev/null || true; fi
+            if [ -n "$harness_pid" ]; then
+              kill "$harness_pid" 2>/dev/null || true
+              wait "$harness_pid" 2>/dev/null || true
+            fi
+            rm -rf "$chrome_profile"
+            rm -f "$harness_log" "$chrome_log"
+          }
+          trap cleanup EXIT
+          go test ./cmd/server -run '^TestBrowserHarness$' -count=1 -v -timeout 4m >"$harness_log" 2>&1 &
+          harness_pid=$!
+          ready=false
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://localhost:8766/ >/dev/null; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$harness_pid" 2>/dev/null; then
+              cat "$harness_log"
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat "$harness_log"
+            echo "authenticated browser harness did not become ready" >&2
+            exit 1
+          fi
+          google-chrome --headless=new --no-sandbox --disable-gpu \
+            --remote-debugging-port=9231 --remote-allow-origins='*' \
+            --user-data-dir="$chrome_profile" http://localhost:8766/ \
+            >"$chrome_log" 2>&1 &
+          chrome_pid=$!
+          node client/tests/auth_bootstrap_browser_test.mjs \
+            http://127.0.0.1:9231 http://localhost:8766/
 
   required:
     name: ci / required

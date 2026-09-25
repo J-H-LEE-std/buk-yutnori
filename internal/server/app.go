@@ -109,7 +109,7 @@ func inlineScriptHashes(document []byte) ([]string, error) {
 			return hashes, nil
 		case html.StartTagToken, html.SelfClosingTagToken:
 			name, _ := tokenizer.TagName()
-			if bytes.Equal(name, []byte("script")) && tokenType == html.StartTagToken {
+			if bytes.Equal(name, []byte("script")) {
 				hasSource := false
 				for {
 					key, _, moreAttr := tokenizer.TagAttr()

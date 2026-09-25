@@ -2,9 +2,21 @@ import assert from 'node:assert/strict';
 import { connect } from './devtools.mjs';
 
 const [debuggerURL = 'http://localhost:9231', pageURL = 'http://localhost:8766/'] = process.argv.slice(2);
-const targets = await (await fetch(`${debuggerURL}/json/list`)).json();
-const target = targets.find(item => item.type === 'page' && item.url.startsWith(pageURL));
-assert(target, 'test page must be open');
+let target;
+let lastTargetError;
+const targetDeadline = Date.now() + 15000;
+while (!target && Date.now() < targetDeadline) {
+  try {
+    const response = await fetch(`${debuggerURL}/json/list`);
+    if (!response.ok) throw new Error(`DevTools target list returned ${response.status}`);
+    const targets = await response.json();
+    target = targets.find(item => item.type === 'page' && item.url.startsWith(pageURL));
+  } catch (error) {
+    lastTargetError = error;
+  }
+  if (!target) await new Promise(resolve => setTimeout(resolve, 100));
+}
+assert(target, `test page must be open: ${lastTargetError ?? 'not found'}`);
 const socket = await connect(target.webSocketDebuggerUrl);
 let nextID = 1;
 const requests = new Map();
@@ -50,7 +62,7 @@ try {
   const timeoutProbe = await call('Page.addScriptToEvaluateOnNewDocument', { source: `{
     const nativeFetch = globalThis.fetch.bind(globalThis);
     globalThis.__bukNativeFetch = nativeFetch;
-    globalThis.__bukAuthProbe = { stallSession: true, configFailures: 1, loginFailures: 1 };
+    globalThis.__bukAuthProbe = { stallSession: true, configFailures: 1, loginFailures: 1, loginRateLimits: 1 };
     globalThis.google = { accounts: { id: {
       initialize() {},
       renderButton(element) { element.dataset.testGoogleButton = 'ready'; },
@@ -75,6 +87,10 @@ try {
       if (url.includes('/api/v1/auth/google') && globalThis.__bukAuthProbe.loginFailures > 0) {
         globalThis.__bukAuthProbe.loginFailures -= 1;
         return Promise.resolve(new Response('', { status: 503 }));
+      }
+      if (url.includes('/api/v1/auth/google') && globalThis.__bukAuthProbe.loginRateLimits > 0) {
+        globalThis.__bukAuthProbe.loginRateLimits -= 1;
+        return Promise.resolve(new Response('', { status: 429 }));
       }
       return nativeFetch(input, options);
     };
@@ -103,6 +119,11 @@ try {
   assert.equal(await evaluate('document.querySelector("#auth-status").textContent'),
     '로그인 연결에 실패했습니다. 다시 연결할까요?', 'login API 503 must provide an in-app retry');
   assert.equal(await evaluate('document.querySelector("#auth-retry").hidden'), false);
+  await evaluate('handleGoogleCredential({ credential: "browser-test-player-rate-limit" })');
+  assert.equal(await evaluate('document.querySelector("#auth-retry").hidden'), false,
+    'login rate limiting must offer an in-app retry');
+  assert.equal(await evaluate('document.querySelector("#auth-status").textContent'),
+    '로그인 연결에 실패했습니다. 다시 연결할까요?');
   await evaluate('document.querySelector("#auth-retry").click()');
   await wait('document.querySelector("#auth-status").textContent === "Google 로그인이 필요합니다."');
   await evaluate('handleGoogleCredential({ credential: "browser-test-player-auth-retry" })');
@@ -111,11 +132,12 @@ try {
     'successful Google sign-in must hide a retry control left by a transient failure');
   const gsiLoad = await evaluate(`(async () => {
     delete window.google;
-    googleIdentityServicesPromise = null;
+    googleIdentityServicesScriptPromise = null;
     googleIdentityServicesInitialized = false;
     let appendCount = 0;
     let loadingScript;
     const appendChild = document.head.appendChild.bind(document.head);
+    const setTimeout = window.setTimeout.bind(window);
     document.head.appendChild = element => {
       if (element.src === "https://accounts.google.com/gsi/client") {
         appendCount += 1;
@@ -124,20 +146,23 @@ try {
       }
       return appendChild(element);
     };
+    window.setTimeout = (callback, delay, ...args) => setTimeout(callback, Math.min(delay, 10), ...args);
     try {
       const first = loadGoogleIdentityServices();
       const second = loadGoogleIdentityServices();
-      const samePromise = first === second;
-      await Promise.resolve();
+      const initialResults = await Promise.all([first, second].map(promise =>
+        promise.then(() => false, error => /timed out/i.test(error.message))));
+      const retry = loadGoogleIdentityServices();
       loadingScript.dispatchEvent(new Event("load"));
-      await Promise.all([first, second]);
-      return { appendCount, samePromise };
+      await retry;
+      return { appendCount, initialResults };
     } finally {
       document.head.appendChild = appendChild;
+      window.setTimeout = setTimeout;
     }
   })()`);
-  assert.deepEqual(gsiLoad, { appendCount: 1, samePromise: true },
-    'concurrent GSI retries must share one script-load promise');
+  assert.deepEqual(gsiLoad, { appendCount: 1, initialResults: [true, true] },
+    'concurrent and post-timeout GSI retries must reuse the pending script load');
   const gsiInitCount = await evaluate(`(async () => {
     let initializeCount = 0;
     window.google = { accounts: { id: {
@@ -150,7 +175,7 @@ try {
   })()`);
   assert.equal(gsiInitCount, 1, 'GSI must initialize only once across auth retries');
   await call('Page.removeScriptToEvaluateOnNewDocument', { identifier: timeoutProbe.identifier });
-  console.log('AUTH_BOOTSTRAP_BROWSER_OK body stall -> config 503 -> login API 503 -> retry');
+  console.log('AUTH_BOOTSTRAP_BROWSER_OK body stall -> config 503 -> login 503/429 -> retry -> GSI dedupe');
 } finally {
   socket.close();
 }
