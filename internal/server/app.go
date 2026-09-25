@@ -7,10 +7,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/net/html"
 )
 
 // NewHandler mounts versioned APIs before the generated static client.
@@ -85,35 +88,47 @@ func buildContentSecurityPolicy(indexPath string) (string, error) {
 	}
 	scriptSources := []string{"'self'", "'wasm-unsafe-eval'", "https://accounts.google.com"}
 	scriptSources = append(scriptSources, hashes...)
-	return "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src " + strings.Join(scriptSources, " ") + "; style-src 'self' 'unsafe-inline' https://accounts.google.com; img-src 'self' data:; font-src 'self'; connect-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; form-action 'self'", nil
+	return "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; script-src " + strings.Join(scriptSources, " ") + "; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data:; font-src 'self'; connect-src 'self' https://accounts.google.com; frame-src https://accounts.google.com; form-action 'self'", nil
 }
 
 func inlineScriptHashes(document []byte) ([]string, error) {
-	const closeTag = "</script>"
 	var hashes []string
-	remaining := document
+	tokenizer := html.NewTokenizer(bytes.NewReader(document))
+	var script []byte
+	inScript := false
 	for {
-		start := bytes.Index(remaining, []byte("<script"))
-		if start < 0 {
+		tokenType := tokenizer.Next()
+		switch tokenType {
+		case html.ErrorToken:
+			if err := tokenizer.Err(); err != nil && !errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("tokenize web index: %w", err)
+			}
+			if inScript {
+				return nil, errors.New("unterminated script element")
+			}
 			return hashes, nil
+		case html.StartTagToken, html.SelfClosingTagToken:
+			name, _ := tokenizer.TagName()
+			if bytes.Equal(name, []byte("script")) && tokenType == html.StartTagToken {
+				inScript = true
+				script = script[:0]
+			}
+		case html.EndTagToken:
+			name, _ := tokenizer.TagName()
+			if inScript && bytes.Equal(name, []byte("script")) {
+				content := normalizeInlineScriptForCSP(script)
+				if len(bytes.TrimSpace(content)) > 0 {
+					digest := sha256.Sum256(content)
+					hashes = append(hashes, "'sha256-"+base64.StdEncoding.EncodeToString(digest[:])+"'")
+				}
+				inScript = false
+				script = nil
+			}
+		case html.TextToken:
+			if inScript {
+				script = append(script, tokenizer.Text()...)
+			}
 		}
-		openEnd := bytes.IndexByte(remaining[start:], '>')
-		if openEnd < 0 {
-			return nil, errors.New("unterminated script opening tag")
-		}
-		openEnd += start
-		closeStart := bytes.Index(remaining[openEnd+1:], []byte(closeTag))
-		if closeStart < 0 {
-			return nil, errors.New("unterminated script element")
-		}
-		closeStart += openEnd + 1
-		content := remaining[openEnd+1 : closeStart]
-		if len(bytes.TrimSpace(content)) > 0 {
-			content = normalizeInlineScriptForCSP(content)
-			digest := sha256.Sum256(content)
-			hashes = append(hashes, "'sha256-"+base64.StdEncoding.EncodeToString(digest[:])+"'")
-		}
-		remaining = remaining[closeStart+len(closeTag):]
 	}
 }
 

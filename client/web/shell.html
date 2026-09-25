@@ -1713,7 +1713,7 @@
           }
           if (previewRoutes.size !== Math.max(1, candidate.routes.length)) return false;
         }
-        const key = `${candidate.token_id}\u0000${candidate.piece_id}`;
+        const key = JSON.stringify([candidate.token_id, candidate.piece_id]);
         if (seen.has(key)) return false;
         seen.add(key);
       }
@@ -2407,9 +2407,27 @@
 
     function fetchAuthResource(url, options = {}) {
       const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), AUTH_BOOTSTRAP_TIMEOUT_MS);
-      return fetch(url, { ...options, signal: controller.signal })
-        .finally(() => window.clearTimeout(timeout));
+      let timedOut = false;
+      const timeout = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, AUTH_BOOTSTRAP_TIMEOUT_MS);
+      return (async () => {
+        try {
+          const response = await fetch(url, { ...options, signal: controller.signal });
+          const body = response.ok ? await response.json() : null;
+          return { response, body };
+        } catch (error) {
+          if (timedOut) {
+            const timeoutError = new Error("Authentication request timed out", { cause: error });
+            timeoutError.name = "TimeoutError";
+            throw timeoutError;
+          }
+          throw error;
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      })();
     }
 
     function loadGoogleIdentityServices() {
@@ -2456,7 +2474,7 @@
     async function handleGoogleCredential(response) {
       try {
         authStatus.textContent = "Google ID 토큰 검증 중…";
-        const loginResponse = await fetch("/api/v1/auth/google", {
+        const { response: loginResponse, body: session } = await fetchAuthResource("/api/v1/auth/google", {
           method: "POST",
           credentials: "same-origin",
           cache: "no-store",
@@ -2466,26 +2484,35 @@
           },
           body: JSON.stringify({ credential: response.credential }),
         });
-        if (!loginResponse.ok) throw new Error("Google credential rejected");
-        const session = await loginResponse.json();
+        if (!loginResponse.ok) {
+          if (loginResponse.status >= 500) {
+            const loginError = new Error(`Google login failed: ${loginResponse.status}`);
+            loginError.status = loginResponse.status;
+            throw loginError;
+          }
+          throw new Error("Google credential rejected");
+        }
         showAuthenticated(session.user_id);
       } catch (error) {
         console.error(error);
-        authStatus.textContent = "로그인에 실패했습니다.";
+        if (error?.name === "AbortError" || error?.name === "TimeoutError"
+            || error instanceof TypeError || error?.status >= 500) {
+          offerAuthReconnect(authFailureMessage(error));
+        } else {
+          authStatus.textContent = "로그인에 실패했습니다.";
+        }
       }
     }
 
     async function initializeGoogleButton() {
       authStatus.textContent = "로그인 설정을 불러오는 중…";
-      const configResponse = await fetchAuthResource("/api/v1/auth/config", {
+      const { response: configResponse, body: config } = await fetchAuthResource("/api/v1/auth/config", {
         credentials: "same-origin",
         cache: "no-store",
       });
       if (!configResponse.ok) {
-        authStatus.textContent = "인증 서버 미연결 (WASM 단독 모드)";
-        return;
+        throw new Error(`auth config failed: ${configResponse.status}`);
       }
-      const config = await configResponse.json();
       authStatus.textContent = "Google 로그인 버튼을 준비하는 중…";
       await loadGoogleIdentityServices();
       google.accounts.id.initialize({
@@ -2507,12 +2534,11 @@
       googleSignin.replaceChildren();
       try {
         authStatus.textContent = "세션 확인 중…";
-        const response = await fetchAuthResource("/api/v1/auth/session", {
+        const { response, body: session } = await fetchAuthResource("/api/v1/auth/session", {
           credentials: "same-origin",
           cache: "no-store",
         });
         if (response.ok) {
-          const session = await response.json();
           showAuthenticated(session.user_id);
           return;
         }
@@ -2555,7 +2581,7 @@
         logout.hidden = true;
         googleSignin.hidden = false;
         googleSignin.replaceChildren();
-        await initializeGoogleButton();
+        await initializeAuth();
       } catch (error) {
         console.error(error);
         authStatus.textContent = "로그아웃에 실패했습니다.";

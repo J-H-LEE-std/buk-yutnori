@@ -17,6 +17,8 @@ assert.match(shell, /authRetry\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*vo
   'the reconnect action must restart authentication bootstrap');
 assert.match(shell, /로그인 연결 시간이 초과됐습니다\. 다시 연결할까요\?/,
   'timeout messaging must explain the reconnect choice');
+assert.match(shell, /if \(!configResponse\.ok\)\s*\{\s*throw new Error\(`auth config failed:/,
+  'failed auth configuration requests must offer the retry path');
 assert.equal(model.screen(false, 'room', 'match'), 'login');
 assert.equal(model.screen(true, null, null), 'lobby');
 assert.equal(model.screen(true, 'room', null), 'room');
