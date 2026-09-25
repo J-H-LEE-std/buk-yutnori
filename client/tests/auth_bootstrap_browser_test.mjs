@@ -133,15 +133,23 @@ try {
   const gsiLoad = await evaluate(`(async () => {
     delete window.google;
     googleIdentityServicesScriptPromise = null;
+    googleIdentityServicesScriptElement = null;
+    googleIdentityServicesScriptTimedOut = false;
     googleIdentityServicesInitialized = false;
     let appendCount = 0;
-    let loadingScript;
+    const loadingScripts = [];
     const appendChild = document.head.appendChild.bind(document.head);
     const setTimeout = window.setTimeout.bind(window);
     document.head.appendChild = element => {
       if (element.src === "https://accounts.google.com/gsi/client") {
         appendCount += 1;
-        loadingScript = element;
+        const loadingScript = { element, removed: false };
+        loadingScripts.push(loadingScript);
+        const remove = element.remove.bind(element);
+        element.remove = () => {
+          loadingScript.removed = true;
+          remove();
+        };
         return element;
       }
       return appendChild(element);
@@ -152,17 +160,23 @@ try {
       const second = loadGoogleIdentityServices();
       const initialResults = await Promise.all([first, second].map(promise =>
         promise.then(() => false, error => /timed out/i.test(error.message))));
+      prepareGoogleIdentityServicesRetry();
+      const firstScriptRemovedOnRetry = loadingScripts[0].removed;
       const retry = loadGoogleIdentityServices();
-      loadingScript.dispatchEvent(new Event("load"));
+      loadingScripts[1].element.dispatchEvent(new Event("load"));
       await retry;
-      return { appendCount, initialResults };
+      return { appendCount, firstScriptRemovedOnRetry, initialResults, timedOutReset: !googleIdentityServicesScriptTimedOut };
     } finally {
       document.head.appendChild = appendChild;
       window.setTimeout = setTimeout;
     }
   })()`);
-  assert.deepEqual(gsiLoad, { appendCount: 1, initialResults: [true, true] },
-    'concurrent and post-timeout GSI retries must reuse the pending script load');
+  assert.deepEqual(gsiLoad, {
+    appendCount: 2,
+    firstScriptRemovedOnRetry: true,
+    initialResults: [true, true],
+    timedOutReset: true,
+  }, 'concurrent GSI requests must share one load and an explicit retry must replace a timed-out load');
   const gsiInitCount = await evaluate(`(async () => {
     let initializeCount = 0;
     window.google = { accounts: { id: {
@@ -175,7 +189,7 @@ try {
   })()`);
   assert.equal(gsiInitCount, 1, 'GSI must initialize only once across auth retries');
   await call('Page.removeScriptToEvaluateOnNewDocument', { identifier: timeoutProbe.identifier });
-  console.log('AUTH_BOOTSTRAP_BROWSER_OK body stall -> config 503 -> login 503/429 -> retry -> GSI dedupe');
+  console.log('AUTH_BOOTSTRAP_BROWSER_OK body stall -> config 503 -> login 503/429 -> retry -> GSI retry');
 } finally {
   socket.close();
 }

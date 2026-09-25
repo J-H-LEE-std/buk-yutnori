@@ -143,10 +143,7 @@ func inlineScriptHashes(document []byte) ([]string, error) {
 }
 
 func normalizeInlineScriptForCSP(content []byte) []byte {
-	// CSP hashes the script text exposed by the HTML parser, not necessarily
-	// the original response bytes. Match the tokenizer's input preprocessing so
-	// generated Emscripten scripts containing a literal NUL are not blocked.
-	normalized := bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
-	normalized = bytes.ReplaceAll(normalized, []byte("\r"), []byte("\n"))
-	return bytes.ReplaceAll(normalized, []byte{0}, []byte("\xef\xbf\xbd"))
+	// The HTML tokenizer has already normalized line endings. Replace NUL with
+	// U+FFFD to match browser HTML preprocessing before the CSP hash is applied.
+	return bytes.ReplaceAll(content, []byte{0}, []byte("\xef\xbf\xbd"))
 }

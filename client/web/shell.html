@@ -2433,6 +2433,9 @@
     }
 
     let googleIdentityServicesScriptPromise = null;
+    let googleIdentityServicesScriptElement = null;
+    let googleIdentityServicesScriptReject = null;
+    let googleIdentityServicesScriptTimedOut = false;
     let googleIdentityServicesInitialized = false;
 
     function loadGoogleIdentityServices() {
@@ -2440,6 +2443,8 @@
       if (!googleIdentityServicesScriptPromise) {
         googleIdentityServicesScriptPromise = new Promise((resolve, reject) => {
           const script = document.createElement("script");
+          googleIdentityServicesScriptElement = script;
+          googleIdentityServicesScriptReject = reject;
           script.src = "https://accounts.google.com/gsi/client";
           script.async = true;
           let settled = false;
@@ -2450,7 +2455,14 @@
             script.onerror = null;
             if (callback === reject) {
               script.remove();
-              googleIdentityServicesScriptPromise = null;
+              if (googleIdentityServicesScriptElement === script) {
+                googleIdentityServicesScriptElement = null;
+                googleIdentityServicesScriptReject = null;
+                googleIdentityServicesScriptPromise = null;
+              }
+            } else if (googleIdentityServicesScriptElement === script) {
+              googleIdentityServicesScriptElement = null;
+              googleIdentityServicesScriptReject = null;
             }
             callback(value);
           };
@@ -2461,6 +2473,7 @@
       }
       return new Promise((resolve, reject) => {
         const timeout = window.setTimeout(() => {
+          googleIdentityServicesScriptTimedOut = true;
           reject(new Error("Google Identity Services load timed out"));
         }, AUTH_BOOTSTRAP_TIMEOUT_MS);
         googleIdentityServicesScriptPromise.then(
@@ -2474,6 +2487,23 @@
           },
         );
       });
+    }
+
+    function prepareGoogleIdentityServicesRetry() {
+      if (!googleIdentityServicesScriptTimedOut) return;
+      googleIdentityServicesScriptTimedOut = false;
+      if (window.google?.accounts?.id) return;
+      const script = googleIdentityServicesScriptElement;
+      const rejectPendingScript = googleIdentityServicesScriptReject;
+      if (script) {
+        script.onload = null;
+        script.onerror = null;
+        script.remove();
+      }
+      googleIdentityServicesScriptElement = null;
+      googleIdentityServicesScriptReject = null;
+      googleIdentityServicesScriptPromise = null;
+      rejectPendingScript?.(new Error("Google Identity Services load replaced after timeout"));
     }
 
     function offerAuthReconnect(message) {
@@ -2573,7 +2603,10 @@
       }
     }
 
-    authRetry.addEventListener("click", () => { void initializeAuth(); });
+    authRetry.addEventListener("click", () => {
+      prepareGoogleIdentityServicesRetry();
+      void initializeAuth();
+    });
     window.addEventListener("online", () => {
       if (!authRetry.hidden) authStatus.textContent = "네트워크 연결이 복구됐습니다. 다시 연결할까요?";
     });

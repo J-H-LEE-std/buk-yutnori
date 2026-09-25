@@ -13,8 +13,8 @@ assert.match(shell, /main\[data-screen="login"\]\s*>\s*:not\(\.auth\):not\(\.scr
   'unauthenticated app content must stay hidden until screen initialization');
 assert.match(shell, /id="auth-retry"[^>]*hidden[^>]*>다시 연결<\/button>/,
   'authentication timeout must offer an in-app reconnect action');
-assert.match(shell, /authRetry\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*void initializeAuth\(\);\s*\}\)/,
-  'the reconnect action must restart authentication bootstrap');
+assert.match(shell, /authRetry\.addEventListener\("click",\s*\(\)\s*=>\s*\{\s*prepareGoogleIdentityServicesRetry\(\);\s*void initializeAuth\(\);\s*\}\)/,
+  'the reconnect action must reset a timed-out Google script request and restart authentication bootstrap');
 assert.match(shell, /로그인 연결 시간이 초과됐습니다\. 다시 연결할까요\?/,
   'timeout messaging must explain the reconnect choice');
 assert.match(shell, /if \(!configResponse\.ok\)\s*\{\s*throw new Error\(`auth config failed:/,

@@ -198,19 +198,38 @@ jobs:
           harness_log=$(mktemp)
           chrome_log=$(mktemp)
           chrome_profile=$(mktemp -d)
+          harness_binary="$PWD/build/client/browser-harness.test"
           harness_pid=
           chrome_pid=
           cleanup() {
-            if [ -n "$chrome_pid" ]; then kill "$chrome_pid" 2>/dev/null || true; fi
+            status=$?
+            trap - EXIT
+            if [ -n "$chrome_pid" ]; then
+              kill "$chrome_pid" 2>/dev/null || true
+              wait "$chrome_pid" 2>/dev/null || true
+            fi
             if [ -n "$harness_pid" ]; then
               kill "$harness_pid" 2>/dev/null || true
               wait "$harness_pid" 2>/dev/null || true
             fi
-            rm -rf "$chrome_profile"
-            rm -f "$harness_log" "$chrome_log"
+            if [ "$status" -ne 0 ]; then
+              echo "Authenticated browser harness log:" >&2
+              cat "$harness_log" >&2
+              echo "Chrome log:" >&2
+              cat "$chrome_log" >&2
+            fi
+            rm -rf "$chrome_profile" || true
+            rm -f "$harness_log" "$chrome_log" || true
+            exit "$status"
           }
           trap cleanup EXIT
-          go test ./cmd/server -run '^TestBrowserHarness$' -count=1 -v -timeout 4m >"$harness_log" 2>&1 &
+          go test -c -o "$harness_binary" ./cmd/server
+          (
+            cd cmd/server
+            export BUK_BROWSER_HARNESS=1
+            exec "$harness_binary" \
+              -test.run '^TestBrowserHarness$' -test.count=1 -test.v -test.timeout=4m
+          ) >"$harness_log" 2>&1 &
           harness_pid=$!
           ready=false
           for attempt in $(seq 1 60); do
