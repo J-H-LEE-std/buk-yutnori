@@ -135,6 +135,11 @@ func TestInlineScriptHashesTokenizeScriptElements(t *testing.T) {
 			document: `<scripting>not code</scripting><script>real()</script>`,
 			want:     "real()",
 		},
+		{
+			name:     "external script body is not hash authorized",
+			document: `<script src="/external.js">fallback()</script><script>real()</script>`,
+			want:     "real()",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

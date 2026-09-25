@@ -110,7 +110,17 @@ func inlineScriptHashes(document []byte) ([]string, error) {
 		case html.StartTagToken, html.SelfClosingTagToken:
 			name, _ := tokenizer.TagName()
 			if bytes.Equal(name, []byte("script")) && tokenType == html.StartTagToken {
-				inScript = true
+				hasSource := false
+				for {
+					key, _, moreAttr := tokenizer.TagAttr()
+					if bytes.Equal(key, []byte("src")) {
+						hasSource = true
+					}
+					if !moreAttr {
+						break
+					}
+				}
+				inScript = !hasSource
 				script = script[:0]
 			}
 		case html.EndTagToken:

@@ -1248,6 +1248,8 @@
     // setStateReconnectScope with the room's live match_id.
     function showAuthenticated(userId) {
       authStatus.textContent = `로그인됨: ${userId}`;
+      authRetry.hidden = true;
+      authRetry.disabled = true;
       googleSignin.hidden = true;
       myProfile.hidden = false;
       logout.hidden = false;
@@ -2430,9 +2432,13 @@
       })();
     }
 
+    let googleIdentityServicesPromise = null;
+    let googleIdentityServicesInitialized = false;
+
     function loadGoogleIdentityServices() {
       if (window.google?.accounts?.id) return Promise.resolve();
-      return new Promise((resolve, reject) => {
+      if (googleIdentityServicesPromise) return googleIdentityServicesPromise;
+      const loading = new Promise((resolve, reject) => {
         const script = document.createElement("script");
         script.src = "https://accounts.google.com/gsi/client";
         script.async = true;
@@ -2456,6 +2462,11 @@
         };
         document.head.appendChild(script);
       });
+      googleIdentityServicesPromise = loading;
+      loading.catch(() => {
+        if (googleIdentityServicesPromise === loading) googleIdentityServicesPromise = null;
+      });
+      return loading;
     }
 
     function offerAuthReconnect(message) {
@@ -2472,6 +2483,8 @@
     }
 
     async function handleGoogleCredential(response) {
+      authRetry.hidden = true;
+      authRetry.disabled = true;
       try {
         authStatus.textContent = "Google ID 토큰 검증 중…";
         const { response: loginResponse, body: session } = await fetchAuthResource("/api/v1/auth/google", {
@@ -2515,10 +2528,13 @@
       }
       authStatus.textContent = "Google 로그인 버튼을 준비하는 중…";
       await loadGoogleIdentityServices();
-      google.accounts.id.initialize({
-        client_id: config.google_client_id,
-        callback: handleGoogleCredential,
-      });
+      if (!googleIdentityServicesInitialized) {
+        google.accounts.id.initialize({
+          client_id: config.google_client_id,
+          callback: handleGoogleCredential,
+        });
+        googleIdentityServicesInitialized = true;
+      }
       google.accounts.id.renderButton(googleSignin, {
         theme: "outline",
         size: "large",

@@ -105,6 +105,50 @@ try {
   assert.equal(await evaluate('document.querySelector("#auth-retry").hidden'), false);
   await evaluate('document.querySelector("#auth-retry").click()');
   await wait('document.querySelector("#auth-status").textContent === "Google 로그인이 필요합니다."');
+  await evaluate('handleGoogleCredential({ credential: "browser-test-player-auth-retry" })');
+  await wait('document.querySelector("#logout").hidden === false');
+  assert.equal(await evaluate('document.querySelector("#auth-retry").hidden'), true,
+    'successful Google sign-in must hide a retry control left by a transient failure');
+  const gsiLoad = await evaluate(`(async () => {
+    delete window.google;
+    googleIdentityServicesPromise = null;
+    googleIdentityServicesInitialized = false;
+    let appendCount = 0;
+    let loadingScript;
+    const appendChild = document.head.appendChild.bind(document.head);
+    document.head.appendChild = element => {
+      if (element.src === "https://accounts.google.com/gsi/client") {
+        appendCount += 1;
+        loadingScript = element;
+        return element;
+      }
+      return appendChild(element);
+    };
+    try {
+      const first = loadGoogleIdentityServices();
+      const second = loadGoogleIdentityServices();
+      const samePromise = first === second;
+      await Promise.resolve();
+      loadingScript.dispatchEvent(new Event("load"));
+      await Promise.all([first, second]);
+      return { appendCount, samePromise };
+    } finally {
+      document.head.appendChild = appendChild;
+    }
+  })()`);
+  assert.deepEqual(gsiLoad, { appendCount: 1, samePromise: true },
+    'concurrent GSI retries must share one script-load promise');
+  const gsiInitCount = await evaluate(`(async () => {
+    let initializeCount = 0;
+    window.google = { accounts: { id: {
+      initialize() { initializeCount += 1; },
+      renderButton() {},
+    } } };
+    await initializeGoogleButton();
+    await initializeGoogleButton();
+    return initializeCount;
+  })()`);
+  assert.equal(gsiInitCount, 1, 'GSI must initialize only once across auth retries');
   await call('Page.removeScriptToEvaluateOnNewDocument', { identifier: timeoutProbe.identifier });
   console.log('AUTH_BOOTSTRAP_BROWSER_OK body stall -> config 503 -> login API 503 -> retry');
 } finally {
