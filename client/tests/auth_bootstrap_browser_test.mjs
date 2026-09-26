@@ -194,7 +194,6 @@ try {
     await initializeGoogleButton();
     window.google.accounts.id = replacementIdentity;
     await initializeGoogleButton();
-    googleSignin.replaceChildren();
     delete window.google;
     const timedOutScript = document.createElement("script");
     document.head.appendChild(timedOutScript);
@@ -211,6 +210,7 @@ try {
       && googleIdentityServicesScriptReject === null
       && staleScriptRejectCount === 1;
     await authInitialization;
+    delete googleSignin.dataset.testGoogleButton;
     return {
       initialIdentityInitializeCount,
       replacementIdentityInitializeCount,
