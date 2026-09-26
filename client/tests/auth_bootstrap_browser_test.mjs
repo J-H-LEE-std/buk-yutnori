@@ -194,20 +194,35 @@ try {
     await initializeGoogleButton();
     window.google.accounts.id = replacementIdentity;
     await initializeGoogleButton();
+    googleSignin.replaceChildren();
+    delete window.google;
+    const timedOutScript = document.createElement("script");
+    document.head.appendChild(timedOutScript);
+    let staleScriptRejectCount = 0;
+    googleIdentityServicesScriptElement = timedOutScript;
+    googleIdentityServicesScriptPromise = new Promise(() => {});
+    googleIdentityServicesScriptReject = () => { staleScriptRejectCount += 1; };
     googleIdentityServicesScriptTimedOut = true;
     const authInitialization = initializeAuth();
     const timeoutClearedByAuthInitialization = !googleIdentityServicesScriptTimedOut;
+    const staleScriptRemovedByAuthInitialization = !timedOutScript.isConnected
+      && googleIdentityServicesScriptElement === null
+      && googleIdentityServicesScriptPromise === null
+      && googleIdentityServicesScriptReject === null
+      && staleScriptRejectCount === 1;
     await authInitialization;
     return {
       initialIdentityInitializeCount,
       replacementIdentityInitializeCount,
       timeoutClearedByAuthInitialization,
+      staleScriptRemovedByAuthInitialization,
     };
   })()`);
   assert.deepEqual(gsiInitCount, {
     initialIdentityInitializeCount: 1,
     replacementIdentityInitializeCount: 1,
     timeoutClearedByAuthInitialization: true,
+    staleScriptRemovedByAuthInitialization: true,
   }, 'GSI must initialize once per runtime identity and auth reinitialization must clear stale timeouts');
   await call('Page.removeScriptToEvaluateOnNewDocument', { identifier: timeoutProbe.identifier });
   console.log('AUTH_BOOTSTRAP_BROWSER_OK body stall -> config 503 -> login 503/429 -> retry -> GSI retry');
