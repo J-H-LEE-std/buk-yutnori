@@ -2068,6 +2068,54 @@ try {
     throw new Error(`stale reconnect scope response was applied: ${JSON.stringify(staleScopeResponse)}`);
   }
 
+  const consecutiveMatchReset = await evaluate(`(() => {
+    const originalSocket = realtimeSocket;
+    authenticatedUserId = "user-a";
+    roomListAuthenticated = true;
+    activeRoomId = "room-consecutive-matches";
+    realtimeSocket = null;
+    clearStateReconnectScope();
+    Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    setStateReconnectScope(activeRoomId, "match-first");
+    const firstSnapshot = makeTestGameSnapshot(activeRoomId, "match-first", 70);
+    const appliedFirst = applySynchronizationSequenceBundle({
+      version: 1, direction: "server_response", type: "COMMAND_RESULT",
+      room_id: activeRoomId, match_id: "match-first",
+      payload: { status: "accepted", synchronization: { snapshot: firstSnapshot, events: [] } },
+    });
+    BukScreens.event({ type: "YUT_RESULT", sequence: 71,
+      payload: { player_id: "user-a", token: { token_id: "old-result", result: "do" } } });
+    BukScreens.event({ type: "PIECE_MOVED", sequence: 72,
+      payload: { piece_ids: ["old-piece"], to_space_id: "old-space" } });
+    const firstMatchVisible = document.getElementById("throw-history").children.length > 0
+      && Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 1;
+    setStateReconnectScope(activeRoomId, "match-second");
+    const result = {
+      appliedFirst,
+      firstMatchVisible,
+      scope: stateReconnectScope,
+      previousResultsCleared: document.getElementById("latest-result").textContent === "아직 던진 결과가 없습니다.",
+      previousHistoryCleared: document.getElementById("throw-history").children.length === 0,
+      previousPhaseCleared: document.getElementById("event-phase").textContent === "",
+      previousSnapshotCleared: Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 0,
+      controlsDisabled: !canSendStateChangingCommand(),
+    };
+    clearStateReconnectScope();
+    activeRoomId = null;
+    realtimeSocket = originalSocket;
+    globalThis.BukScreens?.sync();
+    return result;
+  })()`);
+  if (!consecutiveMatchReset.appliedFirst || !consecutiveMatchReset.firstMatchVisible
+      || consecutiveMatchReset.scope?.matchId !== "match-second"
+      || !consecutiveMatchReset.previousResultsCleared
+      || !consecutiveMatchReset.previousHistoryCleared
+      || !consecutiveMatchReset.previousPhaseCleared
+      || !consecutiveMatchReset.previousSnapshotCleared
+      || !consecutiveMatchReset.controlsDisabled) {
+    throw new Error(`new match scope retained previous presentation state: ${JSON.stringify(consecutiveMatchReset)}`);
+  }
+
   const eventCue = await evaluate(`(() => {
     stateReconnectScope = { roomId: "room-cue", matchId: "match-cue" };
     lastGameEventSequence = 10;
