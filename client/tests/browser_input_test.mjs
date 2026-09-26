@@ -1924,6 +1924,7 @@ try {
     const capture = new CaptureWebSocket();
     realtimeSocket = capture;
     Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    stateReconnectScope = { roomId: "room-1", matchId: "match-1" };
     applySynchronizationSequenceBundle({
       version: 1,
       direction: "server_response",
@@ -2088,17 +2089,23 @@ try {
     BukScreens.event({ type: "PIECE_MOVED", sequence: 72,
       payload: { piece_ids: ["old-piece"], to_space_id: "old-space" } });
     const firstMatchVisible = document.getElementById("throw-history").children.length > 0
+      && document.getElementById("event-phase").textContent === "말 이동 중…"
+      && Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 1;
+    setStateReconnectScope(activeRoomId, "match-first");
+    const sameMatchReconnectPreserved = document.getElementById("throw-history").children.length > 0
+      && document.getElementById("event-phase").textContent === "말 이동 중…"
       && Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 1;
     setStateReconnectScope(activeRoomId, "match-second");
     const result = {
       appliedFirst,
       firstMatchVisible,
+      sameMatchReconnectPreserved,
       scope: stateReconnectScope,
       previousResultsCleared: document.getElementById("latest-result").textContent === "아직 던진 결과가 없습니다.",
       previousHistoryCleared: document.getElementById("throw-history").children.length === 0,
       previousPhaseCleared: document.getElementById("event-phase").textContent === "",
       previousSnapshotCleared: Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 0,
-      controlsDisabled: !canSendStateChangingCommand(),
+      controlsDisabled: Module.ccall("BukClientCanSendStateCommands", "number", [], []) === 0,
     };
     clearStateReconnectScope();
     activeRoomId = null;
@@ -2107,6 +2114,7 @@ try {
     return result;
   })()`);
   if (!consecutiveMatchReset.appliedFirst || !consecutiveMatchReset.firstMatchVisible
+      || !consecutiveMatchReset.sameMatchReconnectPreserved
       || consecutiveMatchReset.scope?.matchId !== "match-second"
       || !consecutiveMatchReset.previousResultsCleared
       || !consecutiveMatchReset.previousHistoryCleared

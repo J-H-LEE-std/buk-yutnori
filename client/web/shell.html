@@ -1338,6 +1338,7 @@
         || stateReconnectScope?.matchId !== matchId;
       if (changedMatchScope) {
         clearEventCue();
+        lastGameEventSequence = 0;
         globalThis.BukScreens?.resetMatch();
         if (wasmRuntimeReady) {
           Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
