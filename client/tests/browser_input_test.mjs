@@ -804,7 +804,7 @@ try {
       requests.push(request);
       if (request.url.endsWith("/join")) {
         const payload = JSON.parse(request.body);
-        if (payload.password === "server-required") {
+        if (payload.password === "needpass") {
           return { ok: false, status: 403, json: async () => ({ error: "password_required" }) };
         }
         if (payload.password === "wrong") {
@@ -840,7 +840,7 @@ try {
       const buttons = [...roomList.querySelectorAll("button")];
       buttons[0].click();
       const promptOpenedBeforeRequest = !roomJoinPasswordModal.hidden && requests.length === 0;
-      roomJoinPasswordInput.value = "server-required";
+      roomJoinPasswordInput.value = "needpass";
       roomJoinPasswordForm.requestSubmit();
       for (let attempt = 0; attempt < 20 && roomJoinPasswordModal.hidden; attempt += 1) {
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -909,7 +909,7 @@ try {
       || !protectedRoomJoin.cancelPromptShown || !protectedRoomJoin.escapeCancelled
       || !protectedRoomJoin.logoutPromptShown || !protectedRoomJoin.logoutClosedPrompt
       || !protectedRoomJoin.cancelSentNoRequest
-      || JSON.stringify(protectedRoomJoin.requestPasswords) !== JSON.stringify(["server-required", "wrong", "correct"])
+      || JSON.stringify(protectedRoomJoin.requestPasswords) !== JSON.stringify(["needpass", "wrong", "correct"])
       || JSON.stringify(protectedRoomJoin.requestRoles) !== JSON.stringify(["player", "player", "player"])
       || !protectedRoomJoin.createPasswordUntouched) {
     throw new Error(`protected-room join did not prompt and retry safely: ${JSON.stringify(protectedRoomJoin)}`);
