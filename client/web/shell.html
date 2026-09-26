@@ -313,6 +313,20 @@
       <span id="chat-status" role="status">로그인 후 채팅할 수 있습니다.</span>
     </section>
   </main>
+  <div id="room-join-password-modal" class="game-modal" hidden role="dialog" aria-modal="true" aria-labelledby="room-join-password-title">
+    <form id="room-join-password-form" class="modal-card profile-form">
+      <h2 id="room-join-password-title">방 비밀번호 입력</h2>
+      <p id="room-join-password-description"></p>
+      <label for="room-join-password-input">비밀번호</label>
+      <input id="room-join-password-input" type="password" autocomplete="off" minlength="4" maxlength="16"
+             pattern="[0-9A-Za-z]{4,16}" title="영문자와 숫자 4~16자" required>
+      <span id="room-join-password-status" role="status"></span>
+      <div class="modal-actions">
+        <button id="room-join-password-cancel" type="button">취소</button>
+        <button type="submit">입장</button>
+      </div>
+    </form>
+  </div>
   <div id="pause-modal" class="game-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pause-modal-title">
     <div class="modal-card">
       <h2 id="pause-modal-title">게임 일시정지</h2>
@@ -378,6 +392,12 @@
     const roomCreateForm = document.getElementById("room-create-form");
     const roomTitle = document.getElementById("room-title");
     const roomPassword = document.getElementById("room-password");
+    const roomJoinPasswordModal = document.getElementById("room-join-password-modal");
+    const roomJoinPasswordForm = document.getElementById("room-join-password-form");
+    const roomJoinPasswordInput = document.getElementById("room-join-password-input");
+    const roomJoinPasswordDescription = document.getElementById("room-join-password-description");
+    const roomJoinPasswordStatus = document.getElementById("room-join-password-status");
+    const roomJoinPasswordCancel = document.getElementById("room-join-password-cancel");
     const roomTeam = document.getElementById("room-team");
     const roomCreate = document.getElementById("room-create");
     const roomDetail = document.getElementById("room-detail");
@@ -494,6 +514,8 @@
     let profileRequestGeneration = 0;
     let profileReturnFocus = null;
     let nicknameRequired = false;
+    let roomJoinPasswordResolve = null;
+    let roomJoinPasswordReturnFocus = null;
 
     function setRoomEntryEnabled(enabled) {
       for (const element of [roomTitle, roomPassword, roomTeam, roomCreate]) element.disabled = !enabled;
@@ -979,33 +1001,96 @@
       }
     }
 
-    async function enterRoom(roomId, role) {
+    function resolveRoomJoinPassword(password) {
+      if (roomJoinPasswordResolve === null) return false;
+      const resolve = roomJoinPasswordResolve;
+      const focusTarget = roomJoinPasswordReturnFocus;
+      roomJoinPasswordResolve = null;
+      roomJoinPasswordReturnFocus = null;
+      roomJoinPasswordModal.hidden = true;
+      roomJoinPasswordInput.value = "";
+      resolve(password);
+      if (focusTarget?.isConnected && !focusTarget.disabled) focusTarget.focus();
+      return true;
+    }
+
+    function requestRoomJoinPassword(room, message = "") {
+      return new Promise((resolve) => {
+        if (roomJoinPasswordResolve !== null) resolveRoomJoinPassword(null);
+        roomJoinPasswordResolve = resolve;
+        roomJoinPasswordReturnFocus = document.activeElement;
+        roomJoinPasswordDescription.textContent = `${room.title} 방에 입장하려면 비밀번호를 입력하세요.`;
+        roomJoinPasswordStatus.textContent = message;
+        roomJoinPasswordInput.value = "";
+        roomJoinPasswordModal.hidden = false;
+        roomJoinPasswordInput.focus();
+      });
+    }
+
+    async function readRoomJoinError(response) {
+      try {
+        const payload = await response.json();
+        return typeof payload?.error === "string" ? payload.error : "";
+      } catch (_) {
+        return "";
+      }
+    }
+
+    async function enterRoom(roomOrID, role) {
       if (!roomListAuthenticated) return false;
-      roomListStatus.textContent = "방 입장을 처리하는 중…";
+      const room = typeof roomOrID === "object" && roomOrID !== null
+        ? roomOrID : { room_id: roomOrID, title: "선택한", has_password: false };
+      if (typeof room.room_id !== "string" || room.room_id.length === 0) return false;
       pendingLobbyCommands.clear();
       const generation = ++roomDetailRequestGeneration;
-      const password = roomPassword.value;
-      try {
-        const response = await fetch(`/api/v1/rooms/${encodeURIComponent(roomId)}/join`, {
-          method: "POST", credentials: "same-origin", cache: "no-store",
-          headers: { "Content-Type": "application/json", "X-Buk-Request": "1" },
-          body: JSON.stringify({ role, team: role === "player" ? roomTeam.value : undefined, password }),
-        });
-        if (!response.ok) throw new Error(`room join request failed: ${response.status}`);
-        const joined = await response.json();
-        if (!roomListAuthenticated || generation !== roomDetailRequestGeneration) return false;
-        if (!validateJoinedRoom(joined)) throw new Error("invalid joined room payload");
-        activeRoomId = joined.room_id;
-        if (!await loadRoomDetail(activeRoomId, generation)) return false;
-        await refreshRoomList();
-        return true;
-      } catch (error) {
-        console.error(error);
-        if (generation === roomDetailRequestGeneration && roomListAuthenticated) {
-          roomListStatus.textContent = "방 입장에 실패했습니다. 비밀번호와 방 상태를 확인하세요.";
+      let passwordMessage = "";
+      while (roomListAuthenticated && generation === roomDetailRequestGeneration) {
+        let password;
+        if (room.has_password) {
+          password = await requestRoomJoinPassword(room, passwordMessage);
+          if (password === null) {
+            if (generation === roomDetailRequestGeneration) roomListStatus.textContent = "방 입장을 취소했습니다.";
+            return false;
+          }
+          if (!roomListAuthenticated || generation !== roomDetailRequestGeneration) return false;
         }
-        return false;
+        roomListStatus.textContent = "방 입장을 처리하는 중…";
+        try {
+          const joinPayload = { role, team: role === "player" ? roomTeam.value : undefined };
+          if (room.has_password) joinPayload.password = password;
+          const response = await fetch(`/api/v1/rooms/${encodeURIComponent(room.room_id)}/join`, {
+            method: "POST", credentials: "same-origin", cache: "no-store",
+            headers: { "Content-Type": "application/json", "X-Buk-Request": "1" },
+            body: JSON.stringify(joinPayload),
+          });
+          if (!response.ok) {
+            const code = await readRoomJoinError(response);
+            if (room.has_password && code === "password_required") {
+              passwordMessage = "이 방은 비밀번호가 필요합니다. 비밀번호를 입력해 주세요.";
+              continue;
+            }
+            if (room.has_password && code === "invalid_password") {
+              passwordMessage = "비밀번호가 올바르지 않습니다. 다시 입력해 주세요.";
+              continue;
+            }
+            throw new Error(`room join request failed: ${response.status} (${code || "unknown"})`);
+          }
+          const joined = await response.json();
+          if (!roomListAuthenticated || generation !== roomDetailRequestGeneration) return false;
+          if (!validateJoinedRoom(joined)) throw new Error("invalid joined room payload");
+          activeRoomId = joined.room_id;
+          if (!await loadRoomDetail(activeRoomId, generation)) return false;
+          await refreshRoomList();
+          return true;
+        } catch (error) {
+          console.error(error);
+          if (generation === roomDetailRequestGeneration && roomListAuthenticated) {
+            roomListStatus.textContent = "방 입장에 실패했습니다. 방 상태를 확인하고 다시 시도하세요.";
+          }
+          return false;
+        }
       }
+      return false;
     }
 
     function renderRoomList(rooms) {
@@ -1033,7 +1118,7 @@
         for (const [label, role] of [["플레이어 참여", "player"], ["관전", "spectator"]]) {
           const button = document.createElement("button");
           button.type = "button"; button.textContent = label; button.disabled = !roomListAuthenticated;
-          button.addEventListener("click", () => enterRoom(room.room_id, role));
+          button.addEventListener("click", () => enterRoom(room, role));
           actions.append(button);
         }
         item.append(row, id, actions);
@@ -1084,6 +1169,7 @@
 
     function clearRoomList() {
       roomListAuthenticated = false;
+      resolveRoomJoinPassword(null);
       roomListRequestGeneration++;
       roomRefresh.disabled = true;
       roomList.replaceChildren();
@@ -1106,6 +1192,7 @@
       if (!roomListAuthenticated || roomTitle.value.trim().length === 0) return;
       roomCreate.disabled = true;
       pendingLobbyCommands.clear();
+      resolveRoomJoinPassword(null);
       const generation = ++roomDetailRequestGeneration;
       try {
         const response = await fetch("/api/v1/rooms", {
@@ -1139,19 +1226,32 @@
       sendRoomLobbyCommand("SET_READY", { ready: shouldReady });
     });
     roomStart.addEventListener("click", () => sendRoomLobbyCommand("START_GAME"));
-  roomAddCPUA.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "A" }));
-  roomAddCPUB.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "B" }));
-  roomLeave.addEventListener("click", () => sendRoomLobbyCommand("LEAVE_ROOM"));
-  throwYut.addEventListener("click", sendThrowYut);
-  pauseMenu.addEventListener("click", () => {
-    if (!pauseMenu.disabled) {
-      gameProfileMenu.open = false;
-      pauseModal.hidden = false;
-    }
-  });
-  pauseCancel.addEventListener("click", () => { pauseModal.hidden = true; });
-  pauseConfirm.addEventListener("click", sendPauseGame);
-  resumeGame.addEventListener("click", sendResumeGame);
+    roomAddCPUA.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "A" }));
+    roomAddCPUB.addEventListener("click", () => sendRoomLobbyCommand("ADD_CPU_PLAYER", { team_id: "B" }));
+    roomLeave.addEventListener("click", () => sendRoomLobbyCommand("LEAVE_ROOM"));
+    throwYut.addEventListener("click", sendThrowYut);
+    roomJoinPasswordForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (roomJoinPasswordInput.value.length === 0) {
+        roomJoinPasswordStatus.textContent = "비밀번호를 입력해 주세요.";
+        roomJoinPasswordInput.focus();
+        return;
+      }
+      resolveRoomJoinPassword(roomJoinPasswordInput.value);
+    });
+    roomJoinPasswordCancel.addEventListener("click", () => resolveRoomJoinPassword(null));
+    roomJoinPasswordModal.addEventListener("keydown", (event) => {
+      trapModalFocus(event, roomJoinPasswordModal);
+    });
+    pauseMenu.addEventListener("click", () => {
+      if (!pauseMenu.disabled) {
+        gameProfileMenu.open = false;
+        pauseModal.hidden = false;
+      }
+    });
+    pauseCancel.addEventListener("click", () => { pauseModal.hidden = true; });
+    pauseConfirm.addEventListener("click", sendPauseGame);
+    resumeGame.addEventListener("click", sendResumeGame);
 
     function reconnectDelayForAttempt(attempt) {
       if (!Number.isInteger(attempt) || attempt < 0
@@ -1400,6 +1500,7 @@
 
     function leaveActiveRoomView() {
       globalThis.BukScreens?.forgetRoom();
+      resolveRoomJoinPassword(null);
       roomDetailRequestGeneration++;
       activeRoomId = null;
       activeRoomRole = null;
@@ -1558,6 +1659,7 @@
 
     function refreshActiveRoomDetail() {
       if (!activeRoomId || !roomListAuthenticated) return false;
+      resolveRoomJoinPassword(null);
       const generation = ++roomDetailRequestGeneration;
       return loadRoomDetail(activeRoomId, generation);
     }
@@ -2682,7 +2784,8 @@
     publicProfileModal.addEventListener("keydown", (event) => { trapModalFocus(event, publicProfileModal); });
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      if (!profileModal.hidden) closeOwnProfile();
+      if (!roomJoinPasswordModal.hidden) resolveRoomJoinPassword(null);
+      else if (!profileModal.hidden) closeOwnProfile();
       else if (!publicProfileModal.hidden) closePublicProfile();
     });
 

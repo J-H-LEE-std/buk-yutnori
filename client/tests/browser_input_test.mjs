@@ -790,6 +790,138 @@ try {
       || safeRoomList.scriptCount !== 0 || safeRoomList.status !== "1개의 공개 방") {
     throw new Error(`room list renderer was not safe/deterministic: ${JSON.stringify(safeRoomList)}`);
   }
+  const protectedRoomJoin = await evaluate(`(async () => {
+    const originalFetch = globalThis.fetch;
+    const previousUserID = authenticatedUserId;
+    const previousRoomListAccess = roomListAuthenticated;
+    const previousActiveRoomID = activeRoomId;
+    const previousActiveRoomRole = activeRoomRole;
+    const previousCreatePassword = roomPassword.value;
+    const previousRoomDetailHidden = roomDetail.hidden;
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+      const request = { url: String(url), method: options.method ?? "GET", body: options.body ?? null };
+      requests.push(request);
+      if (request.url.endsWith("/join")) {
+        const payload = JSON.parse(request.body);
+        if (payload.password === "needpass") {
+          return { ok: false, status: 403, json: async () => ({ error: "password_required" }) };
+        }
+        if (payload.password === "wrong") {
+          return { ok: false, status: 403, json: async () => ({ error: "invalid_password" }) };
+        }
+        return { ok: true, json: async () => ({
+          room_id: "protected-room", title: "비밀번호 방", has_password: true,
+          player_count: 3, max_players: 4, role: payload.role, team: payload.team,
+        }) };
+      }
+      if (request.url.endsWith("/protected-room/game-logs")) {
+        return { ok: true, json: async () => ({ game_logs: [] }) };
+      }
+      if (request.url.endsWith("/protected-room")) {
+        return { ok: true, json: async () => ({
+          summary: { room_id: "protected-room", title: "비밀번호 방", has_password: true,
+            player_count: 3, max_players: 4 },
+          members: [{ user_id: "password-joiner", nickname: "입장자", role: "player", team: "A", ready: false }],
+        }) };
+      }
+      if (request.url === "/api/v1/rooms") return { ok: true, json: async () => ({ rooms: [] }) };
+      throw new Error("unexpected protected-room fetch: " + request.url);
+    };
+    try {
+      authenticatedUserId = "password-joiner";
+      roomListAuthenticated = true;
+      activeRoomId = null;
+      activeRoomRole = null;
+      clearStateReconnectScope();
+      roomPassword.value = "creation-form-value-must-not-be-used";
+      renderRoomList([{ room_id: "protected-room", title: "비밀번호 방", has_password: true,
+        player_count: 2, max_players: 4 }]);
+      const buttons = [...roomList.querySelectorAll("button")];
+      buttons[0].click();
+      const promptOpenedBeforeRequest = !roomJoinPasswordModal.hidden && requests.length === 0;
+      roomJoinPasswordInput.value = "needpass";
+      roomJoinPasswordForm.requestSubmit();
+      for (let attempt = 0; attempt < 20 && roomJoinPasswordModal.hidden; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      const passwordRequiredCanRetry = !roomJoinPasswordModal.hidden
+        && roomJoinPasswordStatus.textContent.includes("비밀번호가 필요");
+      roomJoinPasswordInput.value = "wrong";
+      roomJoinPasswordForm.requestSubmit();
+      for (let attempt = 0; attempt < 20 && roomJoinPasswordModal.hidden; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      const invalidPasswordCanRetry = !roomJoinPasswordModal.hidden
+        && roomJoinPasswordStatus.textContent.includes("올바르지 않습니다");
+      roomJoinPasswordInput.value = "correct";
+      roomJoinPasswordForm.requestSubmit();
+      for (let attempt = 0; attempt < 50
+          && roomListStatus.textContent !== "현재 공개 방이 없습니다."; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      const joined = activeRoomId === "protected-room";
+      const promptClosedAfterJoin = roomJoinPasswordModal.hidden;
+      const joinRequests = requests.filter(request => request.url.endsWith("/join"));
+      renderRoomList([{ room_id: "protected-room", title: "비밀번호 방", has_password: true,
+        player_count: 2, max_players: 4 }]);
+      const beforeCancel = requests.length;
+      roomList.querySelectorAll("button")[1].click();
+      const cancelPromptShown = !roomJoinPasswordModal.hidden;
+      roomJoinPasswordCancel.click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const cancelButtonClosed = roomJoinPasswordModal.hidden;
+      roomList.querySelectorAll("button")[1].click();
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const escapeCancelled = roomJoinPasswordModal.hidden;
+      roomList.querySelectorAll("button")[0].click();
+      const logoutPromptShown = !roomJoinPasswordModal.hidden;
+      clearRoomList();
+      return {
+        promptOpenedBeforeRequest,
+        passwordRequiredCanRetry,
+        invalidPasswordCanRetry,
+        joined,
+        promptClosedAfterJoin,
+        cancelPromptShown,
+        cancelButtonClosed,
+        escapeCancelled,
+        logoutPromptShown,
+        logoutClosedPrompt: roomJoinPasswordModal.hidden,
+        cancelSentNoRequest: requests.length === beforeCancel,
+        requestPasswords: joinRequests.map(request => JSON.parse(request.body).password),
+        requestRoles: joinRequests.map(request => JSON.parse(request.body).role),
+        createPasswordUntouched: roomPassword.value === "creation-form-value-must-not-be-used",
+      };
+    } finally {
+      globalThis.fetch = originalFetch;
+      roomJoinPasswordModal.hidden = true;
+      roomJoinPasswordInput.value = "";
+      roomJoinPasswordResolve = null;
+      roomJoinPasswordReturnFocus = null;
+      roomPassword.value = previousCreatePassword;
+      authenticatedUserId = previousUserID;
+      roomListAuthenticated = previousRoomListAccess;
+      activeRoomId = previousActiveRoomID;
+      activeRoomRole = previousActiveRoomRole;
+      roomDetail.hidden = previousRoomDetailHidden;
+      clearStateReconnectScope();
+      globalThis.BukScreens?.sync();
+    }
+  })()`, true);
+  if (!protectedRoomJoin.promptOpenedBeforeRequest || !protectedRoomJoin.passwordRequiredCanRetry
+      || !protectedRoomJoin.invalidPasswordCanRetry
+      || !protectedRoomJoin.joined || !protectedRoomJoin.promptClosedAfterJoin
+      || !protectedRoomJoin.cancelPromptShown || !protectedRoomJoin.cancelButtonClosed
+      || !protectedRoomJoin.escapeCancelled
+      || !protectedRoomJoin.logoutPromptShown || !protectedRoomJoin.logoutClosedPrompt
+      || !protectedRoomJoin.cancelSentNoRequest
+      || JSON.stringify(protectedRoomJoin.requestPasswords) !== JSON.stringify(["needpass", "wrong", "correct"])
+      || JSON.stringify(protectedRoomJoin.requestRoles) !== JSON.stringify(["player", "player", "player"])
+      || !protectedRoomJoin.createPasswordUntouched) {
+    throw new Error(`protected-room join did not prompt and retry safely: ${JSON.stringify(protectedRoomJoin)}`);
+  }
   const roomDetail = await evaluate(`(() => {
     renderRoomDetail({
       summary: { room_id: "r-1", title: "방", has_password: false, player_count: 1, max_players: 2 },
