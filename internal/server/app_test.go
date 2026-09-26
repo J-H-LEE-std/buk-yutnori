@@ -83,12 +83,87 @@ func TestNewHandlerRoutesAPIBeforeStaticClientAndSetsSecurityHeaders(t *testing.
 		if !strings.Contains(got, wantHash) {
 			t.Fatalf("Content-Security-Policy = %q, missing %s", got, wantHash)
 		}
+		if !strings.Contains(got, "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style") {
+			t.Fatalf("Content-Security-Policy blocks Google Identity Services styles: %q", got)
+		}
 	}
 	if got := staticResponse.Header().Get("Permissions-Policy"); got == "" {
 		t.Fatal("Permissions-Policy is empty")
 	}
 	if got := staticResponse.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("Cache-Control = %q", got)
+	}
+}
+
+func TestInlineScriptHashesUseBrowserHTMLPreprocessing(t *testing.T) {
+	t.Parallel()
+
+	// Browsers replace NUL with U+FFFD and normalize CR line endings while
+	// tokenizing script text before applying CSP. Hashing the file bytes instead
+	// leaves generated Emscripten shells permanently blocked at startup.
+	document := []byte("<script>const key = `left\x00right`;\r\nboot();\r</script>")
+	hashes, err := inlineScriptHashes(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized := "const key = `left\uFFFDright`;\nboot();\n"
+	digest := sha256.Sum256([]byte(normalized))
+	want := "'sha256-" + base64.StdEncoding.EncodeToString(digest[:]) + "'"
+	if len(hashes) != 1 || hashes[0] != want {
+		t.Fatalf("inlineScriptHashes() = %q, want %q", hashes, want)
+	}
+}
+
+func TestInlineScriptHashesTokenizeScriptElements(t *testing.T) {
+	tests := []struct {
+		name     string
+		document string
+		want     string
+	}{
+		{
+			name:     "quoted greater-than in attribute and case-insensitive tag",
+			document: `<SCRIPT data-value=">">boot()</SCRIPT >`,
+			want:     "boot()",
+		},
+		{
+			name:     "script-like text in comment is ignored",
+			document: `<!-- <script>not code</script> --><script>real()</script>`,
+			want:     "real()",
+		},
+		{
+			name:     "script prefix is not an element",
+			document: `<scripting>not code</scripting><script>real()</script>`,
+			want:     "real()",
+		},
+		{
+			name:     "external script body is not hash authorized",
+			document: `<script src="/external.js">fallback()</script><script>real()</script>`,
+			want:     "real()",
+		},
+		{
+			name:     "self-closing syntax still starts an HTML script element",
+			document: `<script/>real()</script>`,
+			want:     "real()",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			hashes, err := inlineScriptHashes([]byte(test.document))
+			if err != nil {
+				t.Fatalf("inlineScriptHashes() error = %v", err)
+			}
+			digest := sha256.Sum256([]byte(test.want))
+			want := "'sha256-" + base64.StdEncoding.EncodeToString(digest[:]) + "'"
+			if len(hashes) != 1 || hashes[0] != want {
+				t.Fatalf("inlineScriptHashes() = %q, want [%q]", hashes, want)
+			}
+		})
+	}
+}
+
+func TestInlineScriptHashesRejectUnterminatedScript(t *testing.T) {
+	if _, err := inlineScriptHashes([]byte(`<script>boot()`)); err == nil {
+		t.Fatal("inlineScriptHashes() accepted an unterminated script element")
 	}
 }
 

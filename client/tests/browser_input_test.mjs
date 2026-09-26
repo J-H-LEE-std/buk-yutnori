@@ -2164,7 +2164,11 @@ try {
   }
 
   await evaluate(`(() => {
-    document.querySelector('main').dataset.diagnostics = 'true';
+    const main = document.querySelector('main');
+    // Authentication now fail-closes the shell in the login screen. The
+    // browser-input harness deliberately exercises the lobby/WASM controls.
+    main.dataset.screen = 'lobby';
+    main.dataset.diagnostics = 'true';
     document.querySelector('.bridge').hidden = false;
     const field = document.getElementById('ime-input');
     field.focus(); field.setSelectionRange(field.value.length, field.value.length);

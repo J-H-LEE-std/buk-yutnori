@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/auth v0.20.0
 	github.com/coder/websocket v1.8.15
 	github.com/rivo/uniseg v0.4.7
+	golang.org/x/net v0.58.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.57.0
 )
@@ -30,7 +31,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	golang.org/x/crypto v0.56.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/api v0.290.0 // indirect

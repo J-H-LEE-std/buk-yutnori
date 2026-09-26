@@ -38,6 +38,10 @@
       width: min(100%, 1280px);
     }
 
+    main[data-screen="login"] > :not(.auth):not(.screen-shell) {
+      display: none !important;
+    }
+
     .auth {
       display: flex;
       align-items: center;
@@ -224,7 +228,7 @@
   <script src="screen-model.js"></script>
 </head>
 <body>
-  <main>
+  <main data-screen="login">
     <section class="auth" aria-label="로그인">
       <div>
         <span id="auth-status" role="status">세션 확인 중…</span>
@@ -232,6 +236,7 @@
       </div>
       <div class="auth-actions">
         <div id="google-signin"></div>
+        <button id="auth-retry" type="button" hidden>다시 연결</button>
         <button id="my-profile" type="button" hidden>내 프로필</button>
         <button id="logout" type="button" hidden>로그아웃</button>
       </div>
@@ -359,6 +364,7 @@
     const authStatus = document.getElementById("auth-status");
     const realtimeStatus = document.getElementById("realtime-status");
     const googleSignin = document.getElementById("google-signin");
+    const authRetry = document.getElementById("auth-retry");
     const myProfile = document.getElementById("my-profile");
     const logout = document.getElementById("logout");
     const chatForm = document.getElementById("chat-form");
@@ -1242,6 +1248,8 @@
     // setStateReconnectScope with the room's live match_id.
     function showAuthenticated(userId) {
       authStatus.textContent = `로그인됨: ${userId}`;
+      authRetry.hidden = true;
+      authRetry.disabled = true;
       googleSignin.hidden = true;
       myProfile.hidden = false;
       logout.hidden = false;
@@ -1707,7 +1715,7 @@
           }
           if (previewRoutes.size !== Math.max(1, candidate.routes.length)) return false;
         }
-        const key = `${candidate.token_id}\u0000${candidate.piece_id}`;
+        const key = JSON.stringify([candidate.token_id, candidate.piece_id]);
         if (seen.has(key)) return false;
         seen.add(key);
       }
@@ -2397,22 +2405,126 @@
       }
     }
 
+    const AUTH_BOOTSTRAP_TIMEOUT_MS = 12000;
+
+    function fetchAuthResource(url, options = {}) {
+      const controller = new AbortController();
+      let timedOut = false;
+      const timeout = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, AUTH_BOOTSTRAP_TIMEOUT_MS);
+      return (async () => {
+        try {
+          const response = await fetch(url, { ...options, signal: controller.signal });
+          const body = response.ok ? await response.json() : null;
+          return { response, body };
+        } catch (error) {
+          if (timedOut) {
+            const timeoutError = new Error("Authentication request timed out", { cause: error });
+            timeoutError.name = "TimeoutError";
+            throw timeoutError;
+          }
+          throw error;
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      })();
+    }
+
+    let googleIdentityServicesScriptPromise = null;
+    let googleIdentityServicesScriptElement = null;
+    let googleIdentityServicesScriptReject = null;
+    let googleIdentityServicesScriptTimedOut = false;
+    let initializedGoogleIdentityServicesId = null;
+
     function loadGoogleIdentityServices() {
       if (window.google?.accounts?.id) return Promise.resolve();
+      if (!googleIdentityServicesScriptPromise) {
+        googleIdentityServicesScriptPromise = new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          googleIdentityServicesScriptElement = script;
+          googleIdentityServicesScriptReject = reject;
+          script.src = "https://accounts.google.com/gsi/client";
+          script.async = true;
+          let settled = false;
+          const finish = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            script.onload = null;
+            script.onerror = null;
+            if (callback === reject) {
+              script.remove();
+              if (googleIdentityServicesScriptElement === script) {
+                googleIdentityServicesScriptElement = null;
+                googleIdentityServicesScriptReject = null;
+                googleIdentityServicesScriptPromise = null;
+              }
+            } else if (googleIdentityServicesScriptElement === script) {
+              googleIdentityServicesScriptElement = null;
+              googleIdentityServicesScriptReject = null;
+            }
+            callback(value);
+          };
+          script.onload = () => finish(resolve);
+          script.onerror = () => finish(reject, new Error("Google Identity Services load failed"));
+          document.head.appendChild(script);
+        });
+      }
       return new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://accounts.google.com/gsi/client";
-        script.async = true;
-        script.onload = resolve;
-        script.onerror = () => reject(new Error("Google Identity Services load failed"));
-        document.head.appendChild(script);
+        const timeout = window.setTimeout(() => {
+          googleIdentityServicesScriptTimedOut = true;
+          reject(new Error("Google Identity Services load timed out"));
+        }, AUTH_BOOTSTRAP_TIMEOUT_MS);
+        googleIdentityServicesScriptPromise.then(
+          () => {
+            window.clearTimeout(timeout);
+            resolve();
+          },
+          error => {
+            window.clearTimeout(timeout);
+            reject(error);
+          },
+        );
       });
     }
 
+    function prepareGoogleIdentityServicesRetry() {
+      if (!googleIdentityServicesScriptTimedOut) return;
+      googleIdentityServicesScriptTimedOut = false;
+      if (window.google?.accounts?.id) return;
+      const script = googleIdentityServicesScriptElement;
+      const rejectPendingScript = googleIdentityServicesScriptReject;
+      if (script) {
+        script.onload = null;
+        script.onerror = null;
+        script.remove();
+      }
+      googleIdentityServicesScriptElement = null;
+      googleIdentityServicesScriptReject = null;
+      googleIdentityServicesScriptPromise = null;
+      rejectPendingScript?.(new Error("Google Identity Services load replaced after timeout"));
+    }
+
+    function offerAuthReconnect(message) {
+      authStatus.textContent = message;
+      authRetry.hidden = false;
+      authRetry.disabled = false;
+    }
+
+    function authFailureMessage(error) {
+      const timedOut = error?.name === "AbortError" || /timed out/i.test(error?.message ?? "");
+      return timedOut
+        ? "로그인 연결 시간이 초과됐습니다. 다시 연결할까요?"
+        : "로그인 연결에 실패했습니다. 다시 연결할까요?";
+    }
+
     async function handleGoogleCredential(response) {
+      authRetry.hidden = true;
+      authRetry.disabled = true;
       try {
         authStatus.textContent = "Google ID 토큰 검증 중…";
-        const loginResponse = await fetch("/api/v1/auth/google", {
+        const { response: loginResponse, body: session } = await fetchAuthResource("/api/v1/auth/google", {
           method: "POST",
           credentials: "same-origin",
           cache: "no-store",
@@ -2422,55 +2534,83 @@
           },
           body: JSON.stringify({ credential: response.credential }),
         });
-        if (!loginResponse.ok) throw new Error("Google credential rejected");
-        const session = await loginResponse.json();
+        if (!loginResponse.ok) {
+          if (loginResponse.status >= 500 || loginResponse.status === 429) {
+            const loginError = new Error(`Google login failed: ${loginResponse.status}`);
+            loginError.status = loginResponse.status;
+            throw loginError;
+          }
+          throw new Error("Google credential rejected");
+        }
         showAuthenticated(session.user_id);
       } catch (error) {
         console.error(error);
-        authStatus.textContent = "로그인에 실패했습니다.";
+        if (error?.name === "AbortError" || error?.name === "TimeoutError"
+            || error instanceof TypeError || error?.status >= 500 || error?.status === 429) {
+          offerAuthReconnect(authFailureMessage(error));
+        } else {
+          authStatus.textContent = "로그인에 실패했습니다.";
+        }
       }
     }
 
     async function initializeGoogleButton() {
-      const configResponse = await fetch("/api/v1/auth/config", {
+      authStatus.textContent = "로그인 설정을 불러오는 중…";
+      const { response: configResponse, body: config } = await fetchAuthResource("/api/v1/auth/config", {
         credentials: "same-origin",
         cache: "no-store",
       });
       if (!configResponse.ok) {
-        authStatus.textContent = "인증 서버 미연결 (WASM 단독 모드)";
-        return;
+        throw new Error(`auth config failed: ${configResponse.status}`);
       }
-      const config = await configResponse.json();
+      authStatus.textContent = "Google 로그인 버튼을 준비하는 중…";
       await loadGoogleIdentityServices();
-      google.accounts.id.initialize({
-        client_id: config.google_client_id,
-        callback: handleGoogleCredential,
-      });
+      const identityServicesId = google.accounts.id;
+      if (initializedGoogleIdentityServicesId !== identityServicesId) {
+        google.accounts.id.initialize({
+          client_id: config.google_client_id,
+          callback: handleGoogleCredential,
+        });
+        initializedGoogleIdentityServicesId = identityServicesId;
+      }
       google.accounts.id.renderButton(googleSignin, {
         theme: "outline",
         size: "large",
         text: "signin_with",
       });
+      authRetry.hidden = true;
       authStatus.textContent = "Google 로그인이 필요합니다.";
     }
 
     async function initializeAuth() {
+      prepareGoogleIdentityServicesRetry();
+      authRetry.hidden = true;
+      authRetry.disabled = true;
+      googleSignin.replaceChildren();
       try {
-        const response = await fetch("/api/v1/auth/session", {
+        authStatus.textContent = "세션 확인 중…";
+        const { response, body: session } = await fetchAuthResource("/api/v1/auth/session", {
           credentials: "same-origin",
           cache: "no-store",
         });
         if (response.ok) {
-          const session = await response.json();
           showAuthenticated(session.user_id);
           return;
         }
+        if (response.status !== 401) throw new Error(`session check failed: ${response.status}`);
         await initializeGoogleButton();
       } catch (error) {
         console.error(error);
-        authStatus.textContent = "인증 초기화에 실패했습니다.";
+        offerAuthReconnect(authFailureMessage(error));
       }
     }
+
+    authRetry.addEventListener("click", () => {
+      void initializeAuth();
+    });
+    window.addEventListener("online", () => {
+      if (!authRetry.hidden) authStatus.textContent = "네트워크 연결이 복구됐습니다. 다시 연결할까요?";
+    });
 
     logout.addEventListener("click", async () => {
       try {
@@ -2498,7 +2638,7 @@
         logout.hidden = true;
         googleSignin.hidden = false;
         googleSignin.replaceChildren();
-        await initializeGoogleButton();
+        await initializeAuth();
       } catch (error) {
         console.error(error);
         authStatus.textContent = "로그아웃에 실패했습니다.";

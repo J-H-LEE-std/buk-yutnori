@@ -73,6 +73,14 @@ BUK_BROWSER_HARNESS=1 go test ./cmd/server -run '^TestBrowserHarness$' -v -timeo
 node client/tests/playable_browser_test.mjs http://localhost:9231 http://localhost:8766/ build/evidence-161
 ```
 
+모바일 인증 부트스트랩·재시도 경로도 CI에서 headless Chrome으로 검사한다. 동일한
+격리 서버와 브라우저를 직접 실행한 경우 아래 테스트로 세션 본문 지연, 설정/로그인
+오류, 재시도 버튼 상태와 Google Identity Services의 중복 로드 방지를 검증할 수 있다.
+
+```sh
+node client/tests/auth_bootstrap_browser_test.mjs http://localhost:9231 http://localhost:8766/
+```
+
 테스트는 해당 브라우저의 쿠키를 초기화하므로 개인 브라우저 프로필을 사용하지 않는다.
 로그인·프로필·방 생성·CPU 추가·준비·시작·던지기 결과·서버 경로·내 말 이동·모바일
 폭·새로고침 복구를 실제 HTTP/WebSocket과 브라우저 클릭으로 검증한다.
