@@ -804,6 +804,9 @@ try {
       requests.push(request);
       if (request.url.endsWith("/join")) {
         const payload = JSON.parse(request.body);
+        if (payload.password === "server-required") {
+          return { ok: false, status: 403, json: async () => ({ error: "password_required" }) };
+        }
         if (payload.password === "wrong") {
           return { ok: false, status: 403, json: async () => ({ error: "invalid_password" }) };
         }
@@ -837,6 +840,13 @@ try {
       const buttons = [...roomList.querySelectorAll("button")];
       buttons[0].click();
       const promptOpenedBeforeRequest = !roomJoinPasswordModal.hidden && requests.length === 0;
+      roomJoinPasswordInput.value = "server-required";
+      roomJoinPasswordForm.requestSubmit();
+      for (let attempt = 0; attempt < 20 && roomJoinPasswordModal.hidden; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      const passwordRequiredCanRetry = !roomJoinPasswordModal.hidden
+        && roomJoinPasswordStatus.textContent.includes("비밀번호가 필요");
       roomJoinPasswordInput.value = "wrong";
       roomJoinPasswordForm.requestSubmit();
       for (let attempt = 0; attempt < 20 && roomJoinPasswordModal.hidden; attempt += 1) {
@@ -856,14 +866,22 @@ try {
       const beforeCancel = requests.length;
       roomList.querySelectorAll("button")[1].click();
       const cancelPromptShown = !roomJoinPasswordModal.hidden;
-      roomJoinPasswordCancel.click();
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       await new Promise(resolve => setTimeout(resolve, 0));
+      const escapeCancelled = roomJoinPasswordModal.hidden;
+      roomList.querySelectorAll("button")[0].click();
+      const logoutPromptShown = !roomJoinPasswordModal.hidden;
+      clearRoomList();
       return {
         promptOpenedBeforeRequest,
+        passwordRequiredCanRetry,
         invalidPasswordCanRetry,
         joined: activeRoomId === "protected-room",
         promptClosedAfterJoin: roomJoinPasswordModal.hidden,
         cancelPromptShown,
+        escapeCancelled,
+        logoutPromptShown,
+        logoutClosedPrompt: roomJoinPasswordModal.hidden,
         cancelSentNoRequest: requests.length === beforeCancel,
         requestPasswords: joinRequests.map(request => JSON.parse(request.body).password),
         requestRoles: joinRequests.map(request => JSON.parse(request.body).role),
@@ -885,11 +903,14 @@ try {
       globalThis.BukScreens?.sync();
     }
   })()`, true);
-  if (!protectedRoomJoin.promptOpenedBeforeRequest || !protectedRoomJoin.invalidPasswordCanRetry
+  if (!protectedRoomJoin.promptOpenedBeforeRequest || !protectedRoomJoin.passwordRequiredCanRetry
+      || !protectedRoomJoin.invalidPasswordCanRetry
       || !protectedRoomJoin.joined || !protectedRoomJoin.promptClosedAfterJoin
-      || !protectedRoomJoin.cancelPromptShown || !protectedRoomJoin.cancelSentNoRequest
-      || JSON.stringify(protectedRoomJoin.requestPasswords) !== JSON.stringify(["wrong", "correct"])
-      || JSON.stringify(protectedRoomJoin.requestRoles) !== JSON.stringify(["player", "player"])
+      || !protectedRoomJoin.cancelPromptShown || !protectedRoomJoin.escapeCancelled
+      || !protectedRoomJoin.logoutPromptShown || !protectedRoomJoin.logoutClosedPrompt
+      || !protectedRoomJoin.cancelSentNoRequest
+      || JSON.stringify(protectedRoomJoin.requestPasswords) !== JSON.stringify(["server-required", "wrong", "correct"])
+      || JSON.stringify(protectedRoomJoin.requestRoles) !== JSON.stringify(["player", "player", "player"])
       || !protectedRoomJoin.createPasswordUntouched) {
     throw new Error(`protected-room join did not prompt and retry safely: ${JSON.stringify(protectedRoomJoin)}`);
   }

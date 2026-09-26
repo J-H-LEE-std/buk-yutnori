@@ -1169,6 +1169,7 @@
 
     function clearRoomList() {
       roomListAuthenticated = false;
+      resolveRoomJoinPassword(null);
       roomListRequestGeneration++;
       roomRefresh.disabled = true;
       roomList.replaceChildren();
@@ -1191,6 +1192,7 @@
       if (!roomListAuthenticated || roomTitle.value.trim().length === 0) return;
       roomCreate.disabled = true;
       pendingLobbyCommands.clear();
+      resolveRoomJoinPassword(null);
       const generation = ++roomDetailRequestGeneration;
       try {
         const response = await fetch("/api/v1/rooms", {
@@ -1498,6 +1500,7 @@
 
     function leaveActiveRoomView() {
       globalThis.BukScreens?.forgetRoom();
+      resolveRoomJoinPassword(null);
       roomDetailRequestGeneration++;
       activeRoomId = null;
       activeRoomRole = null;
@@ -1656,6 +1659,7 @@
 
     function refreshActiveRoomDetail() {
       if (!activeRoomId || !roomListAuthenticated) return false;
+      resolveRoomJoinPassword(null);
       const generation = ++roomDetailRequestGeneration;
       return loadRoomDetail(activeRoomId, generation);
     }
