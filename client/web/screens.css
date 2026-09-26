@@ -187,6 +187,7 @@ main[data-screen="game"] .game-stage { max-width:min(100%,760px); border:10px so
 .pause-card,.modal-card { background:var(--paper); background-image:none; color:var(--ink); border:1px solid var(--line); border-radius:22px; padding:32px; box-shadow:0 24px 100px #09241940; }
 .modal-card h2,.pause-card h2 { margin-top:0; font-size:24px; letter-spacing:-.045em; }
 .modal-card p,.pause-card p { color:var(--muted); }
+#room-join-password-input { width:100%; box-sizing:border-box; }
 @media(max-width:900px) {
   body { padding:16px; }
   .game-layout { grid-template-columns:minmax(0,1fr) 260px; gap:16px; }
