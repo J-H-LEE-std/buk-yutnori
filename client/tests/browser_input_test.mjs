@@ -2056,6 +2056,7 @@ try {
     const capture = new CaptureWebSocket();
     realtimeSocket = capture;
     Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    stateReconnectScope = { roomId: "room-1", matchId: "match-1" };
     applySynchronizationSequenceBundle({
       version: 1,
       direction: "server_response",
@@ -2198,6 +2199,64 @@ try {
   if (staleScopeResponse.requestCount !== 2 || staleScopeResponse.pendingCount !== 1
       || staleScopeResponse.lastSequence !== "0" || staleScopeResponse.canSend) {
     throw new Error(`stale reconnect scope response was applied: ${JSON.stringify(staleScopeResponse)}`);
+  }
+
+  const consecutiveMatchReset = await evaluate(`(() => {
+    const originalSocket = realtimeSocket;
+    authenticatedUserId = "user-a";
+    roomListAuthenticated = true;
+    activeRoomId = "room-consecutive-matches";
+    realtimeSocket = null;
+    clearStateReconnectScope();
+    Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+    setStateReconnectScope(activeRoomId, "match-first");
+    const firstSnapshot = makeTestGameSnapshot(activeRoomId, "match-first", 70);
+    const appliedFirst = applySynchronizationSequenceBundle({
+      version: 1, direction: "server_response", type: "COMMAND_RESULT",
+      room_id: activeRoomId, match_id: "match-first",
+      payload: { status: "accepted", synchronization: { snapshot: firstSnapshot, events: [] } },
+    });
+    BukScreens.event({ type: "YUT_RESULT", sequence: 71,
+      payload: { player_id: "user-a", token: { token_id: "old-result", result: "do" } } });
+    BukScreens.event({ type: "PIECE_MOVED", sequence: 72,
+      payload: { piece_ids: ["old-piece"], to_space_id: "old-space" } });
+    const firstMatchVisible = document.getElementById("throw-history").children.length > 0
+      && document.getElementById("event-phase").textContent === "말 이동 중…"
+      && Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 1;
+    setStateReconnectScope(activeRoomId, "match-first");
+    const sameMatchReconnectPreserved = document.getElementById("throw-history").children.length > 0
+      && document.getElementById("event-phase").textContent === "말 이동 중…"
+      && Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 1;
+    lastGameEventSequence = 999;
+    setStateReconnectScope(activeRoomId, "match-second");
+    const result = {
+      appliedFirst,
+      firstMatchVisible,
+      sameMatchReconnectPreserved,
+      scope: stateReconnectScope,
+      previousResultsCleared: document.getElementById("latest-result").textContent === "아직 던진 결과가 없습니다.",
+      previousHistoryCleared: document.getElementById("throw-history").children.length === 0,
+      previousPhaseCleared: document.getElementById("event-phase").textContent === "",
+      previousSnapshotCleared: Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 0,
+      eventSequenceReset: lastGameEventSequence === 0,
+      controlsDisabled: Module.ccall("BukClientCanSendStateCommands", "number", [], []) === 0,
+    };
+    clearStateReconnectScope();
+    activeRoomId = null;
+    realtimeSocket = originalSocket;
+    globalThis.BukScreens?.sync();
+    return result;
+  })()`);
+  if (!consecutiveMatchReset.appliedFirst || !consecutiveMatchReset.firstMatchVisible
+      || !consecutiveMatchReset.sameMatchReconnectPreserved
+      || consecutiveMatchReset.scope?.matchId !== "match-second"
+      || !consecutiveMatchReset.previousResultsCleared
+      || !consecutiveMatchReset.previousHistoryCleared
+      || !consecutiveMatchReset.previousPhaseCleared
+      || !consecutiveMatchReset.previousSnapshotCleared
+      || !consecutiveMatchReset.eventSequenceReset
+      || !consecutiveMatchReset.controlsDisabled) {
+    throw new Error(`new match scope retained previous presentation state: ${JSON.stringify(consecutiveMatchReset)}`);
   }
 
   const eventCue = await evaluate(`(() => {

@@ -1434,6 +1434,21 @@
     function setStateReconnectScope(roomId, matchId) {
       if (typeof roomId !== "string" || roomId.length < 1
           || typeof matchId !== "string" || matchId.length < 1) return false;
+      const changedMatchScope = stateReconnectScope?.roomId !== roomId
+        || stateReconnectScope?.matchId !== matchId;
+      if (changedMatchScope) {
+        clearEventCue();
+        lastGameEventSequence = 0;
+        globalThis.BukScreens?.resetMatch();
+        if (wasmRuntimeReady) {
+          Module.ccall("BukClientProtocolRuntimeInit", null, [], []);
+          Module.ccall("BukClientSetBukMarker", "number", ["string"], [""]);
+        }
+        clearMatchSession();
+        gameSession.hidden = false;
+        gameSessionTitle.textContent = "게임 화면";
+        gameSessionStatus.textContent = "새 경기 상태를 동기화하는 중…";
+      }
       pendingSynchronizationCommands.clear();
       pendingRouteCommands.clear();
       pendingMoveCommands.clear();
