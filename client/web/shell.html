@@ -2436,7 +2436,7 @@
     let googleIdentityServicesScriptElement = null;
     let googleIdentityServicesScriptReject = null;
     let googleIdentityServicesScriptTimedOut = false;
-    let googleIdentityServicesInitialized = false;
+    let initializedGoogleIdentityServicesId = null;
 
     function loadGoogleIdentityServices() {
       if (window.google?.accounts?.id) return Promise.resolve();
@@ -2565,12 +2565,13 @@
       }
       authStatus.textContent = "Google 로그인 버튼을 준비하는 중…";
       await loadGoogleIdentityServices();
-      if (!googleIdentityServicesInitialized) {
+      const identityServicesId = google.accounts.id;
+      if (initializedGoogleIdentityServicesId !== identityServicesId) {
         google.accounts.id.initialize({
           client_id: config.google_client_id,
           callback: handleGoogleCredential,
         });
-        googleIdentityServicesInitialized = true;
+        initializedGoogleIdentityServicesId = identityServicesId;
       }
       google.accounts.id.renderButton(googleSignin, {
         theme: "outline",
@@ -2582,6 +2583,7 @@
     }
 
     async function initializeAuth() {
+      prepareGoogleIdentityServicesRetry();
       authRetry.hidden = true;
       authRetry.disabled = true;
       googleSignin.replaceChildren();
@@ -2604,7 +2606,6 @@
     }
 
     authRetry.addEventListener("click", () => {
-      prepareGoogleIdentityServicesRetry();
       void initializeAuth();
     });
     window.addEventListener("online", () => {

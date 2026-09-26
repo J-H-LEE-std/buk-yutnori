@@ -134,8 +134,9 @@ try {
     delete window.google;
     googleIdentityServicesScriptPromise = null;
     googleIdentityServicesScriptElement = null;
+    googleIdentityServicesScriptReject = null;
     googleIdentityServicesScriptTimedOut = false;
-    googleIdentityServicesInitialized = false;
+    initializedGoogleIdentityServicesId = null;
     let appendCount = 0;
     const loadingScripts = [];
     const appendChild = document.head.appendChild.bind(document.head);
@@ -178,16 +179,36 @@ try {
     timedOutReset: true,
   }, 'concurrent GSI requests must share one load and an explicit retry must replace a timed-out load');
   const gsiInitCount = await evaluate(`(async () => {
-    let initializeCount = 0;
-    window.google = { accounts: { id: {
-      initialize() { initializeCount += 1; },
+    let initialIdentityInitializeCount = 0;
+    let replacementIdentityInitializeCount = 0;
+    const initialIdentity = {
+      initialize() { initialIdentityInitializeCount += 1; },
       renderButton() {},
-    } } };
+    };
+    const replacementIdentity = {
+      initialize() { replacementIdentityInitializeCount += 1; },
+      renderButton() {},
+    };
+    window.google = { accounts: { id: initialIdentity } };
     await initializeGoogleButton();
     await initializeGoogleButton();
-    return initializeCount;
+    window.google.accounts.id = replacementIdentity;
+    await initializeGoogleButton();
+    googleIdentityServicesScriptTimedOut = true;
+    const authInitialization = initializeAuth();
+    const timeoutClearedByAuthInitialization = !googleIdentityServicesScriptTimedOut;
+    await authInitialization;
+    return {
+      initialIdentityInitializeCount,
+      replacementIdentityInitializeCount,
+      timeoutClearedByAuthInitialization,
+    };
   })()`);
-  assert.equal(gsiInitCount, 1, 'GSI must initialize only once across auth retries');
+  assert.deepEqual(gsiInitCount, {
+    initialIdentityInitializeCount: 1,
+    replacementIdentityInitializeCount: 1,
+    timeoutClearedByAuthInitialization: true,
+  }, 'GSI must initialize once per runtime identity and auth reinitialization must clear stale timeouts');
   await call('Page.removeScriptToEvaluateOnNewDocument', { identifier: timeoutProbe.identifier });
   console.log('AUTH_BOOTSTRAP_BROWSER_OK body stall -> config 503 -> login 503/429 -> retry -> GSI retry');
 } finally {
