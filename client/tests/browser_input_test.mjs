@@ -2095,6 +2095,7 @@ try {
     const sameMatchReconnectPreserved = document.getElementById("throw-history").children.length > 0
       && document.getElementById("event-phase").textContent === "말 이동 중…"
       && Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 1;
+    lastGameEventSequence = 999;
     setStateReconnectScope(activeRoomId, "match-second");
     const result = {
       appliedFirst,
@@ -2105,6 +2106,7 @@ try {
       previousHistoryCleared: document.getElementById("throw-history").children.length === 0,
       previousPhaseCleared: document.getElementById("event-phase").textContent === "",
       previousSnapshotCleared: Module.ccall("BukClientHasPresentationSnapshot", "number", [], []) === 0,
+      eventSequenceReset: lastGameEventSequence === 0,
       controlsDisabled: Module.ccall("BukClientCanSendStateCommands", "number", [], []) === 0,
     };
     clearStateReconnectScope();
@@ -2120,6 +2122,7 @@ try {
       || !consecutiveMatchReset.previousHistoryCleared
       || !consecutiveMatchReset.previousPhaseCleared
       || !consecutiveMatchReset.previousSnapshotCleared
+      || !consecutiveMatchReset.eventSequenceReset
       || !consecutiveMatchReset.controlsDisabled) {
     throw new Error(`new match scope retained previous presentation state: ${JSON.stringify(consecutiveMatchReset)}`);
   }
