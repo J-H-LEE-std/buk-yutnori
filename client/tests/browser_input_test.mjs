@@ -860,12 +860,18 @@ try {
           && roomListStatus.textContent !== "현재 공개 방이 없습니다."; attempt += 1) {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
+      const joined = activeRoomId === "protected-room";
+      const promptClosedAfterJoin = roomJoinPasswordModal.hidden;
       const joinRequests = requests.filter(request => request.url.endsWith("/join"));
       renderRoomList([{ room_id: "protected-room", title: "비밀번호 방", has_password: true,
         player_count: 2, max_players: 4 }]);
       const beforeCancel = requests.length;
       roomList.querySelectorAll("button")[1].click();
       const cancelPromptShown = !roomJoinPasswordModal.hidden;
+      roomJoinPasswordCancel.click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const cancelButtonClosed = roomJoinPasswordModal.hidden;
+      roomList.querySelectorAll("button")[1].click();
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       await new Promise(resolve => setTimeout(resolve, 0));
       const escapeCancelled = roomJoinPasswordModal.hidden;
@@ -876,9 +882,10 @@ try {
         promptOpenedBeforeRequest,
         passwordRequiredCanRetry,
         invalidPasswordCanRetry,
-        joined: activeRoomId === "protected-room",
-        promptClosedAfterJoin: roomJoinPasswordModal.hidden,
+        joined,
+        promptClosedAfterJoin,
         cancelPromptShown,
+        cancelButtonClosed,
         escapeCancelled,
         logoutPromptShown,
         logoutClosedPrompt: roomJoinPasswordModal.hidden,
@@ -906,7 +913,8 @@ try {
   if (!protectedRoomJoin.promptOpenedBeforeRequest || !protectedRoomJoin.passwordRequiredCanRetry
       || !protectedRoomJoin.invalidPasswordCanRetry
       || !protectedRoomJoin.joined || !protectedRoomJoin.promptClosedAfterJoin
-      || !protectedRoomJoin.cancelPromptShown || !protectedRoomJoin.escapeCancelled
+      || !protectedRoomJoin.cancelPromptShown || !protectedRoomJoin.cancelButtonClosed
+      || !protectedRoomJoin.escapeCancelled
       || !protectedRoomJoin.logoutPromptShown || !protectedRoomJoin.logoutClosedPrompt
       || !protectedRoomJoin.cancelSentNoRequest
       || JSON.stringify(protectedRoomJoin.requestPasswords) !== JSON.stringify(["needpass", "wrong", "correct"])
